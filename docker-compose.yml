@@ -1,0 +1,22 @@
+# Phase 1 로컬 개발용 Postgres. 호스트 5432는 Homebrew postgres가 점유 중이라 5433으로 매핑.
+# DATABASE_URL=postgresql+asyncpg://maple:maple@localhost:5433/maple_mate
+services:
+  db:
+    image: postgres:16
+    container_name: maple-mate-db
+    environment:
+      POSTGRES_USER: maple
+      POSTGRES_PASSWORD: maple
+      POSTGRES_DB: maple_mate
+    ports:
+      - "5433:5432"
+    volumes:
+      - maple_mate_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U maple -d maple_mate"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  maple_mate_pgdata:
