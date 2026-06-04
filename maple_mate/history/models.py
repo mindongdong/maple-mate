@@ -1,8 +1,7 @@
-"""② history_cache — 이력류 원본 JSON 캐시 (design §5②).
+"""history_cache ORM — 이력류 원본 JSON 캐시 (design §5②).
 
 PK = (ocid, type, date). ocid 기준 공유(서버 무관). 과거 일자=불변, 오늘(KST)=5분 TTL.
-TTL 판정 로직은 maple_mate/nexon/cache.py 의 순수함수가 담당.
-Phase 1 에서는 테이블만 생성(이력류 명령은 Phase 3).
+TTL 판정 로직은 같은 도메인의 cache.py 순수함수가 담당. Phase 1 은 테이블만 생성.
 """
 from __future__ import annotations
 
@@ -13,7 +12,7 @@ from sqlalchemy import Date, DateTime, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
-from .base import Base
+from ..database.core import Base
 
 
 class HistoryCache(Base):

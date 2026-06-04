@@ -4,7 +4,7 @@ from __future__ import annotations
 import pytest
 from cryptography.fernet import Fernet, InvalidToken
 
-from maple_mate.crypto import KeyCipher
+from maple_mate.security.crypto import KeyCipher
 
 _KEY = Fernet.generate_key()
 _API_KEY = "live_1234567890abcdef-넥슨개인키-샘플"

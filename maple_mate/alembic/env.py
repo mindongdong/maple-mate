@@ -13,7 +13,14 @@ from dotenv import load_dotenv
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from maple_mate.db.models import Base
+from maple_mate.database.core import Base
+
+# 도메인 모델 모듈 임포트 → 테이블이 Base.metadata 에 등록(autogenerate/compare 용).
+# 새 도메인 추가 시 여기에 models 임포트를 한 줄 추가.
+import maple_mate.registration.models  # noqa: E402,F401
+import maple_mate.history.models  # noqa: E402,F401
+import maple_mate.notification.models  # noqa: E402,F401
+import maple_mate.error_log.models  # noqa: E402,F401
 
 load_dotenv()  # .env → os.environ (DATABASE_URL)
 

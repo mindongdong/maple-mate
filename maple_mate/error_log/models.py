@@ -1,9 +1,7 @@
-"""⑤ error_log — 재시도 발생 건 적재 (design §5⑤).
+"""error_log ORM — 재시도 발생 건 적재 (design §5⑤).
 
 error_type ∈ {nexon_api, auth_invalid, timeout, rate_limit, internal, unmatched_equipment}.
-재시도가 발생한 건만 기록(첫 시도 성공은 미기록). detail: 미매칭 장비명 등.
-앱 코드의 의미 타입 enum 은 maple_mate/nexon/errors.py(ErrorClass) 참고. 컬럼은 단순 문자열.
-Phase 1 에서는 테이블만 생성(적재는 Phase 2~3 명령에서).
+재시도가 발생한 건만 기록(첫 시도 성공은 미기록). detail: 미매칭 장비명 등. 컬럼은 단순 문자열.
 """
 from __future__ import annotations
 
@@ -12,7 +10,7 @@ from datetime import datetime
 from sqlalchemy import BigInteger, Boolean, DateTime, Integer, String, Text, func, text
 from sqlalchemy.orm import Mapped, mapped_column
 
-from .base import Base
+from ..database.core import Base
 
 
 class ErrorLog(Base):

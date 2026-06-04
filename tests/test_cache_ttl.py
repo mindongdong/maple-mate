@@ -6,7 +6,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta
 
-from maple_mate.nexon.cache import KST, is_cache_fresh
+from maple_mate.history.cache import KST, is_cache_fresh
 
 # KST 기준 고정 '현재': 2026-06-04 14:30
 NOW = datetime(2026, 6, 4, 14, 30, tzinfo=KST)

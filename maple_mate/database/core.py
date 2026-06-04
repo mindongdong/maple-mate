@@ -1,4 +1,8 @@
-"""async engine + session factory (asyncpg)."""
+"""DB 코어 — 선언적 Base + async engine/session factory (SQLAlchemy 2.0 + asyncpg).
+
+dispatch 의 `database/core.py` 격. 모든 도메인 모델은 여기 `Base` 를 상속한다.
+도메인 모델 모듈을 임포트하면 그 테이블이 `Base.metadata` 에 등록된다(alembic 이 이를 사용).
+"""
 from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import (
@@ -7,6 +11,11 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.orm import DeclarativeBase
+
+
+class Base(DeclarativeBase):
+    pass
 
 
 def make_engine(database_url: str) -> AsyncEngine:

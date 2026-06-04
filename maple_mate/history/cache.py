@@ -1,7 +1,7 @@
 """history_cache TTL 판정 (빌드 단위 #4, design §5②).
 
 핵심은 순수함수 `is_cache_fresh` — 단위테스트 대상. 과거 일자는 불변(항상 fresh),
-오늘(KST)은 5분 TTL. DB 적재/조회는 Phase 3 이력류 명령에서 사용하므로 여기선 판정 로직만.
+오늘(KST)은 5분 TTL. DB 적재/조회(service)는 Phase 3 이력류 명령에서.
 """
 from __future__ import annotations
 

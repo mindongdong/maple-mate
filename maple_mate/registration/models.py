@@ -1,4 +1,4 @@
-"""① registration — (서버 × 디스코드 유저) 1레코드 (design §5①)."""
+"""registration ORM — (guild_id, discord_user_id) 1레코드 (design §5①)."""
 from __future__ import annotations
 
 from datetime import datetime
@@ -6,7 +6,7 @@ from datetime import datetime
 from sqlalchemy import BigInteger, DateTime, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
-from .base import Base
+from ..database.core import Base
 
 
 class Registration(Base):
