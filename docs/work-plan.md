@@ -81,14 +81,11 @@
 2. **Phase 3** — 기대값 고정 표 **데이터 소스**: 공식 확률표+강화비용 공식 직접 산출 vs 커뮤니티 시트 차용? (별도 그릴링 권장)
 3. **Phase 4** — 넥슨 **공지/이벤트 API**는 미검증. 스펙류·이력류와 별개 엔드포인트라 Phase 4 진입 전 미니 스파이크 필요.
 
-## 📝 보류 중인 작업 (사용자 승인 대기)
+## 📝 기술 스택 결정 (확정 — ADR 생략)
 
-그릴링에서 ADR 2건을 제안했으나 사용자가 아직 작성 승인 안 함:
-- **ADR-0001 — Python/discord.py 스택** (기존 TS 생태계 거스름)
-- **ADR-0002 — PostgreSQL 채택** (단일프로세스·소규모엔 SQLite가 당연한데 거스름)
-- (넥슨 개인 키 모델 ADR은 Spike 0 검증 **후** 작성 권장)
-
-→ 다음 세션 시작 시 "이 ADR들 `docs/adr/`에 작성할까요?" 재확인할 것.
+- **스택 확정: Python/discord.py(봇) + FastAPI(HTTP 엔드포인트) + PostgreSQL(DB).**
+  사용자가 FastAPI+PostgreSQL 조합 숙련도 높음(타 프로젝트 다수 경험) → **ADR-0001(스택)·ADR-0002(Postgres)는 작성 불필요**로 결정. 위 [확정된 결정](#확정된-결정-그릴링-결과) 표가 기록을 대신함.
+- **넥슨 개인 키 모델 ADR** — **작성 완료**: [docs/adr/0001-nexon-personal-key-model.md](adr/0001-nexon-personal-key-model.md) (Spike 0 GO 근거 + 죽은 대안 A "봇 앱 키 하나로 전원 이력" 기각 기록).
 
 ## 다음 세션 권장 스킬
 
