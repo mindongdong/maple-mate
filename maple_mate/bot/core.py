@@ -36,13 +36,17 @@ class MapleMateBot(discord.Client):
 
     def _register_commands(self) -> None:
         """도메인별 commands.setup 을 모아 트리에 등록. 새 명령은 도메인 commands.py 에 추가."""
+        from ..character.commands import setup as setup_character
         from ..registration.commands import setup as setup_registration
+        from ..union.commands import setup as setup_union
 
         @self.tree.command(name="핑", description="봇 응답 확인")
         async def ping(interaction: discord.Interaction) -> None:
             await interaction.response.send_message("퐁! 🏓", ephemeral=True)
 
         setup_registration(self)
+        setup_union(self)
+        setup_character(self)  # /스펙 · /아이템
 
     async def on_ready(self) -> None:
         user = self.user
