@@ -42,14 +42,26 @@ async def test_request_sends_app_key_header_by_default():
         await client.get_ocid("c")
 
 
-async def test_verify_personal_key_overrides_header_and_returns_true():
+async def test_verify_personal_key_sends_count_and_date_with_personal_header():
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path == "/maplestory/v1/history/starforce"
         assert request.url.params["count"] == "10"
+        # date 누락 시 실 API 가 OPENAPI00004 → 반드시 date(YYYY-MM-DD) 전달.
+        assert "date" in request.url.params
+        assert len(request.url.params["date"]) == 10
         assert request.headers["x-nxopen-api-key"] == "personal_key"
         return httpx.Response(200, json={"count": 0, "starforce_history": []})
 
     async with _client(handler) as client:
+        assert await client.verify_personal_key("personal_key") is True
+
+
+async def test_verify_personal_key_data_not_ready_treated_as_valid():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return _error_response(400, "OPENAPI00009", "Please wait until the data is ready")
+
+    async with _client(handler) as client:
+        # 데이터 미준비여도 키 인증은 성공 → 유효로 간주.
         assert await client.verify_personal_key("personal_key") is True
 
 

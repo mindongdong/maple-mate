@@ -10,6 +10,7 @@ from __future__ import annotations
 import asyncio
 import logging
 import time
+from datetime import datetime, timedelta, timezone
 
 import httpx
 
@@ -18,6 +19,7 @@ from .errors import ErrorClass, NexonAPIError, classify
 log = logging.getLogger(__name__)
 
 BASE_URL = "https://open.api.nexon.com"
+KST = timezone(timedelta(hours=9))
 
 
 def _extract_error(response: httpx.Response) -> tuple[str | None, str | None]:
@@ -116,16 +118,25 @@ class NexonClient:
         return data["ocid"]
 
     async def verify_personal_key(self, api_key: str) -> bool:
-        """개인 키 유효성 검증 (handoff §5): history/starforce count=10 호출.
+        """개인 키 유효성 검증 (handoff §5): history/starforce count=10 + date=오늘(KST).
 
         - 200 → True (빈 배열이어도 유효).
         - OPENAPI00005(auth_invalid) → False.
+        - OPENAPI00009(data_not_ready) → True (키 인증은 성공, 데이터만 미준비 → 유효로 간주).
         - 그 외 에러(장애/429 등)는 그대로 raise (호출자가 "잠시 후 재시도" 안내).
+
+        ⚠️ date 를 빼면 실 API 가 OPENAPI00004 를 반환(문서의 "당일 기본값"과 불일치, 실호출로 확인)
+        → 반드시 date(오늘 KST) 를 전달한다.
         """
+        today = datetime.now(KST).date().isoformat()
         try:
-            await self._request("maplestory/v1/history/starforce", api_key=api_key, count=10)
+            await self._request(
+                "maplestory/v1/history/starforce", api_key=api_key, count=10, date=today
+            )
             return True
         except NexonAPIError as exc:
             if exc.error_class is ErrorClass.AUTH_INVALID:
                 return False
+            if exc.error_class is ErrorClass.DATA_NOT_READY:
+                return True
             raise
