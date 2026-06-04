@@ -1,0 +1,8 @@
+# Spike 0 — 넥슨 API 실호출 검증 (일회용). 시크릿·개인 이력 원본 절대 커밋 금지.
+.env
+.env.*
+!.env.example
+spike/
+
+# OMC 작업 상태 (일회용)
+.omc/
