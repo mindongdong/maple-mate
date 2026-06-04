@@ -6,11 +6,3 @@ spike/
 
 # OMC 작업 상태 (일회용)
 .omc/
-
-# Python
-.venv/
-__pycache__/
-*.py[cod]
-.pytest_cache/
-.ruff_cache/
-*.egg-info/
