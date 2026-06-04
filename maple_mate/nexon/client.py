@@ -140,3 +140,43 @@ class NexonClient:
             if exc.error_class is ErrorClass.DATA_NOT_READY:
                 return True
             raise
+
+    # ── Phase 2 스펙류 (앱 키 + ocid, date 무지정=최신 ready) ──────────────
+    #
+    # Spike 0(handoff §3.1): "1AM 이후 D-1" 경계는 soft. 봇은 D-1 을 직접 계산해
+    # date 로 넘기지 않고 무지정(최신) 호출한다. `_request` 가 None 파라미터를 제거하므로
+    # date=None 이면 쿼리에서 빠진다 → 200 + 응답 date:null(최신 스냅샷).
+    # OPENAPI00009("data not ready") 는 호출자가 "전일 미생성"으로 안내(에러 아님).
+
+    async def _spec(self, path: str, ocid: str, date: str | None = None) -> dict:
+        return await self._request(path, ocid=ocid, date=date)
+
+    async def character_basic(self, ocid: str, date: str | None = None) -> dict:
+        return await self._spec("maplestory/v1/character/basic", ocid, date)
+
+    async def character_stat(self, ocid: str, date: str | None = None) -> dict:
+        return await self._spec("maplestory/v1/character/stat", ocid, date)
+
+    async def character_ability(self, ocid: str, date: str | None = None) -> dict:
+        return await self._spec("maplestory/v1/character/ability", ocid, date)
+
+    async def character_symbol_equipment(self, ocid: str, date: str | None = None) -> dict:
+        return await self._spec("maplestory/v1/character/symbol-equipment", ocid, date)
+
+    async def character_hexamatrix(self, ocid: str, date: str | None = None) -> dict:
+        return await self._spec("maplestory/v1/character/hexamatrix", ocid, date)
+
+    async def character_hexamatrix_stat(self, ocid: str, date: str | None = None) -> dict:
+        return await self._spec("maplestory/v1/character/hexamatrix-stat", ocid, date)
+
+    async def character_item_equipment(self, ocid: str, date: str | None = None) -> dict:
+        return await self._spec("maplestory/v1/character/item-equipment", ocid, date)
+
+    async def union(self, ocid: str, date: str | None = None) -> dict:
+        return await self._spec("maplestory/v1/user/union", ocid, date)
+
+    async def union_artifact(self, ocid: str, date: str | None = None) -> dict:
+        return await self._spec("maplestory/v1/user/union-artifact", ocid, date)
+
+    async def union_champion(self, ocid: str, date: str | None = None) -> dict:
+        return await self._spec("maplestory/v1/user/union-champion", ocid, date)
