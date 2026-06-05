@@ -4,11 +4,13 @@ from __future__ import annotations
 from maple_mate.character import item
 from maple_mate.character.equipment_slots import SLOT_CHOICES, starforce_capable
 from maple_mate.character.item import (
+    combine_options,
     fetch_item,
     find_slot_item,
     parse_item,
     summarize_add_option,
     summarize_upgrade,
+    summarize_upgrade_stats,
 )
 
 
@@ -112,6 +114,63 @@ def test_summarize_upgrade():
 def test_summarize_upgrade_none_when_pristine():
     raw = {"scroll_upgrade": "0", "starforce_scroll_flag": "미사용", "golden_hammer_flag": "미적용"}
     assert summarize_upgrade(raw) is None
+
+
+# ── 작 스탯(item_etc_option) 요약 / 같은 옵션 합산 ──────────────────
+
+
+def test_summarize_upgrade_stats_main_stats_only():
+    # HP/MP/방어력은 노이즈로 제외, 주스탯·공·마력만.
+    etc = {"str": "29", "dex": "22", "int": "17", "luk": "0", "max_hp": "230",
+           "max_mp": "280", "attack_power": "25", "magic_power": "17", "armor": "24"}
+    assert summarize_upgrade_stats(etc) == "STR +29, DEX +22, INT +17, 공격력 +25, 마력 +17"
+
+
+def test_summarize_upgrade_stats_empty():
+    assert summarize_upgrade_stats(None) is None
+    assert summarize_upgrade_stats({"str": "0", "max_hp": "100"}) is None  # 주스탯 0 → None
+
+
+def test_combine_options_sums_same_name_and_unit():
+    options = ("스킬 재사용 대기시간 -2초", "스킬 재사용 대기시간 -1초", "최대 HP +9%")
+    assert combine_options(options) == ("스킬 재사용 대기시간 -3초", "최대 HP +9%")
+
+
+def test_combine_options_sums_flat_values():
+    assert combine_options(("공격력 +11", "이동속도 +6", "공격력 +10")) == (
+        "공격력 +21",
+        "이동속도 +6",
+    )
+
+
+def test_combine_options_normalizes_colon_format():
+    # 'INT : +12%' 콜론 포맷도 합산·정규화.
+    assert combine_options(("INT : +12%", "INT : +9%")) == ("INT +21%",)
+
+
+def test_combine_options_keeps_different_units_separate():
+    assert combine_options(("공격력 +11", "공격력 +5%")) == ("공격력 +11", "공격력 +5%")
+
+
+def test_combine_options_passthrough_when_unparseable():
+    assert combine_options(("특수 효과",)) == ("특수 효과",)
+
+
+def test_combine_options_preserves_duplicate_unparseable_lines():
+    # 부호 수치 없는 동일 줄도 인덱스 키로 중복 보존(데이터 손실 방지).
+    assert combine_options(("특수 효과", "특수 효과")) == ("특수 효과", "특수 효과")
+
+
+def test_parse_item_includes_icon_url_and_upgrade_stats():
+    raw = {
+        "item_name": "하이네스 워리어헬름",
+        "item_icon": "https://open.api.nexon.com/static/maplestory/item/icon/ABC",
+        "starforce": "19",
+        "item_etc_option": {"str": "29", "attack_power": "25"},
+    }
+    view = parse_item(raw, "모자")
+    assert view.icon_url.endswith("/ABC")
+    assert view.upgrade_stats == "STR +29, 공격력 +25"
 
 
 # ── 슬롯 매칭 / fetch ────────────────────────────────────────────────

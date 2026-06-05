@@ -59,6 +59,7 @@ class NexonClient:
         )
         self._lock = asyncio.Lock()
         self._next_allowed = 0.0  # time.monotonic() 기준 다음 호출 허용 시각
+        self._image_cache: dict[str, bytes] = {}  # 정적 아이콘 URL → bytes (불변 자산이라 영구 캐시)
 
     async def aclose(self) -> None:
         await self._client.aclose()
@@ -109,6 +110,40 @@ class NexonClient:
                 await asyncio.sleep(self._retry_wait * attempt)
                 continue
             raise NexonAPIError(code, message, http_status=response.status_code, error_class=error_class)
+
+    async def fetch_image(self, url: str) -> bytes:
+        """장비 아이콘 등 정적 이미지 다운로드 (메모리 캐시).
+
+        API 데이터 호출과 달리 스로틀/에러분류 미적용 — 정적 자산이라 단순 GET + 네트워크 재시도.
+        실패는 NexonAPIError(TIMEOUT)로 raise (호출자가 잡아 아이콘 없이 렌더).
+        """
+        cached = self._image_cache.get(url)
+        if cached is not None:
+            return cached
+        attempt = 0
+        while True:
+            try:
+                response = await self._client.get(url)
+                response.raise_for_status()
+            except httpx.HTTPError as exc:  # Timeout/Transport/HTTPStatus/InvalidURL 등 전부
+                if attempt < self._max_retry:
+                    attempt += 1
+                    await asyncio.sleep(self._retry_wait * attempt)
+                    continue
+                raise NexonAPIError(
+                    "IMAGE_FETCH", str(exc), http_status=None, error_class=ErrorClass.TIMEOUT
+                ) from exc
+            # 비이미지 응답(점검 HTML 등)은 캐시 오염 방지 위해 실패 처리 — 캐시하지 않음.
+            content_type = response.headers.get("content-type", "")
+            if not content_type.startswith("image/"):
+                raise NexonAPIError(
+                    "IMAGE_FETCH",
+                    f"비이미지 응답({content_type or '미상'})",
+                    http_status=response.status_code,
+                    error_class=ErrorClass.TIMEOUT,
+                )
+            self._image_cache[url] = response.content
+            return response.content
 
     # ── Phase 1 에서 쓰는 엔드포인트 ──────────────────────────────────
 

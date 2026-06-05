@@ -5,6 +5,7 @@
 """
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 
 from ..nexon.client import NexonClient
@@ -21,11 +22,13 @@ class PotentialView:
 class ItemSlotView:
     slot: str
     item_name: str
+    icon_url: str | None  # 장비 아이콘 이미지 URL(카드 렌더용)
     starforce: str | None  # None=스타포스 불가 부위(숨김) / 문자열=강화 단계
     potential: PotentialView | None  # None=잠재 없음/불가
     additional_potential: PotentialView | None
     add_option: str | None  # 추가옵션 요약(없으면 None)
     upgrade: str | None  # 주문서/업그레이드 요약(없으면 None)
+    upgrade_stats: str | None  # 주문서 작으로 오른 스탯 요약(item_etc_option, 없으면 None)
 
 
 @dataclass(frozen=True)
@@ -71,6 +74,66 @@ def summarize_add_option(option: dict | None) -> str | None:
     return ", ".join(parts) or None
 
 
+# 작(주문서)으로 오른 스탯 표시 라벨 — 주요 스탯/공·마력만(HP/MP/방어력 등 노이즈 제외).
+_UPGRADE_STAT_LABELS: tuple[tuple[str, str], ...] = (
+    ("str", "STR"),
+    ("dex", "DEX"),
+    ("int", "INT"),
+    ("luk", "LUK"),
+    ("attack_power", "공격력"),
+    ("magic_power", "마력"),
+)
+
+
+def summarize_upgrade_stats(option: dict | None) -> str | None:
+    """item_etc_option(주문서 작으로 오른 스탯) → 'STR +29, 공격력 +25' 요약. 주요 스탯만, 0/없음 → None."""
+    if not option:
+        return None
+    parts = [
+        f"{label} {_to_int(option.get(key)):+d}"
+        for key, label in _UPGRADE_STAT_LABELS
+        if _to_int(option.get(key)) != 0
+    ]
+    return ", ".join(parts) or None
+
+
+# 옵션 문자열에서 부호 있는 수치 추출: "스킬 재사용 대기시간 -2초" → (이름, -2, "초").
+_OPT_VALUE_RE = re.compile(r"^(.+?)\s*:?\s*([+-]\d+)\s*(.*)$")
+
+
+def combine_options(options: tuple[str, ...]) -> tuple[str, ...]:
+    """같은 옵션(이름+단위)을 합산 표기 (순수함수, 첫 등장 순서 보존).
+
+    '스킬 재사용 대기시간 -2초' + '-1초' → '스킬 재사용 대기시간 -3초',
+    '공격력 +11' + '공격력 +10' → '공격력 +21'. 부호 수치를 못 찾으면 원문 유지.
+    """
+    order: list[tuple[str, object]] = []
+    sums: dict[tuple[str, object], int] = {}
+    passthrough: dict[tuple[str, object], str] = {}
+    for idx, opt in enumerate(options):
+        match = _OPT_VALUE_RE.match(opt)
+        if match is None:
+            key = ("\x00raw", idx)  # 파싱 불가 → 원문 그대로(인덱스 키로 중복도 보존)
+            order.append(key)
+            passthrough[key] = opt
+            continue
+        name = match.group(1).strip().rstrip(":").strip()
+        unit = match.group(3).strip()
+        key = (name, unit)
+        if key not in sums:
+            order.append(key)
+            sums[key] = 0
+        sums[key] += int(match.group(2))
+    result: list[str] = []
+    for key in order:
+        if key in passthrough:
+            result.append(passthrough[key])
+        else:
+            name, unit = key
+            result.append(f"{name} {sums[key]:+d}{unit}")
+    return tuple(result)
+
+
 def summarize_upgrade(raw: dict) -> str | None:
     """주문서/업그레이드 요약(순수함수): 작 횟수·놀강·황금망치. 없으면 None."""
     parts: list[str] = []
@@ -110,6 +173,7 @@ def parse_item(raw: dict, slot: str) -> ItemSlotView:
     return ItemSlotView(
         slot=slot,
         item_name=raw.get("item_name", "?"),
+        icon_url=raw.get("item_icon"),
         starforce=starforce,
         potential=_potential(
             raw.get("potential_option_grade"),
@@ -125,6 +189,7 @@ def parse_item(raw: dict, slot: str) -> ItemSlotView:
         ),
         add_option=summarize_add_option(raw.get("item_add_option")),
         upgrade=summarize_upgrade(raw),
+        upgrade_stats=summarize_upgrade_stats(raw.get("item_etc_option")),
     )
 
 
