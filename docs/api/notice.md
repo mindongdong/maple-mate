@@ -3,7 +3,7 @@
 > 공통 규약(Base URL `https://open.api.nexon.com`, 인증 헤더 `x-nxopen-api-key`, 날짜 KST, 에러코드)은 [README.md](./README.md) 참고.
 > 응답 필드는 SpiralMoon/maplestory.openapi KMS DTO로 교차검증.
 >
-> **Spike 0 실호출 확정(2026-06-04):** `notice`(20건)·`notice-update`(20건, wrapper `update_notice`)·`notice-event`(19건, wrapper `event_notice`) 모두 200. 래퍼 키·항목 필드는 아래 문서와 일치. **정렬은 `date` 내림차순(최신순)** — 봇 폴링은 마지막 본 `notice_id`/`date` 이후 항목을 신규로 처리. ⚠️ `notice-event`의 **"썬데이 메이플" 제목 매칭은 검증 시점 미진행(0건)이라 라이브 양성확인 잔류** → 라이브 썬데이 또는 Phase 4 수동 엔드포인트로 마감.
+> **Spike 0 실호출 확정(2026-06-04):** `notice`(20건)·`notice-update`(20건, wrapper `update_notice`)·`notice-event`(19건, wrapper `event_notice`) 모두 200. 래퍼 키·항목 필드는 아래 문서와 일치. **정렬은 `date` 내림차순(최신순)** — 봇 폴링은 마지막 본 `notice_id`/`date` 이후 항목을 신규로 처리. ✅ **"썬데이 메이플" 제목 양성 매칭 라이브 확인(2026-06-05):** `notice-event` 에 제목 정확히 `"썬데이 메이플"` 항목 1건이 진행 중으로 떠 매칭 성공(`scripts/dump_events.py`). 공백 무시 부분일치(`maple_mate.notification.service.match_sunday`) + `+09:00` 기간 파싱(`format_period`) 모두 실데이터로 검증됨.
 
 ## 엔드포인트 요약
 
