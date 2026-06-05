@@ -7,14 +7,12 @@ from __future__ import annotations
 import discord
 from discord import app_commands
 
-from ..bot import comparison
+from ..bot import comparison, table_image
 from ..bot.embeds import defer, make_embed
 from ..dependencies import Deps
 from ..registration import service as reg
 from . import service
 from .service import UnionInfo
-
-_PER_PAGE = 10
 
 
 def _format_union(info: UnionInfo) -> str:
@@ -64,11 +62,51 @@ async def handle_union(
         return
 
     footer = comparison.data_footer(successes[0].data.date)
-    title = "유니온" if len(outcomes) == 1 else "유니온 비교"
-    fields = [(o.target.nickname, _format_union(o.data)) for o in successes]
-    pages = comparison.field_pages(title, fields, per_page=_PER_PAGE, footer=footer)
-    comparison.attach_failures(pages, outcomes)
-    await comparison.respond_with_pages(interaction, pages, author_id=interaction.user.id)
+
+    # 단일 대상 = 카드 + 유저 태그(표는 비교 때만 의미 있음).
+    if len(outcomes) == 1:
+        target = successes[0].target
+        embed = make_embed("유니온", footer=footer)
+        embed.add_field(
+            name=target.nickname,
+            value=f"{comparison.mention(target)}\n{_format_union(successes[0].data)}",
+            inline=False,
+        )
+        await interaction.followup.send(embed=embed)
+        return
+
+    # 비교 = PNG 정렬표(픽셀 고정) + 태그 범례. 유니온 레벨 내림차순 + 순위.
+    # 단일 수치 컬럼(유니온·아티팩트)은 최고 행을 금색 강조(챔피언 분포는 단일값 아님 → 제외).
+    ranked = sorted(successes, key=lambda o: o.data.union_level or -1, reverse=True)
+    best_union = comparison.highest_indices([o.data.union_level for o in ranked])
+    best_artifact = comparison.highest_indices([o.data.artifact_level for o in ranked])
+    headers = ["순위", "캐릭터", "유니온", "아티팩트", "챔피언"]
+    rows = []
+    for i, o in enumerate(ranked):
+        union_text = str(o.data.union_level) if o.data.union_level is not None else "—"
+        artifact_text = f"{o.data.artifact_level} LV" if o.data.artifact_level is not None else "—"
+        rows.append(
+            [
+                str(i + 1),
+                comparison.truncate_display(o.target.nickname, 14),
+                table_image.Highlight(union_text) if i in best_union else union_text,
+                table_image.Highlight(artifact_text) if i in best_artifact else artifact_text,
+                comparison.truncate_display(
+                    " ".join(f"{g}({c})" for g, c in o.data.champion_grades) or "없음", 28
+                ),
+            ]
+        )
+    embed, file = comparison.table_image_message(
+        "유니온 비교",
+        headers,
+        rows,
+        [o.target for o in ranked],
+        aligns=["center", "left", "center", "center", "left"],
+        footer=footer,
+        outcomes=outcomes,
+        filename="union.png",
+    )
+    await interaction.followup.send(embed=embed, file=file)
 
 
 def setup(bot: discord.Client) -> None:

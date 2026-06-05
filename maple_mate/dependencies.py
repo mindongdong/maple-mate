@@ -6,7 +6,7 @@ discord/http 타입에 의존하지 않는다.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -21,3 +21,6 @@ class Deps:
     session_factory: async_sessionmaker[AsyncSession]
     nexon: NexonClient
     cipher: KeyCipher
+    # /스펙 주간 최고 전투력용 (ocid, date)→전투력 인메모리 캐시. 과거 스냅샷은 불변이라
+    # 프로세스 수명 동안 영구 보관(재기동 시 콜드스타트). frozen 이라도 dict 내용 변경은 허용.
+    combat_power_cache: dict[tuple[str, str], int] = field(default_factory=dict)
