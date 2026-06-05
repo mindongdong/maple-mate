@@ -59,6 +59,7 @@ class NexonClient:
         )
         self._lock = asyncio.Lock()
         self._next_allowed = 0.0  # time.monotonic() 기준 다음 호출 허용 시각
+        self._image_cache: dict[str, bytes] = {}  # 정적 아이콘 URL → bytes (불변 자산이라 영구 캐시)
 
     async def aclose(self) -> None:
         await self._client.aclose()
@@ -110,6 +111,40 @@ class NexonClient:
                 continue
             raise NexonAPIError(code, message, http_status=response.status_code, error_class=error_class)
 
+    async def fetch_image(self, url: str) -> bytes:
+        """장비 아이콘 등 정적 이미지 다운로드 (메모리 캐시).
+
+        API 데이터 호출과 달리 스로틀/에러분류 미적용 — 정적 자산이라 단순 GET + 네트워크 재시도.
+        실패는 NexonAPIError(TIMEOUT)로 raise (호출자가 잡아 아이콘 없이 렌더).
+        """
+        cached = self._image_cache.get(url)
+        if cached is not None:
+            return cached
+        attempt = 0
+        while True:
+            try:
+                response = await self._client.get(url)
+                response.raise_for_status()
+            except httpx.HTTPError as exc:  # Timeout/Transport/HTTPStatus/InvalidURL 등 전부
+                if attempt < self._max_retry:
+                    attempt += 1
+                    await asyncio.sleep(self._retry_wait * attempt)
+                    continue
+                raise NexonAPIError(
+                    "IMAGE_FETCH", str(exc), http_status=None, error_class=ErrorClass.TIMEOUT
+                ) from exc
+            # 비이미지 응답(점검 HTML 등)은 캐시 오염 방지 위해 실패 처리 — 캐시하지 않음.
+            content_type = response.headers.get("content-type", "")
+            if not content_type.startswith("image/"):
+                raise NexonAPIError(
+                    "IMAGE_FETCH",
+                    f"비이미지 응답({content_type or '미상'})",
+                    http_status=response.status_code,
+                    error_class=ErrorClass.TIMEOUT,
+                )
+            self._image_cache[url] = response.content
+            return response.content
+
     # ── Phase 1 에서 쓰는 엔드포인트 ──────────────────────────────────
 
     async def get_ocid(self, character_name: str) -> str:
@@ -140,3 +175,43 @@ class NexonClient:
             if exc.error_class is ErrorClass.DATA_NOT_READY:
                 return True
             raise
+
+    # ── Phase 2 스펙류 (앱 키 + ocid, date 무지정=최신 ready) ──────────────
+    #
+    # Spike 0(handoff §3.1): "1AM 이후 D-1" 경계는 soft. 봇은 D-1 을 직접 계산해
+    # date 로 넘기지 않고 무지정(최신) 호출한다. `_request` 가 None 파라미터를 제거하므로
+    # date=None 이면 쿼리에서 빠진다 → 200 + 응답 date:null(최신 스냅샷).
+    # OPENAPI00009("data not ready") 는 호출자가 "전일 미생성"으로 안내(에러 아님).
+
+    async def _spec(self, path: str, ocid: str, date: str | None = None) -> dict:
+        return await self._request(path, ocid=ocid, date=date)
+
+    async def character_basic(self, ocid: str, date: str | None = None) -> dict:
+        return await self._spec("maplestory/v1/character/basic", ocid, date)
+
+    async def character_stat(self, ocid: str, date: str | None = None) -> dict:
+        return await self._spec("maplestory/v1/character/stat", ocid, date)
+
+    async def character_ability(self, ocid: str, date: str | None = None) -> dict:
+        return await self._spec("maplestory/v1/character/ability", ocid, date)
+
+    async def character_symbol_equipment(self, ocid: str, date: str | None = None) -> dict:
+        return await self._spec("maplestory/v1/character/symbol-equipment", ocid, date)
+
+    async def character_hexamatrix(self, ocid: str, date: str | None = None) -> dict:
+        return await self._spec("maplestory/v1/character/hexamatrix", ocid, date)
+
+    async def character_hexamatrix_stat(self, ocid: str, date: str | None = None) -> dict:
+        return await self._spec("maplestory/v1/character/hexamatrix-stat", ocid, date)
+
+    async def character_item_equipment(self, ocid: str, date: str | None = None) -> dict:
+        return await self._spec("maplestory/v1/character/item-equipment", ocid, date)
+
+    async def union(self, ocid: str, date: str | None = None) -> dict:
+        return await self._spec("maplestory/v1/user/union", ocid, date)
+
+    async def union_artifact(self, ocid: str, date: str | None = None) -> dict:
+        return await self._spec("maplestory/v1/user/union-artifact", ocid, date)
+
+    async def union_champion(self, ocid: str, date: str | None = None) -> dict:
+        return await self._spec("maplestory/v1/user/union-champion", ocid, date)

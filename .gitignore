@@ -14,3 +14,7 @@ __pycache__/
 .pytest_cache/
 .ruff_cache/
 *.egg-info/
+
+# 캡처/다운로드 등 작업 중 생긴 이미지 (봇은 PNG를 메모리에서만 렌더 — 디스크 산출 없음).
+/*.png
+스크린샷*.png

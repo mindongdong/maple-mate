@@ -139,3 +139,42 @@ async def test_timeout_is_retried_then_raises_timeout():
             await client.get_ocid("c")
     assert exc.value.error_class is ErrorClass.TIMEOUT
     assert calls["n"] == 3  # 최초 1 + 재시도 2
+
+
+async def test_fetch_image_downloads_and_caches():
+    calls = {"n": 0}
+    url = "https://open.api.nexon.com/static/maplestory/item/icon/ABC"
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(200, content=b"\x89PNG-bytes", headers={"content-type": "image/png"})
+
+    async with _client(handler) as client:
+        assert await client.fetch_image(url) == b"\x89PNG-bytes"
+        assert await client.fetch_image(url) == b"\x89PNG-bytes"
+    assert calls["n"] == 1  # 두 번째는 캐시 → 네트워크 1회만
+
+
+async def test_fetch_image_failure_raises_timeout_class():
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404)
+
+    async with _client(handler, max_retry=1) as client:
+        with pytest.raises(NexonAPIError) as exc:
+            await client.fetch_image("https://x/icon")
+    assert exc.value.error_class is ErrorClass.TIMEOUT
+
+
+async def test_fetch_image_rejects_non_image_body_and_does_not_cache():
+    calls = {"n": 0}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] += 1
+        return httpx.Response(200, text="<html>점검중</html>", headers={"content-type": "text/html"})
+
+    async with _client(handler) as client:
+        with pytest.raises(NexonAPIError):
+            await client.fetch_image("https://x/icon")  # 비이미지 → 실패
+        with pytest.raises(NexonAPIError):
+            await client.fetch_image("https://x/icon")  # 캐시 오염 없음 → 다시 네트워크
+    assert calls["n"] == 2
