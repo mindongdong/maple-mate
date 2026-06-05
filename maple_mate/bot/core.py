@@ -8,9 +8,12 @@ from __future__ import annotations
 import logging
 
 import discord
+from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from discord import app_commands
 
 from ..dependencies import Deps
+from ..notification.scheduler import shutdown as shutdown_scheduler
+from ..notification.scheduler import start_scheduler
 
 log = logging.getLogger(__name__)
 
@@ -24,6 +27,7 @@ class MapleMateBot(discord.Client):
         self.deps = deps
         self._dev_guild_id = dev_guild_id
         self.tree = app_commands.CommandTree(self)
+        self._scheduler: AsyncIOScheduler | None = None  # 봇이 소유(setup_hook 시작 / close 종료)
 
     async def setup_hook(self) -> None:
         self._register_commands()
@@ -35,10 +39,20 @@ class MapleMateBot(discord.Client):
         else:
             synced = await self.tree.sync()
             log.info("슬래시 커맨드 글로벌 동기화: %d개 (반영까지 최대 1시간)", len(synced))
+        # 알림 스케줄러를 1회 시작(setup_hook 은 재연결과 무관하게 한 번만 호출됨, Q7).
+        if self._scheduler is None:
+            self._scheduler = start_scheduler(self, self.deps)
+
+    async def close(self) -> None:
+        if self._scheduler is not None:
+            shutdown_scheduler(self._scheduler)
+            self._scheduler = None
+        await super().close()
 
     def _register_commands(self) -> None:
         """도메인별 commands.setup 을 모아 트리에 등록. 새 명령은 도메인 commands.py 에 추가."""
         from ..character.commands import setup as setup_character
+        from ..notification.commands import setup as setup_notification
         from ..registration.commands import setup as setup_registration
         from ..union.commands import setup as setup_union
 
@@ -49,6 +63,7 @@ class MapleMateBot(discord.Client):
         setup_registration(self)
         setup_union(self)
         setup_character(self)  # /스펙 · /아이템
+        setup_notification(self)  # /썬데이
 
     async def on_ready(self) -> None:
         user = self.user

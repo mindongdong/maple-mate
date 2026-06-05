@@ -215,3 +215,18 @@ class NexonClient:
 
     async def union_champion(self, ocid: str, date: str | None = None) -> dict:
         return await self._spec("maplestory/v1/user/union-champion", ocid, date)
+
+    # ── Phase 4 알림 (앱 키, 진행 중 이벤트 목록) ──────────────────────────
+    #
+    # notice-event 는 파라미터 없이 "현재 진행 중" 항목만 반환(docs/api/notice.md). 따라서
+    # 봇은 기간 필터를 따로 두지 않고 제목 매칭만 한다(작업지시서 Q2). 래퍼 키 `event_notice`.
+
+    async def notice_event(self) -> list[dict]:
+        """진행 중 이벤트 공지 목록(`event_notice` 리스트). 없으면 빈 리스트."""
+        data = await self._request("maplestory/v1/notice-event")
+        events = data.get("event_notice")
+        return events if isinstance(events, list) else []
+
+    async def notice_event_detail(self, notice_id: int) -> dict:
+        """이벤트 상세(`contents` HTML 포함). 본문 배너 이미지 URL 추출에 사용."""
+        return await self._request("maplestory/v1/notice-event/detail", notice_id=notice_id)
