@@ -18,7 +18,9 @@ log = logging.getLogger(__name__)
 class MapleMateBot(discord.Client):
     def __init__(self, *, deps: Deps, dev_guild_id: int | None):
         intents = discord.Intents.default()  # 슬래시 커맨드는 특권 인텐트 불필요
-        super().__init__(intents=intents)
+        # 비교 임베드의 유저 태그(@닉)는 '누가 어떤 캐릭 주인'인지 표시용 — 핑(알림)은 울리지
+        # 않도록 전역 차단. (임베드 본문 멘션은 기본적으로 핑 안 하지만 명시적으로 무력화)
+        super().__init__(intents=intents, allowed_mentions=discord.AllowedMentions.none())
         self.deps = deps
         self._dev_guild_id = dev_guild_id
         self.tree = app_commands.CommandTree(self)
