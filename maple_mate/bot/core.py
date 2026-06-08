@@ -52,6 +52,7 @@ class MapleMateBot(discord.Client):
     def _register_commands(self) -> None:
         """도메인별 commands.setup 을 모아 트리에 등록. 새 명령은 도메인 commands.py 에 추가."""
         from ..character.commands import setup as setup_character
+        from ..history.commands import setup as setup_history
         from ..notification.commands import setup as setup_notification
         from ..registration.commands import setup as setup_registration
         from ..union.commands import setup as setup_union
@@ -63,6 +64,7 @@ class MapleMateBot(discord.Client):
         setup_registration(self)
         setup_union(self)
         setup_character(self)  # /스펙 · /아이템
+        setup_history(self)  # /스타포스
         setup_notification(self)  # /썬데이
 
     async def on_ready(self) -> None:
