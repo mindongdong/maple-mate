@@ -298,3 +298,18 @@ class NexonClient:
     async def notice_event_detail(self, notice_id: int) -> dict:
         """이벤트 상세(`contents` HTML 포함). 본문 배너 이미지 URL 추출에 사용."""
         return await self._request("maplestory/v1/notice-event/detail", notice_id=notice_id)
+
+    # `/공지알림` 폴링 대상(이벤트 제외). 둘 다 파라미터 없이 최신순(date 내림차순) 목록 반환
+    # (docs/api/notice.md, Spike 0 실호출 확정). 래퍼 키: notice=`notice`, 업데이트=`update_notice`.
+
+    async def notice(self) -> list[dict]:
+        """공지사항 목록(`notice` 리스트, 최신순). 없으면 빈 리스트."""
+        data = await self._request("maplestory/v1/notice")
+        items = data.get("notice")
+        return items if isinstance(items, list) else []
+
+    async def notice_update(self) -> list[dict]:
+        """업데이트 공지 목록(`update_notice` 리스트, 최신순). 없으면 빈 리스트."""
+        data = await self._request("maplestory/v1/notice-update")
+        items = data.get("update_notice")
+        return items if isinstance(items, list) else []
