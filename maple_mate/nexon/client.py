@@ -210,6 +210,40 @@ class NexonClient:
             if not cursor:
                 return records
 
+    async def _history(
+        self, path: str, wrapper: str, api_key: str, date_iso: str, count: int
+    ) -> list[dict]:
+        """이력류 공통 페치(starforce_history 와 동일 규약). next_cursor 누적, null→[]."""
+        records: list[dict] = []
+        cursor: str | None = None
+        while True:
+            if cursor is None:
+                data = await self._request(path, api_key=api_key, count=count, date=date_iso)
+            else:  # cursor 전달 시 date 제외(실측: date 우선·cursor 무시)
+                data = await self._request(path, api_key=api_key, count=count, cursor=cursor)
+            page = data.get(wrapper)
+            if isinstance(page, list):
+                records.extend(page)
+            cursor = data.get("next_cursor")
+            if not cursor:
+                return records
+
+    async def cube_history(
+        self, api_key: str, date_iso: str, count: int = 1000
+    ) -> list[dict]:
+        """개인 키로 그 계정 cube 이력(해당 KST 1일). next_cursor 누적, null→[]."""
+        return await self._history(
+            "maplestory/v1/history/cube", "cube_history", api_key, date_iso, count
+        )
+
+    async def potential_history(
+        self, api_key: str, date_iso: str, count: int = 1000
+    ) -> list[dict]:
+        """개인 키로 그 계정 potential(메소 재설정) 이력(해당 KST 1일). null→[]."""
+        return await self._history(
+            "maplestory/v1/history/potential", "potential_history", api_key, date_iso, count
+        )
+
     # ── Phase 2 스펙류 (앱 키 + ocid, date 무지정=최신 ready) ──────────────
     #
     # Spike 0(handoff §3.1): "1AM 이후 D-1" 경계는 soft. 봇은 D-1 을 직접 계산해
