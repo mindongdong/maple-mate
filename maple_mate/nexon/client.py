@@ -176,6 +176,40 @@ class NexonClient:
                 return True
             raise
 
+    # ── Phase 3 이력류 (개인 키 오버라이드, date 별 1일치) ───────────────────
+    #
+    # 개인 키 = 그 계정 이력(ocid 파라미터 없음). date 는 정확히 그 하루치만 반환(실측).
+    # count=1000(max) 으로 하루치 한 번에. next_cursor 비-null 이면 cursor 누적(date 빼고)
+    # — 친구 그룹 일일 <1000 이라 보통 1콜이나 고볼륨 일자 대비.
+
+    async def starforce_history(
+        self, api_key: str, date_iso: str, count: int = 1000
+    ) -> list[dict]:
+        """개인 키로 그 계정 starforce 이력(해당 KST 1일). next_cursor 누적, null→[]."""
+        records: list[dict] = []
+        cursor: str | None = None
+        while True:
+            if cursor is None:
+                data = await self._request(
+                    "maplestory/v1/history/starforce",
+                    api_key=api_key,
+                    count=count,
+                    date=date_iso,
+                )
+            else:  # cursor 전달 시 date 제외(실측: date 우선·cursor 무시)
+                data = await self._request(
+                    "maplestory/v1/history/starforce",
+                    api_key=api_key,
+                    count=count,
+                    cursor=cursor,
+                )
+            page = data.get("starforce_history")
+            if isinstance(page, list):
+                records.extend(page)
+            cursor = data.get("next_cursor")
+            if not cursor:
+                return records
+
     # ── Phase 2 스펙류 (앱 키 + ocid, date 무지정=최신 ready) ──────────────
     #
     # Spike 0(handoff §3.1): "1AM 이후 D-1" 경계는 soft. 봇은 D-1 을 직접 계산해

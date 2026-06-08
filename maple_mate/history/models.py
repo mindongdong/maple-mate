@@ -8,11 +8,28 @@ from __future__ import annotations
 from datetime import date as date_type
 from datetime import datetime
 
-from sqlalchemy import Date, DateTime, String, func
+from sqlalchemy import Date, DateTime, Integer, String, func
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..database.core import Base
+
+
+class LearnedEquipmentLevel(Base):
+    """관측된 장비명→레벨 (레벨 3단 매칭 자동 학습).
+
+    item-equipment 조회에서 본 장비의 base_equipment_level 을 적재해 둔다. 나중에 교체·탈착돼
+    현재 장착에 없는 장비도 이 표로 매칭(레벨은 장비명당 고정이라 안전). 시드는 부트스트랩일 뿐,
+    실데이터로 커버리지가 점진 확장된다.
+    """
+
+    __tablename__ = "learned_equipment_level"
+
+    item_name: Mapped[str] = mapped_column(String(128), primary_key=True)
+    base_equipment_level: Mapped[int] = mapped_column(Integer, nullable=False)
+    observed_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
 
 
 class HistoryCache(Base):
