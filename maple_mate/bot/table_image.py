@@ -12,6 +12,18 @@ from dataclasses import dataclass
 
 from PIL import Image, ImageDraw, ImageFont
 
+_RGB = tuple[int, int, int]
+
+# 잠재 등급 → 색 (단일 출처). item_card._GRADE 가 이 표를 참조 — 두 모듈이 동일 시각 언어를
+# 쓰도록 색은 여기 한 곳에만 둔다(table_image 는 item_card 를 import 하지 않음 → 순환 없음).
+GRADE_COLORS: dict[str, _RGB] = {
+    "레전드리": (121, 201, 64),
+    "유니크": (240, 190, 52),
+    "에픽": (159, 112, 216),
+    "레어": (74, 165, 225),
+}
+_GRADE_BADGE_DEFAULT: _RGB = (128, 132, 140)  # 미상 등급은 회색
+
 # (경로, regular index, bold index) — macOS 시스템 한글 폰트 우선, 실패 시 다음 후보.
 _FONT_CANDIDATES: tuple[tuple[str, int, int], ...] = (
     ("/System/Library/Fonts/AppleSDGothicNeo.ttc", 0, 6),
@@ -34,6 +46,10 @@ _PAD_X = 18
 _PAD_Y = 11
 _MARGIN = 20
 _SUB_W = 62  # NumGrid 한 칸 폭(두 자릿수 + 여백)
+
+_BADGE_SIZE = 26  # GradeBadges pill 글자 크기(행 높이 안에 들어가도록 본문보다 작게)
+_BADGE_PAD_X = 13  # pill 좌우 안쪽 여백
+_BADGE_GAP = 8  # pill 사이 간격
 
 
 @dataclass(frozen=True)
@@ -61,6 +77,17 @@ class Highlight:
     text: str
 
 
+@dataclass(frozen=True)
+class GradeBadges:
+    """등업 from-등급 뱃지 셀. items=[(등급명, 횟수), ...] (0건 제외).
+
+    각 등급을 GRADE_COLORS 색 라운드 pill('등급 ×횟수')로 가로 나열한다. 색만으로 어느
+    등급에서 올랐는지 즉시 읽힌다. 빈 목록이면 호출부가 '—' 문자열을 대신 전달한다.
+    """
+
+    items: tuple[tuple[str, int], ...]
+
+
 def _load_fonts(size: int) -> tuple[ImageFont.FreeTypeFont, ImageFont.FreeTypeFont]:
     """(본문 Regular, 헤더/강조 Bold) 폰트. 후보를 순회하고 모두 실패하면 기본 폰트."""
     for path, reg_idx, bold_idx in _FONT_CANDIDATES:
@@ -84,6 +111,7 @@ def render_table_image(
     cols = len(headers)
     aligns = aligns or ["left"] * cols
     regular, bold = _load_fonts(_SIZE)
+    badge_font, _ = _load_fonts(_BADGE_SIZE)
 
     probe = ImageDraw.Draw(Image.new("RGB", (1, 1)))
 
@@ -92,6 +120,14 @@ def render_table_image(
 
     def grid_in(c: int) -> NumGrid | None:
         return next((row[c] for row in rows if isinstance(row[c], NumGrid)), None)
+
+    def badge_text(label: str, count: int) -> str:
+        return f"{label} ×{count}"
+
+    def badges_width(cell: GradeBadges) -> float:
+        """GradeBadges pill 묶음의 가로 폭(pill 폭 합 + 간격)."""
+        widths = [text_w(badge_text(lbl, cnt), badge_font) + 2 * _BADGE_PAD_X for lbl, cnt in cell.items]
+        return sum(widths) + _BADGE_GAP * max(0, len(widths) - 1)
 
     col_w: list[float] = []
     for c in range(cols):
@@ -106,6 +142,8 @@ def render_table_image(
                 cell = row[c]
                 if isinstance(cell, Highlight):  # 볼드라 더 넓을 수 있어 bold 로 측정
                     widest = max(widest, text_w(cell.text, bold) + 2 * _PAD_X)
+                elif isinstance(cell, GradeBadges):
+                    widest = max(widest, badges_width(cell) + 2 * _PAD_X)
                 else:
                     widest = max(widest, text_w(str(cell), regular) + 2 * _PAD_X)
             col_w.append(widest)
@@ -175,6 +213,27 @@ def render_table_image(
             tw = text_w(s, font)
             draw.text((x_left + i * sub_w + (sub_w - tw) / 2, y + _PAD_Y), s, font=font, fill=color)
 
+    def draw_grade_badges(cell: GradeBadges, x_left, col, align, y) -> None:
+        """등급 색 라운드 pill('등급 ×횟수')을 가로 나열. 행 높이 안에서 세로 중앙."""
+        pills = [(badge_text(lbl, cnt), GRADE_COLORS.get(lbl, _GRADE_BADGE_DEFAULT)) for lbl, cnt in cell.items]
+        widths = [text_w(t, badge_font) + 2 * _BADGE_PAD_X for t, _ in pills]
+        group_w = sum(widths) + _BADGE_GAP * max(0, len(pills) - 1)
+        if align == "right":
+            sx = x_left + col - _PAD_X - group_w
+        elif align == "center":
+            sx = x_left + (col - group_w) / 2
+        else:
+            sx = x_left + _PAD_X
+        pill_h = _BADGE_SIZE + 12
+        py = y + (line_h - pill_h) / 2
+        px = sx
+        for (text, color), w in zip(pills, widths):
+            fill = tuple(int(ch * 0.22 + bg * 0.78) for ch, bg in zip(color, _BG))
+            draw.rounded_rectangle([px, py, px + w, py + pill_h], radius=pill_h / 2, fill=fill, outline=color, width=2)
+            tw = text_w(text, badge_font)
+            draw.text((px + (w - tw) / 2, py + 6), text, font=badge_font, fill=color)
+            px += w + _BADGE_GAP
+
     # 4) 헤더(그리드 컬럼은 가운데).
     x = _MARGIN
     for c in range(cols):
@@ -192,6 +251,8 @@ def render_table_image(
                 draw_numgrid(cell, x, col_w[c], y)
             elif isinstance(cell, Highlight):
                 draw_text_cell(cell.text, bold, x, col_w[c], aligns[c], y, _BEST)
+            elif isinstance(cell, GradeBadges):
+                draw_grade_badges(cell, x, col_w[c], aligns[c], y)
             else:
                 draw_text_cell(cell, regular, x, col_w[c], aligns[c], y, _TEXT)
             x += col_w[c]

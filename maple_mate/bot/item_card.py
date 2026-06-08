@@ -13,7 +13,7 @@ from dataclasses import dataclass
 
 from PIL import Image, ImageDraw, ImageFont
 
-from .table_image import _load_fonts
+from .table_image import GRADE_COLORS, _load_fonts
 
 _RGB = tuple[int, int, int]
 _Pill = tuple[str, _RGB]  # (뱃지 텍스트, 색)
@@ -28,12 +28,10 @@ _TEXT = (214, 217, 222)
 _MUTED = (150, 154, 162)
 _STAR = (255, 156, 56)  # 스타포스 오렌지(참조 카드 톤)
 
-# 잠재 등급 → (색, 표시 라벨). 미상 등급은 회색.
+# 잠재 등급 → (색, 표시 라벨). 색은 table_image.GRADE_COLORS(단일 출처) 공유 — /잠재 등업
+# 뱃지와 동일 시각 언어. 미상 등급은 회색.
 _GRADE: dict[str, tuple[tuple[int, int, int], str]] = {
-    "레전드리": ((121, 201, 64), "레전드리"),
-    "유니크": ((240, 190, 52), "유니크"),
-    "에픽": ((159, 112, 216), "에픽"),
-    "레어": ((74, 165, 225), "레어"),
+    grade: (color, grade) for grade, color in GRADE_COLORS.items()
 }
 _GRADE_DEFAULT = ((128, 132, 140), "")
 
