@@ -9,9 +9,11 @@ from __future__ import annotations
 from fastapi import APIRouter, FastAPI
 
 from ..dependencies import Deps
+from ..notification.views import router as sunday_router
 
 # 도메인 라우터 집합점. 도메인이 HTTP 를 노출하면 여기에 include_router 로 등록.
 api_router = APIRouter()
+api_router.include_router(sunday_router)  # 수동 썬데이 발송 POST /sunday/broadcast
 
 
 def create_app(deps: Deps) -> FastAPI:

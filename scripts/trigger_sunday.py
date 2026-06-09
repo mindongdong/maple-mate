@@ -1,58 +1,51 @@
-"""테스트 채널에 썬데이 임베드를 직접 발송 (라이브 발송 눈으로 확인, 작업지시서 #6).
+"""봇 가동 중인 서버의 수동 썬데이 HTTP 엔드포인트를 호출 (라이브 검증, 작업지시서 #5).
 
-`broadcast_sunday` 를 지정 채널에 직접 호출(수동 HTTP 엔드포인트 대용). 현재 진행 중
-썬데이가 없으면(`select_sunday_events` 0건) 합성 샘플 이벤트로 임베드 모양만 확인한다.
-주차 dedup·마킹은 건드리지 않는다(발송 모양 점검용).
+POST http://localhost:8080/sunday/broadcast 에 Bearer 토큰 + JSON 바디(제목·링크·기간)를
+보내고 응답 {sent,total} 을 출력한다. trigger_notice.py 패턴. 봇 + uvicorn 이 떠 있어야
+실제 발송이 일어난다(sunday_alert 켠 테스트 채널로 1회 눈 확인). 잘못된 토큰/빈 제목으로
+401·422 도 이 도구로 확인할 수 있다.
 
-실행: uv run python -m scripts.trigger_sunday <채널ID>
+실행:
+    uv run python -m scripts.trigger_sunday "<제목>" ["<링크>"] ["<기간>"] ["<이미지URL>"]
+    예) uv run python -m scripts.trigger_sunday "썬데이 메이플 (테스트)" \\
+            "https://maplestory.nexon.com/News/Event" "6/9 ~ 6/15" \\
+            "https://ssl.nexon.com/.../banner.jpg"
 """
 from __future__ import annotations
 
-import asyncio
 import sys
 
-import discord
+import httpx
 
 from maple_mate.config import load_config
-from maple_mate.nexon.client import NexonClient
-from maple_mate.notification import service
-from maple_mate.notification.scheduler import broadcast_sunday
-from maple_mate.notification.service import SundayEvent
 
-_SAMPLE = SundayEvent(
-    title="썬데이 메이플 (샘플)",
-    url="https://maplestory.nexon.com/News/Event",
-    thumbnail_url=None,
-    period_text="샘플 기간 — 라이브 발송 모양 확인용",
-)
+URL = "http://localhost:8080/sunday/broadcast"
 
 
-async def main(channel_id: int) -> None:
+def main(title: str, link: str | None, period: str | None, image: str | None) -> None:
     config = load_config()
-    nexon = NexonClient(config.nexon_app_key)
-    client = discord.Client(
-        intents=discord.Intents.default(),
-        allowed_mentions=discord.AllowedMentions.none(),
+    body: dict[str, str] = {"title": title}
+    if link:
+        body["link"] = link
+    if period:
+        body["period"] = period
+    if image:
+        body["image"] = image
+    resp = httpx.post(
+        URL, json=body, headers={"Authorization": f"Bearer {config.operator_token}"}
     )
-
-    @client.event
-    async def on_ready() -> None:
-        try:
-            events = await service.select_sunday_events(nexon)
-            if not events:
-                print("매칭 이벤트 0건 → 합성 샘플 임베드로 발송")
-                events = [_SAMPLE]
-            sent = await broadcast_sunday(client, [(0, channel_id)], events)
-            print(f"발송 완료: {sent}개 채널, 이벤트 {len(events)}건")
-        finally:
-            await nexon.aclose()
-            await client.close()
-
-    await client.start(config.discord_bot_token)
+    print(f"HTTP {resp.status_code}: {resp.text}")
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 2:
-        print("usage: uv run python -m scripts.trigger_sunday <채널ID>", file=sys.stderr)
+    if not 2 <= len(sys.argv) <= 5:
+        print(
+            'usage: uv run python -m scripts.trigger_sunday "<제목>" ["<링크>"] ["<기간>"] ["<이미지URL>"]',
+            file=sys.stderr,
+        )
         raise SystemExit(2)
-    asyncio.run(main(int(sys.argv[1])))
+    arg_title = sys.argv[1]
+    arg_link = sys.argv[2] if len(sys.argv) >= 3 else None
+    arg_period = sys.argv[3] if len(sys.argv) >= 4 else None
+    arg_image = sys.argv[4] if len(sys.argv) == 5 else None
+    main(arg_title, arg_link, arg_period, arg_image)
