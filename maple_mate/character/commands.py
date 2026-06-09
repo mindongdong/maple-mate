@@ -13,7 +13,7 @@ import discord
 from discord import app_commands
 
 from ..bot import comparison, item_card, table_image
-from ..bot.embeds import defer, make_embed
+from ..bot.embeds import append_source, defer, make_embed
 from ..dependencies import Deps
 from ..nexon.client import KST, NexonClient
 from ..nexon.errors import NexonAPIError
@@ -89,7 +89,7 @@ async def handle_spec(
         await interaction.followup.send(embed=comparison.all_failed_embed("스펙 비교", outcomes))
         return
 
-    footer = comparison.data_footer(successes[0].data.date)
+    footer = append_source(comparison.data_footer(successes[0].data.date))
 
     # 단일 대상(실패/미등록 없이 1명) = 상세 전체 1임베드 + 유저 태그.
     if len(outcomes) == 1:
@@ -255,7 +255,7 @@ async def handle_item(
         await interaction.followup.send(embed=comparison.all_failed_embed(f"아이템 — {slot}", outcomes))
         return
 
-    footer = comparison.data_footer(successes[0].data.date)
+    footer = append_source(comparison.data_footer(successes[0].data.date))
     # 아이콘 동시 다운로드(캐시) → 게임 툴팁풍 카드, 여러 명은 한 PNG 세로 스택.
     icons = await asyncio.gather(*(_fetch_icon(deps.nexon, o.data) for o in successes))
     cards = [

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import sys
 
 import uvicorn
@@ -26,7 +27,8 @@ logging.basicConfig(
 log = logging.getLogger("maple_mate")
 
 HTTP_HOST = "0.0.0.0"
-HTTP_PORT = 8080
+# 운영(Render 등)은 $PORT 를 주입한다. 없으면 로컬 기본 8080.
+HTTP_PORT = int(os.environ.get("PORT", "8080"))
 
 
 def build_deps(config: Config) -> tuple[Deps, object]:

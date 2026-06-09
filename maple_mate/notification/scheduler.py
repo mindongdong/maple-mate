@@ -16,7 +16,7 @@ import discord
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
-from ..bot.embeds import BRAND_COLOR
+from ..bot.embeds import BRAND_COLOR, DATA_SOURCE
 from ..dependencies import Deps
 from ..error_log import service as error_log
 from ..error_log import summary as ops_summary
@@ -65,6 +65,7 @@ def build_event_embeds(events: Sequence[SundayEvent]) -> list[discord.Embed]:
             embed.set_thumbnail(url=event.thumbnail_url)
         if event.detail_image_url:
             embed.set_image(url=event.detail_image_url)
+        embed.set_footer(text=DATA_SOURCE)  # 넥슨 결과데이터 출처표시(제6조④)
         embeds.append(embed)
     return embeds
 
@@ -237,15 +238,17 @@ async def run_ops_summary_job(bot: discord.Client, deps: Deps) -> None:
 
 def build_notice_embeds(items: Sequence[NoticeItem]) -> list[discord.Embed]:
     """공지 → 임베드(클릭 제목 + 등록일, design §3.6). 순수 — 단위테스트 대상."""
-    return [
-        discord.Embed(
+    embeds: list[discord.Embed] = []
+    for item in items:
+        embed = discord.Embed(
             title=item.title,
             url=item.url or None,
             description=item.date_text,
             color=BRAND_COLOR,
         )
-        for item in items
-    ]
+        embed.set_footer(text=DATA_SOURCE)  # 넥슨 결과데이터 출처표시(제6조④)
+        embeds.append(embed)
+    return embeds
 
 
 async def broadcast_notices(

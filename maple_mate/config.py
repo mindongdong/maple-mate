@@ -18,9 +18,12 @@ _REQUIRED_STR_KEYS = (
     "OPERATOR_TOKEN",
     "DATABASE_URL",
 )
-# 정수(Discord snowflake)로 파싱돼야 하는 키
+# 정수(Discord snowflake)로 파싱돼야 하는 필수 키
 _REQUIRED_INT_KEYS = (
     "ADMIN_CHANNEL_ID",
+)
+# 선택 정수 키 — 없으면 None(운영 글로벌 동기화), 있으면 정수여야 함(잘못된 값은 오류).
+_OPTIONAL_INT_KEYS = (
     "DEV_GUILD_ID",
 )
 
@@ -47,7 +50,7 @@ class Config:
     operator_token: str
     database_url: str
     admin_channel_id: int
-    dev_guild_id: int
+    dev_guild_id: int | None  # 없으면 None → 운영 글로벌 동기화
 
     @classmethod
     def from_env(cls, env: Mapping[str, str]) -> "Config":
@@ -56,6 +59,7 @@ class Config:
         invalid: list[str] = []
         strs: dict[str, str] = {}
         ints: dict[str, int] = {}
+        opt_ints: dict[str, int | None] = {}
 
         for key in _REQUIRED_STR_KEYS:
             value = (env.get(key) or "").strip()
@@ -74,6 +78,17 @@ class Config:
             except ValueError:
                 invalid.append(key)
 
+        # 선택 정수: 비어 있으면 None, 값이 있으면 정수여야 함(잘못된 값은 invalid).
+        for key in _OPTIONAL_INT_KEYS:
+            raw = (env.get(key) or "").strip()
+            if not raw:
+                opt_ints[key] = None
+                continue
+            try:
+                opt_ints[key] = int(raw)
+            except ValueError:
+                invalid.append(key)
+
         if missing or invalid:
             raise ConfigError(missing, invalid)
 
@@ -84,7 +99,7 @@ class Config:
             operator_token=strs["OPERATOR_TOKEN"],
             database_url=strs["DATABASE_URL"],
             admin_channel_id=ints["ADMIN_CHANNEL_ID"],
-            dev_guild_id=ints["DEV_GUILD_ID"],
+            dev_guild_id=opt_ints["DEV_GUILD_ID"],
         )
 
 

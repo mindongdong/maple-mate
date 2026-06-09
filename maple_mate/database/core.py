@@ -18,9 +18,23 @@ class Base(DeclarativeBase):
     pass
 
 
+def normalize_db_url(url: str) -> str:
+    """DSN 스킴을 asyncpg 드라이버로 정규화(순수함수).
+
+    Render 등이 주는 기본 URL(`postgres://`·`postgresql://`)을 `postgresql+asyncpg://` 로
+    바꾼다. 이미 드라이버가 명시된 경우(`postgresql+asyncpg://`·`postgresql+psycopg://` 등)는
+    그대로 둔다. 그 외 스킴(sqlite 등)도 손대지 않는다.
+    """
+    if url.startswith("postgres://"):  # 일부 제공자(Heroku 계열) 표기
+        url = "postgresql://" + url[len("postgres://"):]
+    if url.startswith("postgresql://"):  # 드라이버 미지정 → asyncpg 명시
+        return "postgresql+asyncpg://" + url[len("postgresql://"):]
+    return url
+
+
 def make_engine(database_url: str) -> AsyncEngine:
-    """DATABASE_URL(postgresql+asyncpg://...) 로 async 엔진 생성."""
-    return create_async_engine(database_url, pool_pre_ping=True)
+    """DATABASE_URL 로 async 엔진 생성(스킴은 asyncpg 로 정규화)."""
+    return create_async_engine(normalize_db_url(database_url), pool_pre_ping=True)
 
 
 def make_session_factory(engine: AsyncEngine) -> async_sessionmaker[AsyncSession]:

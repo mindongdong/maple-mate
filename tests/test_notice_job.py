@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import pytest
 
+from maple_mate.bot.embeds import DATA_SOURCE
 from maple_mate.nexon.errors import ErrorClass, NexonAPIError
 from maple_mate.notification import scheduler
 from maple_mate.notification.notice_service import NoticeItem
@@ -167,6 +168,7 @@ def test_build_embeds_maps_title_url_date():
     assert embed.title == "정기 점검"
     assert embed.url == "https://x/1"
     assert embed.description == "2026-01-15 10:00"
+    assert embed.footer.text == DATA_SOURCE  # 넥슨 출처표시(제6조④)
 
 
 def test_build_embeds_url_none_when_empty():
