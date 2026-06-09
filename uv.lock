@@ -402,6 +402,7 @@ dependencies = [
     { name = "pillow" },
     { name = "python-dotenv" },
     { name = "sqlalchemy", extra = ["asyncio"] },
+    { name = "tzdata" },
     { name = "uvicorn", extra = ["standard"] },
 ]
 
@@ -423,6 +424,7 @@ requires-dist = [
     { name = "pillow", specifier = ">=10.0" },
     { name = "python-dotenv", specifier = ">=1.0" },
     { name = "sqlalchemy", extras = ["asyncio"], specifier = ">=2.0" },
+    { name = "tzdata" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.29" },
 ]
 

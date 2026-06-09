@@ -13,7 +13,7 @@ from dotenv import load_dotenv
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from maple_mate.database.core import Base
+from maple_mate.database.core import Base, normalize_db_url
 
 # 도메인 모델 모듈 임포트 → 테이블이 Base.metadata 에 등록(autogenerate/compare 용).
 # 새 도메인 추가 시 여기에 models 임포트를 한 줄 추가.
@@ -30,7 +30,9 @@ if config.config_file_name is not None:
 
 database_url = os.environ.get("DATABASE_URL")
 if database_url:
-    config.set_main_option("sqlalchemy.url", database_url)
+    # 운영(Render)은 postgresql:// 를 주므로 asyncpg 로 정규화 — async_engine_from_config 가
+    # 동기 드라이버(psycopg2, 미설치)로 떨어지지 않게 한다.
+    config.set_main_option("sqlalchemy.url", normalize_db_url(database_url))
 
 target_metadata = Base.metadata
 

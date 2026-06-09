@@ -1,0 +1,25 @@
+# 빌드 컨텍스트 축소 + 시크릿/대용량 제외(이미지에 .env·PNG·테스트가 들어가지 않게).
+.git
+.gitignore
+.venv
+.env
+.env.*
+.dockerignore
+Dockerfile
+docker-compose.yml
+
+# 파이썬 캐시/도구 산출물
+__pycache__/
+**/__pycache__/
+*.pyc
+.pytest_cache/
+.ruff_cache/
+.omc/
+
+# 런타임에 불필요한 문서·테스트·로컬 검증 자산
+tests/
+docs/
+spike/
+기댓값/
+*.png
+*.md

@@ -16,6 +16,16 @@ import discord
 KST = timezone(timedelta(hours=9))
 BRAND_COLOR = discord.Color.from_rgb(255, 140, 0)  # 메이플 오렌지
 
+# 넥슨 이용약관 제6조④: 결과데이터 출처 표시 의무. 데이터 임베드 푸터에만 덧붙인다
+# (운영요약·에러·검증·등록결과 등 넥슨 결과데이터가 아닌 임베드에는 적용하지 않음).
+DATA_SOURCE = "NEXON Open API"
+
+
+def append_source(footer: str | None) -> str:
+    """데이터 출처표시를 푸터에 덧붙인다. 기존 푸터가 있으면 ` · NEXON Open API`,
+    없으면 출처만. 예: '2026-06-08' → '2026-06-08 · NEXON Open API'."""
+    return f"{footer} · {DATA_SOURCE}" if footer else DATA_SOURCE
+
 
 def format_footer(reference: date | datetime, now: datetime) -> str:
     """데이터 기준 시점 푸터 문자열.

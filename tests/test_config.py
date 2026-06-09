@@ -48,3 +48,22 @@ def test_config_is_frozen():
     cfg = Config.from_env(_VALID)
     with pytest.raises(Exception):
         cfg.discord_bot_token = "x"  # type: ignore[misc]
+
+
+def test_dev_guild_id_absent_is_none():
+    # 운영 배포: DEV_GUILD_ID 미설정 → 기동 성공 + None(글로벌 동기화).
+    env = {k: v for k, v in _VALID.items() if k != "DEV_GUILD_ID"}
+    cfg = Config.from_env(env)
+    assert cfg.dev_guild_id is None
+
+
+def test_dev_guild_id_empty_is_none():
+    cfg = Config.from_env({**_VALID, "DEV_GUILD_ID": "   "})
+    assert cfg.dev_guild_id is None
+
+
+def test_dev_guild_id_invalid_still_errors():
+    # 값이 있으면 정수여야 함 — 잘못된 값은 여전히 형식오류.
+    with pytest.raises(ConfigError) as exc:
+        Config.from_env({**_VALID, "DEV_GUILD_ID": "not-int"})
+    assert "DEV_GUILD_ID" in exc.value.invalid

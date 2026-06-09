@@ -1,0 +1,32 @@
+# Render Blueprint (IaC) — 단일 Web Service(봇+FastAPI+APScheduler) + Postgres.
+# 시크릿 5종은 대시보드에서 입력(sync:false), DATABASE_URL 은 DB 에서 자동 주입.
+# DEV_GUILD_ID 는 의도적으로 비움(미설정) → 슬래시 명령 글로벌 동기화.
+services:
+  - type: web
+    name: maple-mate
+    env: docker
+    plan: starter            # 상시 가동(무료 티어는 슬립 → 게이트웨이/스케줄러 사망)
+    dockerfilePath: ./Dockerfile
+    numInstances: 1          # 정확히 1 — 스케줄러 in-process라 2개면 알림 중복발송
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: DISCORD_BOT_TOKEN
+        sync: false
+      - key: NEXON_APP_KEY
+        sync: false
+      - key: FERNET_MASTER_KEY
+        sync: false           # 분실 시 등록된 개인키 전부 복호화 불가 — 안전 보관 필수
+      - key: OPERATOR_TOKEN
+        sync: false
+      - key: ADMIN_CHANNEL_ID
+        sync: false
+      - key: DATABASE_URL
+        fromDatabase:
+          name: maple-mate-db
+          property: connectionString   # 같은 리전 내부 DSN(postgresql://)
+
+databases:
+  - name: maple-mate-db
+    plan: basic-256mb        # 유료(~$7/월). 무료 DB는 30일 만료·백업 없음
+    postgresMajorVersion: "16"

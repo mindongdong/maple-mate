@@ -8,7 +8,7 @@ import discord
 from discord import app_commands
 
 from ..bot import comparison, table_image
-from ..bot.embeds import defer, make_embed
+from ..bot.embeds import append_source, defer, make_embed
 from ..dependencies import Deps
 from ..registration import service as reg
 from . import service
@@ -61,7 +61,7 @@ async def handle_union(
         await interaction.followup.send(embed=comparison.all_failed_embed("유니온 비교", outcomes))
         return
 
-    footer = comparison.data_footer(successes[0].data.date)
+    footer = append_source(comparison.data_footer(successes[0].data.date))
 
     # 단일 대상 = 카드 + 유저 태그(표는 비교 때만 의미 있음).
     if len(outcomes) == 1:

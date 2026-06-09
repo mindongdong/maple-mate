@@ -1,7 +1,7 @@
 """썬데이 임베드 빌드 단위테스트 (순수 — 작업지시서 Q6). discord 발송은 안 함."""
 from __future__ import annotations
 
-from maple_mate.bot.embeds import BRAND_COLOR
+from maple_mate.bot.embeds import BRAND_COLOR, DATA_SOURCE
 from maple_mate.notification.scheduler import build_event_embeds
 from maple_mate.notification.service import SundayEvent
 
@@ -27,7 +27,7 @@ def test_embed_has_hyperlinked_title_period_thumbnail_and_banner():
     assert embed.thumbnail.url == "https://x/thumb.jpg"  # 목록 작은 썸네일
     assert embed.image.url == "https://lwi/banner.png"  # 상세 본문 큰 배너
     assert embed.color == BRAND_COLOR
-    assert embed.footer.text is None  # 데이터-푸터 없음
+    assert embed.footer.text == DATA_SOURCE  # 넥슨 출처표시(제6조④)
 
 
 def test_embed_omits_thumbnail_when_none():
