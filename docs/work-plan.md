@@ -18,9 +18,9 @@
 | Phase 2 — 스펙류(`/스펙`·`/유니온`·`/아이템`) | ✅ 완료 | PR #2 |
 | Phase 3 — 이력류 | ✅ 완료 | **`/스타포스`(PR #4)·`/잠재`(PR #5) 완료** · `/잠재합계` 폐기(통합) · G2(메소 단가표) 해소 · G1(등업 라이브 확정)만 잔류 검증 |
 | Phase 4 — 알림 | 🟡 일부 | **`/썬데이`+스케줄러(PR #3)·`/공지알림`(PR #7) 완료** · 수동 HTTP 썬데이만 미착수 · 미해결 결정 #3 해소(스파이크 불요 확인) |
-| Phase 5 — 운영 요약 | ⬜ 미착수 | |
+| Phase 5 — 운영 요약 | ✅ 완료 | grill 완료 → "운영 오류 대응 보고"로 설계(선별·0건생략·앱키빨강·retention). 작업지시서=docs/phase5-work-order.md |
 
-**다음 작업 후보**: 수동 썬데이 HTTP 엔드포인트(Phase 4, `broadcast_sunday` 재사용 준비됨) · 일일 운영 요약(Phase 5). (`/잠재` G1 등업 라이브 확정은 봇 가동 시 `scripts/spike_potential.py` 1콜로 마무리. `/공지알림` 6시각 폴링·baseline은 봇 가동 시 1주기 관찰.)
+**다음 작업 후보**: 구현 단계 종료 — 남은 것은 **봇 가동 시 라이브 검증**뿐. **Phase 5 운영 요약** 발송 1회(`scripts/trigger_ops_summary.py` — 앱키 빨강·"외 N종"·헬스 command 분해 눈 확인). `/잠재` G1 등업 라이브 확정은 봇 가동 시 `scripts/spike_potential.py` 1콜로 마무리. `/공지알림` 6시각 폴링·baseline은 봇 가동 시 1주기 관찰.
 
 ## 참조 문서 (중복 금지 — 경로로 참조)
 
@@ -82,8 +82,8 @@
 - ✅ **/공지알림** (PR #7) — 6회/일(10·12·14·16·18·21시 KST) 폴링, 공지(`notice`)+업데이트(`notice-update`), **이벤트 제외**(`/썬데이` 담당). 신규 판정=카테고리별 `notice_id` 최대값(`id > last_id`), **최초가동=baseline만**(과거 미발송), 다건=오래된→최신 전부. 텍스트 임베드(제목+링크+등록일)·10개 청킹. 미니 스파이크는 **불요로 판명**(Spike 0에서 세 엔드포인트 실호출 검증 완료, 미해결 결정 #3 해소). 리뷰 반영: **마커 전진-only**(짧은 페이지 시 중복 재발송 차단)·`updated_at` on_conflict 명시·`max_instances=1`. 검증 도구 `scripts/trigger_notice.py`. 전달-무관 계층(`notification/notice_service.py`).
 - ✅ **수동 썬데이 HTTP 엔드포인트**(FastAPI) — `POST /sunday/broadcast`, Bearer 토큰 상수시간 비교(`secrets.compare_digest`, 실패 401 단일), 바디(제목 필수·링크·기간 선택, 단일 이벤트), sunday_alert 채널 즉시발송 + 주차 중복마킹(자동발송과 공유). **마킹 게이트는 자동잡(`channels>0`)과 의도적 분기 — `sent>0`일 때만** 마킹해 실제 전달 0이면 금요일 자동발송을 살린다(핸드오프 #7). 주차 dedup 미체크(운영자 override). `app.state.bot` 주입으로 HTTP→봇 배선. 검증 도구 `scripts/trigger_sunday.py`(HTTP 호출형으로 교체). 상세 [manual-sunday-handoff.md](manual-sunday-handoff.md)·[manual-sunday-work-order.md](manual-sunday-work-order.md).
 
-### 🛠️ Phase 5 — 운영 ⬜ 미착수
-- ⬜ **일일 운영 요약** — *검증: 09:00 KST, 전날 error_log 집계(타입별 건수 + 미매칭 장비 상위 N) → ADMIN_CHANNEL_ID*
+### 🛠️ Phase 5 — 운영 ✅ 완료
+- ✅ **운영 요약** — 설계 §6 "타입별 건수(전체)" → **"운영 오류 대응 보고"로 진화**(grill). 매일 09:00 KST, 전날 error_log를 **운영자가 대응 가능한 오류만 선별**: ① 미상 장비(`unmatched_equipment` distinct+빈도순 상위10 → 시드 보강) ② 봇 앱키 실패(`auth_invalid` & `discord_user_id IS NULL`, 최우선·🔴빨강) ③ 헬스(nexon_api/timeout/rate_limit, 타입+command 분해+대표 detail). **친구 개인 키 실패는 제외**(자가 발견). **세 섹션 모두 비면 발송 생략**(0건 노이즈 차단). 임베드 1개(섹션 순서 앱키→미상→헬스). 같은 09:00 잡에서 **90일 retention prune**. 단일 채널(`ADMIN_CHANNEL_ID`, 글로벌·`guild_id` 무시). 모듈: `error_log/summary.py`(순수 집계+DB) + `notification/scheduler.py`(임베드·잡). 구현 완료. 상세 [phase5-work-order.md](phase5-work-order.md)·용어 [CONTEXT.md](../CONTEXT.md) `운영 요약`.
 
 ### 횡단 규칙 (전 Phase 적용 — design §7)
 모든 비교 명령 defer 의무 · 임베드 통일 · 초과인원 버튼 페이지네이션 · /스펙만 5명 상한 · error_log는 **재시도 발생 건만** 기록.
@@ -104,8 +104,7 @@
 
 ## 다음 세션 권장 스킬
 
-- **다음 작업(`/공지알림` 또는 운영 요약)**: `/공지알림`은 카테고리/규칙 미니 스파이크 선행 후 구현. 코드 작성은 `executor` 에이전트(복잡 작업 model=opus).
-- **미니 스파이크 전 규칙 확정**: `/grill-with-docs` 재실행으로 미해결 결정(공지 카테고리 규칙) 해소.
+- **다음 작업(라이브 검증)**: Phase 5 운영 요약 구현 완료(`error_log/summary.py`·09:00 잡·`scripts/trigger_ops_summary.py`·단위테스트 21개). 봇 가동 시 `scripts/trigger_ops_summary.py` 1회로 임베드 눈 확인.
 - **API/SDK 사용 불확실 시**: `document-specialist` 에이전트(discord.py·넥슨 API 레퍼런스).
 
 ## 주의

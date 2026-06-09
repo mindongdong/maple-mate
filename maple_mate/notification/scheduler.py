@@ -9,7 +9,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable, Sequence
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
 import discord
@@ -19,6 +19,7 @@ from apscheduler.triggers.cron import CronTrigger
 from ..bot.embeds import BRAND_COLOR
 from ..dependencies import Deps
 from ..error_log import service as error_log
+from ..error_log import summary as ops_summary
 from ..nexon.client import KST
 from ..nexon.errors import NexonAPIError, to_error_log_type
 from . import notice_service, service
@@ -39,6 +40,9 @@ MISFIRE_GRACE_SAME_DAY = 13 * 3600 + 50 * 60
 # /공지알림 폴링: 매일 10·12·14·16·18·21시 KST(design §3.6). 발송 대상은 공지+업데이트(이벤트 제외).
 NOTICE_HOURS = "10,12,14,16,18,21"
 NOTICE_MINUTE = 0
+
+# 운영 요약: 매일 09:00 KST.
+OPS_SUMMARY_HOUR, OPS_SUMMARY_MINUTE = 9, 0
 # 한 메시지 임베드 상한(디스코드). 신규 다건이 이를 넘으면 여러 메시지로 쪼개 보낸다.
 EMBEDS_PER_MESSAGE = 10
 
@@ -159,6 +163,76 @@ async def run_sunday_job(bot: discord.Client, deps: Deps) -> None:
     log.info("썬데이 발송: 이벤트 %d건 → 채널 %d/%d", len(events), sent, len(channels))
     # 채널 부분 실패와 무관하게 마킹 강행(Q3③) — 같은 주 재시도 폭주 방지.
     await service.mark_week_sent(session_factory, week_id)
+
+
+async def _fetch_admin_channel(
+    bot: discord.Client, channel_id: int
+) -> discord.abc.Messageable | None:
+    """어드민 채널 해석: 캐시 → fetch 폴백. 실패 시 앱로그만(guild 인자 없음)."""
+    try:
+        return await bot.fetch_channel(channel_id)  # type: ignore[return-value]
+    except discord.HTTPException as exc:
+        log.warning("운영 요약 채널 해석 실패 (channel=%s): %s", channel_id, exc)
+        return None
+
+
+def build_ops_summary_embed(
+    s: ops_summary.OpsSummary, ref_date
+) -> discord.Embed | None:
+    """OpsSummary → 운영 요약 임베드. 비면 None(순수 — 단위테스트 대상).
+
+    색: 앱키 실패 ≥1 → 빨강 / 아니면 BRAND_COLOR. 섹션 순서 앱키→미상→헬스, 있는 것만.
+    """
+    if s.is_empty:
+        return None
+    color = discord.Color.red() if s.app_key_failures else BRAND_COLOR
+    embed = discord.Embed(title=f"🛠 운영 요약 · {ref_date:%Y-%m-%d}", color=color)
+
+    # 🚨 앱키 실패 섹션
+    if s.app_key_failures:
+        lines = [f"{s.app_key_failures}건 — 봇 앱 키 인증 실패(봇 전체 마비 가능)"]
+        if s.app_key_recent_detail:
+            lines.append(f"최근: {s.app_key_recent_detail}")
+        embed.add_field(name="🚨 봇 앱 키 실패", value="\n".join(lines), inline=False)
+
+    # 🔧 미상 장비 섹션
+    if s.unmatched:
+        item_lines = [f"`{name}` ×{cnt}" for name, cnt in s.unmatched]
+        if s.unmatched_kinds > len(s.unmatched):
+            item_lines.append(f"…외 {s.unmatched_kinds - len(s.unmatched)}종")
+        embed.add_field(name="🔧 미상 장비 레벨", value="\n".join(item_lines), inline=False)
+
+    # ⚠️ 헬스 섹션(타입별 필드)
+    for entry in s.health:
+        lines = [f"{entry.count}건"]
+        if entry.by_command:
+            lines.append(" · ".join(f"{cmd} {cnt}" for cmd, cnt in entry.by_command))
+        if entry.recent_detail:
+            lines.append(f"최근: {entry.recent_detail}")
+        embed.add_field(name=f"⚠️ {entry.error_type}", value="\n".join(lines), inline=False)
+
+    embed.set_footer(text=f"데이터 기준: {ref_date:%Y-%m-%d} KST")
+    return embed
+
+
+async def run_ops_summary_job(bot: discord.Client, deps: Deps) -> None:
+    """09:00 잡: 집계 → (비어있지 않으면)ADMIN_CHANNEL 발송 → prune. 발송과 prune 독립."""
+    now = datetime.now(KST)
+    rows = await ops_summary.fetch_yesterday_errors(deps.session_factory, now)
+    s = ops_summary.aggregate(rows)
+    ref_date = (now.astimezone(KST) - timedelta(days=1)).date()
+    embed = build_ops_summary_embed(s, ref_date)
+    if embed is not None:  # 0건이면 발송 생략(Q3)
+        channel = bot.get_channel(deps.config.admin_channel_id) or await _fetch_admin_channel(
+            bot, deps.config.admin_channel_id
+        )
+        if channel is not None:
+            try:
+                await channel.send(embed=embed)
+            except discord.HTTPException as exc:  # 발송 실패는 앱로그만(자기참조 차단)
+                log.warning("운영 요약 발송 실패: %s", exc)
+    pruned = await ops_summary.prune_old_errors(deps.session_factory, now)  # 발송 여부와 독립
+    log.info("운영 요약: 발송=%s, prune=%d행", embed is not None, pruned)
 
 
 def build_notice_embeds(items: Sequence[NoticeItem]) -> list[discord.Embed]:
@@ -286,6 +360,15 @@ def start_scheduler(bot: discord.Client, deps: Deps) -> AsyncIOScheduler:
         name="공지 알림",
         coalesce=True,
         max_instances=1,  # 마커 read-modify-write 가 비트랜잭션이라 중복 실행 시 중복 발송 위험 → 명시.
+    )
+    scheduler.add_job(
+        run_ops_summary_job,
+        trigger=CronTrigger(hour=OPS_SUMMARY_HOUR, minute=OPS_SUMMARY_MINUTE, timezone=KST_ZONE),
+        args=[bot, deps],
+        id="ops_summary",
+        name="운영 요약",
+        coalesce=True,
+        max_instances=1,
     )
     scheduler.start()
     log.info(
