@@ -105,6 +105,26 @@ async def broadcast_sunday(
     return sent
 
 
+async def manual_broadcast_sunday(
+    bot: discord.Client, deps: Deps, event: SundayEvent
+) -> tuple[int, int]:
+    """운영자 수동 발송: 채널 조회 → 즉시 발송 → sent>0 이면 주차 마킹. (sent, total) 반환.
+
+    자동 run_sunday_job 과 달리 already_sent_this_week 체크 없음(운영자 override, #2).
+    마킹 게이트도 자동잡(channels>0)과 달리 **sent>0** — 실제 전달 0이면 그 주는
+    미처리로 남겨 금요일 자동발송을 살린다(#3·#7). 봇 의존이라 전달-무관 service 가 아닌 여기.
+    """
+    channels = await service.enabled_sunday_channels(deps.session_factory)
+    total = len(channels)
+    if total == 0:
+        return (0, 0)  # 0채널 → 마킹 안 함(#3)
+    sent = await broadcast_sunday(bot, channels, [event])
+    if sent > 0:  # sent>0 일 때만 마킹(#7)
+        week_id = service.current_week_id(datetime.now(KST))
+        await service.mark_week_sent(deps.session_factory, week_id)
+    return (sent, total)
+
+
 async def run_sunday_job(bot: discord.Client, deps: Deps) -> None:
     """정기 잡 본체: 주차 체크→스킵 / 채널 0개→스킵(넥슨 호출 안 함) / 매칭 0개→스킵 / 발송→마킹."""
     session_factory = deps.session_factory

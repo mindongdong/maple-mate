@@ -43,6 +43,7 @@ async def serve(config: Config) -> None:
     deps, engine = build_deps(config)
     bot = MapleMateBot(deps=deps, dev_guild_id=config.dev_guild_id)
     app = create_app(deps)
+    app.state.bot = bot  # 수동 썬데이 HTTP 핸들러가 broadcast 에 쓸 봇 레퍼런스(#1)
     server = uvicorn.Server(
         uvicorn.Config(app, host=HTTP_HOST, port=HTTP_PORT, log_level="info", loop="asyncio")
     )
