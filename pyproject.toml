@@ -43,5 +43,6 @@ asyncio_mode = "auto"
 testpaths = ["tests"]
 markers = [
     "live: 실제 넥슨 API를 호출하는 테스트 (기본 비활성, `-m live`로 실행)",
+    "slow: 부하 시뮬 등 수초 단위 테스트 (CI 포함, `-m 'not slow'`로 제외 가능)",
 ]
 addopts = "-m 'not live'"
