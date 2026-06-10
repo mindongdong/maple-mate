@@ -254,6 +254,65 @@ async def test_personal_keys_have_independent_buckets():
     assert elapsed < 0.15  # 같은 버킷에 직렬화됐다면 ≥0.4s(0.2×2)
 
 
+# ── 최신 스펙 30분 캐시 (스케일 튜닝 3-2, D5) ─────────────────────────
+
+
+def _spec_handler(calls: dict[str, int]):
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] = calls.get("n", 0) + 1
+        return httpx.Response(200, json={"date": None, "character_level": 280})
+
+    return handler
+
+
+async def test_spec_without_date_is_cached_within_ttl():
+    calls: dict[str, int] = {}
+    async with _client(_spec_handler(calls)) as client:
+        first = await client.character_basic("oc1")
+        second = await client.character_basic("oc1")
+    assert first == second
+    assert calls["n"] == 1  # 30분 내 동일 (path, ocid) 재호출 → HTTP 0회
+
+
+async def test_spec_cache_keyed_by_path_and_ocid():
+    calls: dict[str, int] = {}
+    async with _client(_spec_handler(calls)) as client:
+        await client.character_basic("oc1")
+        await client.character_basic("oc2")  # 다른 ocid → 비적중
+        await client.character_stat("oc1")  # 다른 path → 비적중
+    assert calls["n"] == 3
+
+
+async def test_spec_cache_expires_after_ttl(monkeypatch):
+    from maple_mate.nexon import client as client_mod
+
+    clock = {"t": 1000.0}
+
+    class _FakeTime:
+        @staticmethod
+        def monotonic() -> float:
+            return clock["t"]
+
+    monkeypatch.setattr(client_mod, "time", _FakeTime)
+    calls: dict[str, int] = {}
+    async with _client(_spec_handler(calls)) as client:
+        await client.character_basic("oc1")
+        clock["t"] += client_mod.SPEC_CACHE_TTL - 1
+        await client.character_basic("oc1")  # TTL 직전 → 캐시
+        assert calls["n"] == 1
+        clock["t"] += 2
+        await client.character_basic("oc1")  # TTL 경과 → 재조회
+    assert calls["n"] == 2
+
+
+async def test_spec_with_date_is_not_cached():
+    calls: dict[str, int] = {}
+    async with _client(_spec_handler(calls)) as client:
+        await client.character_basic("oc1", date="2026-06-01")
+        await client.character_basic("oc1", date="2026-06-01")
+    assert calls["n"] == 2  # date 지정 호출은 비캐시
+
+
 async def test_fetch_image_rejects_non_image_body_and_does_not_cache():
     calls = {"n": 0}
 

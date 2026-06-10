@@ -26,6 +26,10 @@ KST = timezone(timedelta(hours=9))
 # 환경변수로 노출하지 않는다(ADR-0004). 앱 키 간격은 생성자 `throttle`(NEXON_THROTTLE).
 PERSONAL_KEY_THROTTLE = 0.2
 
+# 최신(date 무지정) 스펙 응답 캐시 TTL(초). 스펙류는 일 단위(D-1) 스냅샷이라
+# 30분 stale 무해(작업지시서 D5). date 지정 호출은 비캐시(CombatPowerCache 담당).
+SPEC_CACHE_TTL = 30 * 60
+
 
 class _ThrottleBucket:
     """키 1개의 스로틀 상태. lock 으로 같은 키 호출만 직렬화한다(타 키 비차단)."""
@@ -83,6 +87,8 @@ class NexonClient:
         self._image_cache: dict[
             str, bytes
         ] = {}  # 정적 아이콘 URL → bytes (불변 자산이라 영구 캐시)
+        # 최신 스펙 단기 캐시(D5): (path, ocid) → (응답, 저장 시각 monotonic).
+        self._spec_cache: dict[tuple[str, str], tuple[dict, float]] = {}
 
     async def aclose(self) -> None:
         await self._client.aclose()
@@ -306,7 +312,16 @@ class NexonClient:
     # OPENAPI00009("data not ready") 는 호출자가 "전일 미생성"으로 안내(에러 아님).
 
     async def _spec(self, path: str, ocid: str, date: str | None = None) -> dict:
-        return await self._request(path, ocid=ocid, date=date)
+        if date is not None:  # 과거 스냅샷 조회는 비캐시(기존 CombatPowerCache 담당)
+            return await self._request(path, ocid=ocid, date=date)
+        cached = self._spec_cache.get((path, ocid))
+        if cached is not None:
+            data, stored_at = cached
+            if time.monotonic() - stored_at < SPEC_CACHE_TTL:
+                return data
+        data = await self._request(path, ocid=ocid, date=None)
+        self._spec_cache[(path, ocid)] = (data, time.monotonic())
+        return data
 
     async def character_basic(self, ocid: str, date: str | None = None) -> dict:
         return await self._spec("maplestory/v1/character/basic", ocid, date)
