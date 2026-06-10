@@ -30,6 +30,8 @@ _FONT_CANDIDATES: tuple[tuple[str, int, int], ...] = (
     ("/System/Library/Fonts/AppleSDGothicNeo.ttc", 0, 6),
     ("/System/Library/Fonts/Supplemental/AppleGothic.ttf", 0, 0),
     ("/Library/Fonts/NanumGothic.ttf", 0, 0),
+    # 리눅스(CI 러너·프로덕션 컨테이너): debian fonts-nanum 패키지 경로.
+    ("/usr/share/fonts/truetype/nanum/NanumGothic.ttf", 0, 0),
 )
 
 # 디스코드 다크 임베드에 어울리는 팔레트.

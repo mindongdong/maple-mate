@@ -29,6 +29,8 @@ jobs:
       - uses: astral-sh/setup-uv@v5
         with:
           enable-cache: true
+      # 표 이미지 렌더링 테스트용 한글 폰트 (table_image._FONT_CANDIDATES 리눅스 경로)
+      - run: sudo apt-get update -qq && sudo apt-get install -y -qq fonts-nanum
       - run: uv sync --frozen
       # live 마커는 pyproject addopts(-m 'not live')로 기본 제외 — 오프라인 실행
       - run: uv run pytest
