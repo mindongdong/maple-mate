@@ -193,7 +193,9 @@ async def handle_spec(
                 ),
             ]
         )
-    embed, file = comparison.table_image_message(
+    # 표 PNG 렌더(CPU)는 워커 스레드로 — 이벤트루프 비차단(D6).
+    embed, file = await asyncio.to_thread(
+        comparison.table_image_message,
         "스펙 비교",
         headers,
         rows,
@@ -301,7 +303,8 @@ async def handle_item(
         )
         for o, icon in zip(successes, icons)
     ]
-    png = item_card.render_item_cards(cards)
+    # 카드 PNG 렌더(CPU)는 워커 스레드로 — 이벤트루프 비차단(D6).
+    png = await asyncio.to_thread(item_card.render_item_cards, cards)
     embed, file = comparison.image_message(
         f"아이템 — {slot}",
         png,

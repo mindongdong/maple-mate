@@ -5,6 +5,8 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import discord
 from discord import app_commands
 
@@ -106,7 +108,9 @@ async def handle_union(
                 ),
             ]
         )
-    embed, file = comparison.table_image_message(
+    # 표 PNG 렌더(CPU)는 워커 스레드로 — 이벤트루프 비차단(D6).
+    embed, file = await asyncio.to_thread(
+        comparison.table_image_message,
         "유니온 비교",
         headers,
         rows,
