@@ -7,6 +7,7 @@
 순수: 항목 파싱(`parse_notices`)·신규 선별(`select_new`)·최대 id(`latest_id`)·등록일 포맷.
 DB: 카테고리별 마지막 발송 id 읽기/쓰기(notice_state), 알림 채널 조회, 채널 토글 upsert.
 """
+
 from __future__ import annotations
 
 from collections.abc import Sequence

@@ -1,4 +1,5 @@
 """넥슨 에러코드 → 분류 매핑 단위테스트 (handoff §3.1·§6)."""
+
 from __future__ import annotations
 
 import pytest

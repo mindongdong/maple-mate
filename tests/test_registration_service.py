@@ -2,9 +2,9 @@
 
 DB upsert 는 통합 영역이라 여기서 제외(순수/모킹 가능한 부분만). resolve_ocid·키검증·암호화 검증.
 """
+
 from __future__ import annotations
 
-import pytest
 from cryptography.fernet import Fernet
 
 from maple_mate.nexon.errors import NexonAPIError
@@ -69,6 +69,8 @@ async def test_verify_and_encrypt_invalid_key_rejected():
 
 
 async def test_verify_and_encrypt_api_error_returns_message():
-    nexon = FakeNexon(raise_on_verify=NexonAPIError("OPENAPI00001", "internal", http_status=500))
+    nexon = FakeNexon(
+        raise_on_verify=NexonAPIError("OPENAPI00001", "internal", http_status=500)
+    )
     enc, err = await service.verify_and_encrypt_key(nexon, CIPHER, "k")
     assert enc is None and "잠시 후" in err

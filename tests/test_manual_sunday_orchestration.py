@@ -3,6 +3,7 @@
 핸드오프 #2(override·dedup 체크 안 함)·#3(0채널 미마킹)·#7(sent>0 게이트). 모든 I/O
 (DB·디스코드)를 페이크로 막고 제어흐름만 검증(test_sunday_job 과 동일 방침).
 """
+
 from __future__ import annotations
 
 import pytest
@@ -10,7 +11,9 @@ import pytest
 from maple_mate.notification import scheduler
 from maple_mate.notification.service import SundayEvent
 
-_EVENT = SundayEvent(title="썬데이 메이플", url="", thumbnail_url=None, period_text="기간 미정")
+_EVENT = SundayEvent(
+    title="썬데이 메이플", url="", thumbnail_url=None, period_text="기간 미정"
+)
 
 
 def _deps():
@@ -35,7 +38,9 @@ def patched(monkeypatch):
     async def mark_week_sent(sf, week_id):
         calls.append("mark")
 
-    monkeypatch.setattr(scheduler.service, "enabled_sunday_channels", enabled_sunday_channels)
+    monkeypatch.setattr(
+        scheduler.service, "enabled_sunday_channels", enabled_sunday_channels
+    )
     monkeypatch.setattr(scheduler, "broadcast_sunday", broadcast_sunday)
     monkeypatch.setattr(scheduler.service, "mark_week_sent", mark_week_sent)
     return calls, state

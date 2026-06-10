@@ -3,6 +3,7 @@
 dispatch 의 `database/core.py` 격. 모든 도메인 모델은 여기 `Base` 를 상속한다.
 도메인 모델 모듈을 임포트하면 그 테이블이 `Base.metadata` 에 등록된다(alembic 이 이를 사용).
 """
+
 from __future__ import annotations
 
 from sqlalchemy.ext.asyncio import (
@@ -26,9 +27,9 @@ def normalize_db_url(url: str) -> str:
     그대로 둔다. 그 외 스킴(sqlite 등)도 손대지 않는다.
     """
     if url.startswith("postgres://"):  # 일부 제공자(Heroku 계열) 표기
-        url = "postgresql://" + url[len("postgres://"):]
+        url = "postgresql://" + url[len("postgres://") :]
     if url.startswith("postgresql://"):  # 드라이버 미지정 → asyncpg 명시
-        return "postgresql+asyncpg://" + url[len("postgresql://"):]
+        return "postgresql+asyncpg://" + url[len("postgresql://") :]
     return url
 
 

@@ -9,6 +9,7 @@
 - OPENAPI00001/00006/00011 → nexon_api(장애). 00010(서비스 점검 중)도 같은 가용성 장애로
   보아 nexon_api 로 분류(README 열거 집합엔 없으나 사용자 응대가 00011과 동일해 의도적 확장).
 """
+
 from __future__ import annotations
 
 from enum import Enum

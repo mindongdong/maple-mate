@@ -1,4 +1,5 @@
 """레벨 3단 매칭 + 장착 레벨 파싱 단위테스트."""
+
 from __future__ import annotations
 
 from maple_mate.history.equipment_level import (
@@ -34,7 +35,14 @@ def test_match_level_set_name_substring() -> None:
 
 def test_match_level_set_overrides_equipped_and_seed() -> None:
     # 세트명 매칭은 무조건 최우선 — 장착/시드에 다른 값이 있어도 세트 레벨로 고정.
-    assert match_level("에테르넬 나이트아머", {"에테르넬 나이트아머": 999}, {"에테르넬 나이트아머": 1}) == 250
+    assert (
+        match_level(
+            "에테르넬 나이트아머",
+            {"에테르넬 나이트아머": 999},
+            {"에테르넬 나이트아머": 1},
+        )
+        == 250
+    )
 
 
 def test_match_level_boss_accessory_seed() -> None:
@@ -68,8 +76,14 @@ class _FakeNexon:
 async def test_fetch_equipped_levels_parses_names_and_levels() -> None:
     payload = {
         "item_equipment": [
-            {"item_name": "하이네스 워리어헬름", "item_base_option": {"base_equipment_level": 150}},
-            {"item_name": "아케인셰이드 나이트슈즈", "item_base_option": {"base_equipment_level": 200}},
+            {
+                "item_name": "하이네스 워리어헬름",
+                "item_base_option": {"base_equipment_level": 150},
+            },
+            {
+                "item_name": "아케인셰이드 나이트슈즈",
+                "item_base_option": {"base_equipment_level": 200},
+            },
         ]
     }
     levels = await fetch_equipped_levels(_FakeNexon(payload), "ocid")

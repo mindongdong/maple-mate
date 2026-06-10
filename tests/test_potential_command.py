@@ -3,6 +3,7 @@
 핵심 도메인 구분: 기록 없음(키 있으나 기간 내 큐브+재설정 0) vs 조회 실패(넥슨 에러) vs 성공.
 키 미등록은 handle 단계 필터라 여기선 _process_target(키 있는 대상)만 검증.
 """
+
 from __future__ import annotations
 
 from datetime import date
@@ -23,7 +24,9 @@ from maple_mate.registration.service import Target, TargetOutcome
 DATES = [date(2026, 5, 31)]
 
 
-def _raw(name: str, *, result: str = "성공", grades=("에픽",), cube: bool = True) -> dict:
+def _raw(
+    name: str, *, result: str = "성공", grades=("에픽",), cube: bool = True
+) -> dict:
     base = {
         "character_name": name,
         "item_upgrade_result": result,
@@ -38,7 +41,9 @@ def _raw(name: str, *, result: str = "성공", grades=("에픽",), cube: bool = 
         "after_additional_potential_option": [],
         "date_create": "2026-05-31T17:00:00+09:00",
     }
-    base["cube_type" if cube else "potential_type"] = "수상한 큐브" if cube else "잠재능력"
+    base["cube_type" if cube else "potential_type"] = (
+        "수상한 큐브" if cube else "잠재능력"
+    )
     return base
 
 
@@ -92,7 +97,11 @@ def _make_deps(nexon: _FakeNexon) -> tuple[Deps, list[object]]:
 
 def _target(nickname: str = "손바") -> HistoryTarget:
     return HistoryTarget(
-        guild_id=1, discord_user_id=2, nickname=nickname, ocid="oc1", api_key_encrypted="enc"
+        guild_id=1,
+        discord_user_id=2,
+        nickname=nickname,
+        ocid="oc1",
+        api_key_encrypted="enc",
     )
 
 
@@ -135,7 +144,9 @@ async def test_fetch_failure_returns_outcome_and_logs_error() -> None:
 # ── _upgrade_cell: 뱃지 vs '—' ─────────────────────────────────────────────
 
 
-def _summary(*, tierups=(), cube_count=0, reset_count=0, total_meso=None) -> PotentialSummary:
+def _summary(
+    *, tierups=(), cube_count=0, reset_count=0, total_meso=None
+) -> PotentialSummary:
     return PotentialSummary(
         cube_count=cube_count,
         reset_count=reset_count,
@@ -170,8 +181,14 @@ def test_upgrade_cell_dash_when_no_tierup() -> None:
 
 
 def test_build_table_ranks_by_meso_desc() -> None:
-    low = (Target(guild_id=1, discord_user_id=10, nickname="적은애", ocid="o1"), _summary(total_meso=1_000_000))
-    high = (Target(guild_id=1, discord_user_id=11, nickname="많은애", ocid="o2"), _summary(total_meso=9_000_000))
+    low = (
+        Target(guild_id=1, discord_user_id=10, nickname="적은애", ocid="o1"),
+        _summary(total_meso=1_000_000),
+    )
+    high = (
+        Target(guild_id=1, discord_user_id=11, nickname="많은애", ocid="o2"),
+        _summary(total_meso=9_000_000),
+    )
     embed, file = _build_table([low, high], [], "2026-05-31")
     # 범례(embed.description)는 ranked 순서대로 닉을 나열 → 메소 많은애가 앞.
     desc = embed.description or ""

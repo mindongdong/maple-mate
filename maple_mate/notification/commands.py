@@ -3,6 +3,7 @@
 단일 `/썬데이` + 필수 `상태`(켜기/끄기) 평면 구조. 서버 관리(`manage_guild`) 권한을
 인라인 체크하고 거부는 ephemeral. DM 가드. 토글은 명령이 실행된 채널 단위(design §2).
 """
+
 from __future__ import annotations
 
 import discord
@@ -18,7 +19,9 @@ async def handle_sunday(
 ) -> None:
     if interaction.guild_id is None or interaction.channel_id is None:
         await interaction.response.send_message(
-            embed=make_embed("썬데이 알림", "서버(길드) 채널 안에서만 설정할 수 있어요."),
+            embed=make_embed(
+                "썬데이 알림", "서버(길드) 채널 안에서만 설정할 수 있어요."
+            ),
             ephemeral=True,
         )
         return

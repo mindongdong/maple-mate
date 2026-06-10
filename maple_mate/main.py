@@ -3,6 +3,7 @@
 .env fail-fast 로딩 → 엔진/세션·넥슨·암호화를 `Deps` 로 조립 → discord 봇 + FastAPI(uvicorn)를
 한 이벤트 루프에서 동시 기동. 실행: `uv run python -m maple_mate`.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -37,7 +38,9 @@ def build_deps(config: Config) -> tuple[Deps, object]:
     session_factory = make_session_factory(engine)
     nexon = NexonClient(config.nexon_app_key)
     cipher = KeyCipher(config.fernet_master_key)
-    deps = Deps(config=config, session_factory=session_factory, nexon=nexon, cipher=cipher)
+    deps = Deps(
+        config=config, session_factory=session_factory, nexon=nexon, cipher=cipher
+    )
     return deps, engine
 
 
@@ -47,12 +50,18 @@ async def serve(config: Config) -> None:
     app = create_app(deps)
     app.state.bot = bot  # 수동 썬데이 HTTP 핸들러가 broadcast 에 쓸 봇 레퍼런스(#1)
     server = uvicorn.Server(
-        uvicorn.Config(app, host=HTTP_HOST, port=HTTP_PORT, log_level="info", loop="asyncio")
+        uvicorn.Config(
+            app, host=HTTP_HOST, port=HTTP_PORT, log_level="info", loop="asyncio"
+        )
     )
 
-    log.info("maple-mate 기동: discord 봇 + uvicorn(%s:%d) 동시 시작", HTTP_HOST, HTTP_PORT)
+    log.info(
+        "maple-mate 기동: discord 봇 + uvicorn(%s:%d) 동시 시작", HTTP_HOST, HTTP_PORT
+    )
     server_task = asyncio.create_task(server.serve(), name="uvicorn")
-    bot_task = asyncio.create_task(bot.start(config.discord_bot_token), name="discord-bot")
+    bot_task = asyncio.create_task(
+        bot.start(config.discord_bot_token), name="discord-bot"
+    )
     tasks = {server_task, bot_task}
     try:
         # 둘 중 하나라도 끝나거나 실패하면 전체를 종료(한쪽만 살아남는 상태 방지).
@@ -77,7 +86,10 @@ def main() -> None:
         config = load_config()  # fail-fast: 필수 키 누락 시 ConfigError
     except ConfigError as exc:
         print(f"[기동 거부] {exc}", file=sys.stderr)
-        print("→ .env 의 필수 항목을 채운 뒤 다시 실행하세요 (.env.example 참고).", file=sys.stderr)
+        print(
+            "→ .env 의 필수 항목을 채운 뒤 다시 실행하세요 (.env.example 참고).",
+            file=sys.stderr,
+        )
         sys.exit(1)
     try:
         asyncio.run(serve(config))

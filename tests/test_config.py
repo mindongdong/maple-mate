@@ -1,4 +1,5 @@
 """config.py fail-fast 단위테스트 (handoff §6: .env 누락 시 예외)."""
+
 from __future__ import annotations
 
 import pytest
@@ -24,7 +25,9 @@ def test_valid_env_builds_config():
 
 
 def test_missing_keys_raise_with_names():
-    env = {k: v for k, v in _VALID.items() if k not in ("NEXON_APP_KEY", "DATABASE_URL")}
+    env = {
+        k: v for k, v in _VALID.items() if k not in ("NEXON_APP_KEY", "DATABASE_URL")
+    }
     with pytest.raises(ConfigError) as exc:
         Config.from_env(env)
     assert set(exc.value.missing) == {"NEXON_APP_KEY", "DATABASE_URL"}

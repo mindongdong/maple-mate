@@ -5,6 +5,7 @@
 순서대로 가지치기한 뒤 발송→마킹한다. `broadcast_sunday`/`build_event_embeds` 는 미래의
 수동 썬데이 HTTP 엔드포인트(설계 §4, 현재 보류)가 재사용할 수 있도록 채널 목록을 받는다.
 """
+
 from __future__ import annotations
 
 import logging
@@ -80,7 +81,9 @@ async def _resolve_channel(
     try:
         return await bot.fetch_channel(channel_id)  # type: ignore[return-value]
     except discord.HTTPException as exc:  # NotFound/Forbidden 포함
-        log.warning("썬데이 채널 해석 실패 (guild=%s channel=%s): %s", guild_id, channel_id, exc)
+        log.warning(
+            "썬데이 채널 해석 실패 (guild=%s channel=%s): %s", guild_id, channel_id, exc
+        )
         return None
 
 
@@ -106,7 +109,9 @@ async def broadcast_sunday(
             await channel.send(embeds=embeds)
             sent += 1
         except discord.HTTPException as exc:
-            log.warning("썬데이 발송 실패 (guild=%s channel=%s): %s", guild_id, channel_id, exc)
+            log.warning(
+                "썬데이 발송 실패 (guild=%s channel=%s): %s", guild_id, channel_id, exc
+            )
     return sent
 
 
@@ -201,7 +206,9 @@ def build_ops_summary_embed(
         item_lines = [f"`{name}` ×{cnt}" for name, cnt in s.unmatched]
         if s.unmatched_kinds > len(s.unmatched):
             item_lines.append(f"…외 {s.unmatched_kinds - len(s.unmatched)}종")
-        embed.add_field(name="🔧 미상 장비 레벨", value="\n".join(item_lines), inline=False)
+        embed.add_field(
+            name="🔧 미상 장비 레벨", value="\n".join(item_lines), inline=False
+        )
 
     # ⚠️ 헬스 섹션(타입별 필드)
     for entry in s.health:
@@ -210,7 +217,9 @@ def build_ops_summary_embed(
             lines.append(" · ".join(f"{cmd} {cnt}" for cmd, cnt in entry.by_command))
         if entry.recent_detail:
             lines.append(f"최근: {entry.recent_detail}")
-        embed.add_field(name=f"⚠️ {entry.error_type}", value="\n".join(lines), inline=False)
+        embed.add_field(
+            name=f"⚠️ {entry.error_type}", value="\n".join(lines), inline=False
+        )
 
     embed.set_footer(text=f"데이터 기준: {ref_date:%Y-%m-%d} KST")
     return embed
@@ -224,15 +233,17 @@ async def run_ops_summary_job(bot: discord.Client, deps: Deps) -> None:
     ref_date = (now.astimezone(KST) - timedelta(days=1)).date()
     embed = build_ops_summary_embed(s, ref_date)
     if embed is not None:  # 0건이면 발송 생략(Q3)
-        channel = bot.get_channel(deps.config.admin_channel_id) or await _fetch_admin_channel(
-            bot, deps.config.admin_channel_id
-        )
+        channel = bot.get_channel(
+            deps.config.admin_channel_id
+        ) or await _fetch_admin_channel(bot, deps.config.admin_channel_id)
         if channel is not None:
             try:
                 await channel.send(embed=embed)
             except discord.HTTPException as exc:  # 발송 실패는 앱로그만(자기참조 차단)
                 log.warning("운영 요약 발송 실패: %s", exc)
-    pruned = await ops_summary.prune_old_errors(deps.session_factory, now)  # 발송 여부와 독립
+    pruned = await ops_summary.prune_old_errors(
+        deps.session_factory, now
+    )  # 발송 여부와 독립
     log.info("운영 요약: 발송=%s, prune=%d행", embed is not None, pruned)
 
 
@@ -265,7 +276,8 @@ async def broadcast_notices(
     if not embeds:
         return 0
     batches = [
-        embeds[i : i + EMBEDS_PER_MESSAGE] for i in range(0, len(embeds), EMBEDS_PER_MESSAGE)
+        embeds[i : i + EMBEDS_PER_MESSAGE]
+        for i in range(0, len(embeds), EMBEDS_PER_MESSAGE)
     ]
     sent = 0
     for guild_id, channel_id in channels:
@@ -278,7 +290,12 @@ async def broadcast_notices(
                 await channel.send(embeds=batch)
                 delivered = True
             except discord.HTTPException as exc:
-                log.warning("공지 발송 실패 (guild=%s channel=%s): %s", guild_id, channel_id, exc)
+                log.warning(
+                    "공지 발송 실패 (guild=%s channel=%s): %s",
+                    guild_id,
+                    channel_id,
+                    exc,
+                )
                 break
         if delivered:
             sent += 1
@@ -317,7 +334,13 @@ async def _poll_notice_category(
     new_items = notice_service.select_new(items, last_id)
     if new_items:
         sent = await broadcast_notices(bot, channels, new_items)
-        log.info("공지 발송(%s): 신규 %d건 → 채널 %d/%d", category, len(new_items), sent, len(channels))
+        log.info(
+            "공지 발송(%s): 신규 %d건 → 채널 %d/%d",
+            category,
+            len(new_items),
+            sent,
+            len(channels),
+        )
     # 마커는 전진만(절대 후퇴 금지). 페이지가 일시적으로 짧게 와 max id 가 last_id 보다 작아도
     # 마커를 낮추지 않는다 — 낮추면 이미 보낸 공지를 다음 폴링에 중복 재발송하게 됨.
     # baseline(last_id None) 포함, marker > last_id 일 때만 기록(items 비어있지 않으므로 marker 는 int).
@@ -337,7 +360,11 @@ async def run_notice_job(bot: discord.Client, deps: Deps) -> None:
         bot, deps, channels, notice_service.NOTICE_CATEGORY, deps.nexon.notice
     )
     await _poll_notice_category(
-        bot, deps, channels, notice_service.NOTICE_UPDATE_CATEGORY, deps.nexon.notice_update
+        bot,
+        deps,
+        channels,
+        notice_service.NOTICE_UPDATE_CATEGORY,
+        deps.nexon.notice_update,
     )
 
 
@@ -347,7 +374,10 @@ def start_scheduler(bot: discord.Client, deps: Deps) -> AsyncIOScheduler:
     scheduler.add_job(
         run_sunday_job,
         trigger=CronTrigger(
-            day_of_week=SUNDAY_DOW, hour=SUNDAY_HOUR, minute=SUNDAY_MINUTE, timezone=KST_ZONE
+            day_of_week=SUNDAY_DOW,
+            hour=SUNDAY_HOUR,
+            minute=SUNDAY_MINUTE,
+            timezone=KST_ZONE,
         ),
         args=[bot, deps],
         id="sunday",
@@ -366,7 +396,9 @@ def start_scheduler(bot: discord.Client, deps: Deps) -> AsyncIOScheduler:
     )
     scheduler.add_job(
         run_ops_summary_job,
-        trigger=CronTrigger(hour=OPS_SUMMARY_HOUR, minute=OPS_SUMMARY_MINUTE, timezone=KST_ZONE),
+        trigger=CronTrigger(
+            hour=OPS_SUMMARY_HOUR, minute=OPS_SUMMARY_MINUTE, timezone=KST_ZONE
+        ),
         args=[bot, deps],
         id="ops_summary",
         name="운영 요약",

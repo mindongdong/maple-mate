@@ -3,6 +3,7 @@
 성공 경로(200)는 발송 오케스트레이션 쪽(test_manual_sunday_orchestration)에서 다룬다.
 여기선 매퍼 순수성과 HTTP 검증/인증 경계만 본다(bot/deps mock, discord·DB 미접근).
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace
@@ -30,7 +31,10 @@ def _client() -> TestClient:
 def test_to_event_maps_all_fields():
     event = views._to_event(
         views.SundayBroadcastBody(
-            title="썬데이", link="https://x", period="6/9 ~ 6/15", image="https://img/banner.jpg"
+            title="썬데이",
+            link="https://x",
+            period="6/9 ~ 6/15",
+            image="https://img/banner.jpg",
         )
     )
     assert event.title == "썬데이"
@@ -52,13 +56,17 @@ def test_to_event_defaults_when_optional_none():
 
 def test_empty_title_returns_422():
     resp = _client().post(
-        "/sunday/broadcast", json={"title": ""}, headers={"Authorization": f"Bearer {TOKEN}"}
+        "/sunday/broadcast",
+        json={"title": ""},
+        headers={"Authorization": f"Bearer {TOKEN}"},
     )
     assert resp.status_code == 422
 
 
 def test_bad_token_returns_401():
     resp = _client().post(
-        "/sunday/broadcast", json={"title": "x"}, headers={"Authorization": "Bearer nope"}
+        "/sunday/broadcast",
+        json={"title": "x"},
+        headers={"Authorization": "Bearer nope"},
     )
     assert resp.status_code == 401

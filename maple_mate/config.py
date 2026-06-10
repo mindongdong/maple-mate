@@ -4,6 +4,7 @@
 명확한 메시지로 보고한다. `Config.from_env` 은 순수 함수라 .env 없이 단위테스트 가능.
 필수 키 목록은 docs/phase1-handoff.md §4 표 기준.
 """
+
 from __future__ import annotations
 
 import os
@@ -19,13 +20,9 @@ _REQUIRED_STR_KEYS = (
     "DATABASE_URL",
 )
 # 정수(Discord snowflake)로 파싱돼야 하는 필수 키
-_REQUIRED_INT_KEYS = (
-    "ADMIN_CHANNEL_ID",
-)
+_REQUIRED_INT_KEYS = ("ADMIN_CHANNEL_ID",)
 # 선택 정수 키 — 없으면 None(운영 글로벌 동기화), 있으면 정수여야 함(잘못된 값은 오류).
-_OPTIONAL_INT_KEYS = (
-    "DEV_GUILD_ID",
-)
+_OPTIONAL_INT_KEYS = ("DEV_GUILD_ID",)
 
 
 class ConfigError(RuntimeError):
@@ -38,7 +35,9 @@ class ConfigError(RuntimeError):
         if self.missing:
             parts.append("누락된 필수 환경변수: " + ", ".join(self.missing))
         if self.invalid:
-            parts.append("형식이 잘못된 환경변수(정수 필요): " + ", ".join(self.invalid))
+            parts.append(
+                "형식이 잘못된 환경변수(정수 필요): " + ", ".join(self.invalid)
+            )
         super().__init__(" / ".join(parts) or "환경설정 오류")
 
 

@@ -2,6 +2,7 @@
 
 인자 없으면 서버 등록자 전원, 지정 시 그 대상(최대 5명). 부분 성공 허용·페이지네이션.
 """
+
 from __future__ import annotations
 
 import discord
@@ -43,7 +44,9 @@ async def handle_union(
             )
         else:
             await interaction.followup.send(
-                embed=make_embed("유니온", "이 서버에 등록자가 없어요. `/등록` 먼저 해주세요.")
+                embed=make_embed(
+                    "유니온", "이 서버에 등록자가 없어요. `/등록` 먼저 해주세요."
+                )
             )
         return
 
@@ -58,7 +61,9 @@ async def handle_union(
 
     successes = [o for o in outcomes if o.ok]
     if not successes:
-        await interaction.followup.send(embed=comparison.all_failed_embed("유니온 비교", outcomes))
+        await interaction.followup.send(
+            embed=comparison.all_failed_embed("유니온 비교", outcomes)
+        )
         return
 
     footer = append_source(comparison.data_footer(successes[0].data.date))
@@ -84,15 +89,20 @@ async def handle_union(
     rows = []
     for i, o in enumerate(ranked):
         union_text = str(o.data.union_level) if o.data.union_level is not None else "—"
-        artifact_text = f"{o.data.artifact_level} LV" if o.data.artifact_level is not None else "—"
+        artifact_text = (
+            f"{o.data.artifact_level} LV" if o.data.artifact_level is not None else "—"
+        )
         rows.append(
             [
                 str(i + 1),
                 comparison.truncate_display(o.target.nickname, 14),
                 table_image.Highlight(union_text) if i in best_union else union_text,
-                table_image.Highlight(artifact_text) if i in best_artifact else artifact_text,
+                table_image.Highlight(artifact_text)
+                if i in best_artifact
+                else artifact_text,
                 comparison.truncate_display(
-                    " ".join(f"{g}({c})" for g, c in o.data.champion_grades) or "없음", 28
+                    " ".join(f"{g}({c})" for g, c in o.data.champion_grades) or "없음",
+                    28,
                 ),
             ]
         )
@@ -117,7 +127,11 @@ def setup(bot: discord.Client) -> None:
         description="유니온 레벨·아티팩트·챔피언 등급분포를 비교합니다 (대상 미지정 시 서버 전체).",
     )
     @app_commands.rename(
-        member1="대상1", member2="대상2", member3="대상3", member4="대상4", member5="대상5"
+        member1="대상1",
+        member2="대상2",
+        member3="대상3",
+        member4="대상4",
+        member5="대상5",
     )
     @app_commands.describe(
         member1="비교할 유저 (미지정 시 이 서버 등록자 전원)",
@@ -134,5 +148,7 @@ def setup(bot: discord.Client) -> None:
         member4: discord.Member | None = None,
         member5: discord.Member | None = None,
     ) -> None:
-        members = [m for m in (member1, member2, member3, member4, member5) if m is not None]
+        members = [
+            m for m in (member1, member2, member3, member4, member5) if m is not None
+        ]
         await handle_union(deps, interaction, members)

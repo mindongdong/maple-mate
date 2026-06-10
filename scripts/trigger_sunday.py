@@ -11,6 +11,7 @@ POST http://localhost:8080/sunday/broadcast 에 Bearer 토큰 + JSON 바디(제�
             "https://maplestory.nexon.com/News/Event" "6/9 ~ 6/15" \\
             "https://ssl.nexon.com/.../banner.jpg"
 """
+
 from __future__ import annotations
 
 import sys

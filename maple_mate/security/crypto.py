@@ -3,6 +3,7 @@
 Fernet 대칭 암호화. 마스터 키는 DB 밖 .env(FERNET_MASTER_KEY)에 둔다(design §6, ADR-0001).
 이력류 해제용 개인 키를 at-rest 로 저장할 때 암호화하고, 조회 시 복호화한다.
 """
+
 from __future__ import annotations
 
 from cryptography.fernet import Fernet, InvalidToken

@@ -5,6 +5,7 @@
 
 실행: uv run python -m scripts.dump_events
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -34,7 +35,9 @@ async def main() -> None:
 
         print(f"\n썬데이 매칭: {len(matched)}건")
         for event in matched:
-            period = format_period(event.get("date_event_start"), event.get("date_event_end"))
+            period = format_period(
+                event.get("date_event_start"), event.get("date_event_end")
+            )
             notice_id = event.get("notice_id")
             banner = None
             if isinstance(notice_id, int):

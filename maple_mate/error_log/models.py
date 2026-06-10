@@ -3,6 +3,7 @@
 error_type ∈ {nexon_api, auth_invalid, timeout, rate_limit, internal, unmatched_equipment}.
 재시도가 발생한 건만 기록(첫 시도 성공은 미기록). detail: 미매칭 장비명 등. 컬럼은 단순 문자열.
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -25,6 +26,8 @@ class ErrorLog(Base):
     discord_user_id: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
     target_ocid: Mapped[str | None] = mapped_column(String(128), nullable=True)
     error_type: Mapped[str] = mapped_column(String(32), nullable=False)
-    retry_count: Mapped[int] = mapped_column(Integer, nullable=False, server_default=text("0"))
+    retry_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, server_default=text("0")
+    )
     resolved: Mapped[bool | None] = mapped_column(Boolean, nullable=True)
     detail: Mapped[str | None] = mapped_column(Text, nullable=True)

@@ -4,6 +4,7 @@
 재시도한 뒤) 이 헬퍼로 한 줄 적재한다. best-effort — 적재 실패가 명령을 깨지 않도록
 예외를 삼키고 로깅만 한다(관측 보조이지 사용자 흐름이 아님).
 """
+
 from __future__ import annotations
 
 import logging
@@ -42,4 +43,9 @@ async def record(
             )
             await session.commit()
     except Exception:  # noqa: BLE001 — 관측 적재 실패가 명령을 깨면 안 됨
-        log.warning("error_log 적재 실패 (command=%s, type=%s)", command, error_type, exc_info=True)
+        log.warning(
+            "error_log 적재 실패 (command=%s, type=%s)",
+            command,
+            error_type,
+            exc_info=True,
+        )

@@ -1,4 +1,5 @@
 """기간 분해 단위테스트 — 프리셋·커스텀·30일 클램프·미래 컷 (순수)."""
+
 from __future__ import annotations
 
 from datetime import date, timedelta

@@ -3,6 +3,7 @@
 대상 = 키 등록된 등록자(키 없으면 '키 미등록' 행). 기간 페치 → 레벨 3단 매칭 → 집계.
 운지수 낮을수록 운 좋음 → 최저 행 강조. 부분 성공(키미등록·기록없음·조회실패)은 묶음 필드.
 """
+
 from __future__ import annotations
 
 import logging
@@ -38,13 +39,27 @@ log = logging.getLogger(__name__)
 
 _PERIOD_CHOICES = [
     app_commands.Choice(name=p, value=p)
-    for p in ("오늘", "어제", "최근7일", "최근30일", "최근90일", "최근1년", "이번주", "이번달")
+    for p in (
+        "오늘",
+        "어제",
+        "최근7일",
+        "최근30일",
+        "최근90일",
+        "최근1년",
+        "이번주",
+        "이번달",
+    )
 ]
 
 
 def _to_spec_target(t: HistoryTarget) -> Target:
     """범례·부분성공 행용 스펙류 Target 으로 변환(키 제외)."""
-    return Target(guild_id=t.guild_id, discord_user_id=t.discord_user_id, nickname=t.nickname, ocid=t.ocid)
+    return Target(
+        guild_id=t.guild_id,
+        discord_user_id=t.discord_user_id,
+        nickname=t.nickname,
+        ocid=t.ocid,
+    )
 
 
 def _parse_date(raw: str | None) -> tuple[date | None, bool]:
@@ -124,7 +139,9 @@ async def _process_target(
         log.debug("장착 레벨 조회 실패(학습/시드로 폴백): %s", exc)
         equipped = {}
     if equipped:
-        await learn_equipment_levels(deps.session_factory, equipped)  # 관측 레벨 자동 학습
+        await learn_equipment_levels(
+            deps.session_factory, equipped
+        )  # 관측 레벨 자동 학습
 
     known = {**learned, **equipped}  # (B)학습 위에 (A)현재 장착을 덮어씀(현재가 우선)
     summary = aggregate_starforce(attempts, lambda item: match_level(item, known))
@@ -132,7 +149,9 @@ async def _process_target(
     return spec_target, summary
 
 
-async def _report_unmatched(deps: Deps, target: HistoryTarget, summary: StarforceSummary) -> None:
+async def _report_unmatched(
+    deps: Deps, target: HistoryTarget, summary: StarforceSummary
+) -> None:
     """레벨 미상으로 제외된 장비를 error_log 에 제보(점진 시드 확장용)."""
     for item in summary.unmatched_items:
         await error_log.record(
@@ -152,11 +171,20 @@ def _build_table(
     footer: str,
 ) -> tuple[discord.Embed, discord.File]:
     """운빨수치 내림차순(높을수록 운 좋음) 표. 최상위 운빨 행 강조."""
-    ranked = sorted(results, key=lambda rs: (rs[1].luck_score is None, -(rs[1].luck_score or 0.0)))
+    ranked = sorted(
+        results, key=lambda rs: (rs[1].luck_score is None, -(rs[1].luck_score or 0.0))
+    )
     luck_values = [s.luck_score for _, s in ranked]
     best = comparison.highest_indices(luck_values) if len(ranked) > 1 else set()
 
-    headers = ["순위", "캐릭터", "운빨수치", "총 사용 메소", "기댓값 대비 손익", "기준건수"]
+    headers = [
+        "순위",
+        "캐릭터",
+        "운빨수치",
+        "총 사용 메소",
+        "기댓값 대비 손익",
+        "기준건수",
+    ]
     rows: list[list] = []
     for i, (tgt, summary) in enumerate(ranked):
         luck_text = _format_luck(summary)
@@ -199,7 +227,9 @@ async def handle_starforce(
 ) -> None:
     await defer(interaction)
     if interaction.guild_id is None:
-        await interaction.followup.send(embed=make_embed("스타포스", "서버(길드) 안에서만 쓸 수 있어요."))
+        await interaction.followup.send(
+            embed=make_embed("스타포스", "서버(길드) 안에서만 쓸 수 있어요.")
+        )
         return
 
     start, ok_start = _parse_date(start_raw)
@@ -211,7 +241,9 @@ async def handle_starforce(
         return
 
     user_ids = [m.id for m in members] or None
-    targets = await get_history_targets(deps.session_factory, interaction.guild_id, user_ids)
+    targets = await get_history_targets(
+        deps.session_factory, interaction.guild_id, user_ids
+    )
 
     # 지정했지만 미등록인 멤버 → '미등록' 부분성공 행.
     missing: list[TargetOutcome] = []
@@ -219,7 +251,12 @@ async def handle_starforce(
         registered = {t.discord_user_id for t in targets}
         missing = [
             TargetOutcome(
-                target=Target(guild_id=interaction.guild_id, discord_user_id=m.id, nickname=m.display_name, ocid=""),
+                target=Target(
+                    guild_id=interaction.guild_id,
+                    discord_user_id=m.id,
+                    nickname=m.display_name,
+                    ocid="",
+                ),
                 error="이 서버에 등록되지 않았어요. `/등록` 먼저 해주세요.",
             )
             for m in members
@@ -229,7 +266,10 @@ async def handle_starforce(
     # 키 미등록(이력류 조회 불가) 분리 — 기록 없음과 반드시 구분(CONTEXT.md).
     keyed = [t for t in targets if t.api_key_encrypted is not None]
     no_key = [
-        TargetOutcome(target=_to_spec_target(t), error="개인 키 미등록이라 이력을 볼 수 없어요. `/등록`에 키를 추가해 주세요.")
+        TargetOutcome(
+            target=_to_spec_target(t),
+            error="개인 키 미등록이라 이력을 볼 수 없어요. `/등록`에 키를 추가해 주세요.",
+        )
         for t in targets
         if t.api_key_encrypted is None
     ]
@@ -237,17 +277,24 @@ async def handle_starforce(
     if not keyed:
         outcomes = missing + no_key
         if outcomes:
-            await interaction.followup.send(embed=comparison.all_failed_embed("스타포스", outcomes))
+            await interaction.followup.send(
+                embed=comparison.all_failed_embed("스타포스", outcomes)
+            )
         else:
             await interaction.followup.send(
-                embed=make_embed("스타포스", "이 서버에 키 등록자가 없어요. `/등록`에 개인 키를 추가해 주세요.")
+                embed=make_embed(
+                    "스타포스",
+                    "이 서버에 키 등록자가 없어요. `/등록`에 개인 키를 추가해 주세요.",
+                )
             )
         return
 
     today_kst = datetime.now(KST).date()
     dates = resolve_period(preset, start, end, today_kst)
 
-    learned = await load_learned_levels(deps.session_factory)  # (B) 자동 학습 레벨 1회 로드
+    learned = await load_learned_levels(
+        deps.session_factory
+    )  # (B) 자동 학습 레벨 1회 로드
     results: list[tuple[Target, StarforceSummary]] = []
     failures: list[TargetOutcome] = []
     for target in keyed:
@@ -261,7 +308,11 @@ async def handle_starforce(
     footer = _period_footer(dates)
 
     if not results:
-        await interaction.followup.send(embed=comparison.all_failed_embed("스타포스 운지수 비교", outcomes, footer=footer))
+        await interaction.followup.send(
+            embed=comparison.all_failed_embed(
+                "스타포스 운지수 비교", outcomes, footer=footer
+            )
+        )
         return
 
     # 데이터 임베드(성공 표)에만 넥슨 출처표시 — 전체실패 에러 임베드(위)는 결과데이터 아님.
@@ -308,6 +359,8 @@ def setup(bot: discord.Client) -> None:
         member4: discord.Member | None = None,
         member5: discord.Member | None = None,
     ) -> None:
-        members = [m for m in (member1, member2, member3, member4, member5) if m is not None]
+        members = [
+            m for m in (member1, member2, member3, member4, member5) if m is not None
+        ]
         preset = period.value if period is not None else DEFAULT_PRESET
         await handle_starforce(deps, interaction, members, preset, start, end)

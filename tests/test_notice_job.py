@@ -3,6 +3,7 @@
 모든 I/O(DB·넥슨·디스코드)를 페이크로 막고 제어흐름만 검증한다(test_sunday_job 과 동일 방침).
 순수 로직(parse_notices·select_new·latest_id)은 그대로 통과시켜 실제 신규 판정을 함께 검증한다.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -15,7 +16,9 @@ from maple_mate.notification.notice_service import NoticeItem
 
 def _raw(*ids: int) -> list[dict]:
     """notice_id 만 채운 최소 raw 공지(파싱은 실제 parse_notices 가 처리)."""
-    return [{"notice_id": i, "title": f"t{i}", "url": f"u{i}", "date": None} for i in ids]
+    return [
+        {"notice_id": i, "title": f"t{i}", "url": f"u{i}", "date": None} for i in ids
+    ]
 
 
 class _Nexon:
@@ -66,9 +69,15 @@ def patched(monkeypatch):
     async def record(sf, **kwargs):
         calls.append(("error_log", kwargs.get("error_type")))
 
-    monkeypatch.setattr(scheduler.notice_service, "enabled_notice_channels", enabled_notice_channels)
-    monkeypatch.setattr(scheduler.notice_service, "get_last_notice_id", get_last_notice_id)
-    monkeypatch.setattr(scheduler.notice_service, "set_last_notice_id", set_last_notice_id)
+    monkeypatch.setattr(
+        scheduler.notice_service, "enabled_notice_channels", enabled_notice_channels
+    )
+    monkeypatch.setattr(
+        scheduler.notice_service, "get_last_notice_id", get_last_notice_id
+    )
+    monkeypatch.setattr(
+        scheduler.notice_service, "set_last_notice_id", set_last_notice_id
+    )
     monkeypatch.setattr(scheduler, "broadcast_notices", broadcast_notices)
     monkeypatch.setattr(scheduler.error_log, "record", record)
     return calls, state
@@ -119,7 +128,11 @@ async def test_marker_never_moves_backward_on_short_page(patched):
     state["last_ids"] = {"notice": 200, "notice-update": 300}
     nexon = _Nexon(calls, notice_raw=_raw(195, 194), update_raw=_raw(299))
     await scheduler.run_notice_job(bot=object(), deps=_deps(nexon))
-    assert calls == ["channels", "fetch:notice", "fetch:update"]  # broadcast·mark 둘 다 없음
+    assert calls == [
+        "channels",
+        "fetch:notice",
+        "fetch:update",
+    ]  # broadcast·mark 둘 다 없음
 
 
 async def test_no_channels_skips_nexon(patched):
@@ -163,7 +176,14 @@ async def test_empty_category_does_not_mark(patched):
 
 def test_build_embeds_maps_title_url_date():
     [embed] = scheduler.build_notice_embeds(
-        [NoticeItem(notice_id=1, title="정기 점검", url="https://x/1", date_text="2026-01-15 10:00")]
+        [
+            NoticeItem(
+                notice_id=1,
+                title="정기 점검",
+                url="https://x/1",
+                date_text="2026-01-15 10:00",
+            )
+        ]
     )
     assert embed.title == "정기 점검"
     assert embed.url == "https://x/1"

@@ -3,6 +3,7 @@
 각 도메인의 `commands.py` 가 `setup(bot)` 으로 자기 슬래시 커맨드를 트리에 등록한다.
 동기화: 개발=길드 스코프(DEV_GUILD_ID, 즉시 반영) / 운영=글로벌.
 """
+
 from __future__ import annotations
 
 import logging
@@ -23,11 +24,15 @@ class MapleMateBot(discord.Client):
         intents = discord.Intents.default()  # 슬래시 커맨드는 특권 인텐트 불필요
         # 비교 임베드의 유저 태그(@닉)는 '누가 어떤 캐릭 주인'인지 표시용 — 핑(알림)은 울리지
         # 않도록 전역 차단. (임베드 본문 멘션은 기본적으로 핑 안 하지만 명시적으로 무력화)
-        super().__init__(intents=intents, allowed_mentions=discord.AllowedMentions.none())
+        super().__init__(
+            intents=intents, allowed_mentions=discord.AllowedMentions.none()
+        )
         self.deps = deps
         self._dev_guild_id = dev_guild_id
         self.tree = app_commands.CommandTree(self)
-        self._scheduler: AsyncIOScheduler | None = None  # 봇이 소유(setup_hook 시작 / close 종료)
+        self._scheduler: AsyncIOScheduler | None = (
+            None  # 봇이 소유(setup_hook 시작 / close 종료)
+        )
 
     async def setup_hook(self) -> None:
         self._register_commands()
@@ -35,10 +40,16 @@ class MapleMateBot(discord.Client):
             guild = discord.Object(id=self._dev_guild_id)
             self.tree.copy_global_to(guild=guild)
             synced = await self.tree.sync(guild=guild)
-            log.info("슬래시 커맨드 길드 동기화(dev guild=%s): %d개", self._dev_guild_id, len(synced))
+            log.info(
+                "슬래시 커맨드 길드 동기화(dev guild=%s): %d개",
+                self._dev_guild_id,
+                len(synced),
+            )
         else:
             synced = await self.tree.sync()
-            log.info("슬래시 커맨드 글로벌 동기화: %d개 (반영까지 최대 1시간)", len(synced))
+            log.info(
+                "슬래시 커맨드 글로벌 동기화: %d개 (반영까지 최대 1시간)", len(synced)
+            )
         # 알림 스케줄러를 1회 시작(setup_hook 은 재연결과 무관하게 한 번만 호출됨, Q7).
         if self._scheduler is None:
             self._scheduler = start_scheduler(self, self.deps)

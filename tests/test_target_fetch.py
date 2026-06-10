@@ -3,10 +3,11 @@
 DB 쿼리(get_targets) 자체는 통합 영역이라 제외. 분기 로직(부분성공 취합, lazy 갱신,
 에러 분류, error_log 적재 트리거)만 검증.
 """
+
 from __future__ import annotations
 
 from maple_mate.error_log.models import ErrorLog
-from maple_mate.nexon.errors import ErrorClass, NexonAPIError
+from maple_mate.nexon.errors import NexonAPIError
 from maple_mate.registration import service
 from maple_mate.registration.service import Target, classify_target_error, fetch_each
 

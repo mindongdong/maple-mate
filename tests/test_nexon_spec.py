@@ -1,4 +1,5 @@
 """스펙류 클라이언트 메서드 단위테스트 (httpx mock). date 무지정 호출 계약 검증 — handoff §1·§3.1."""
+
 from __future__ import annotations
 
 import httpx

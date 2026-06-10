@@ -1,4 +1,5 @@
 """넥슨 클라이언트 단위테스트 (httpx mock). 실호출 없음 — handoff §6."""
+
 from __future__ import annotations
 
 import httpx
@@ -58,7 +59,9 @@ async def test_verify_personal_key_sends_count_and_date_with_personal_header():
 
 async def test_verify_personal_key_data_not_ready_treated_as_valid():
     def handler(request: httpx.Request) -> httpx.Response:
-        return _error_response(400, "OPENAPI00009", "Please wait until the data is ready")
+        return _error_response(
+            400, "OPENAPI00009", "Please wait until the data is ready"
+        )
 
     async with _client(handler) as client:
         # 데이터 미준비여도 키 인증은 성공 → 유효로 간주.
@@ -109,7 +112,9 @@ async def test_rate_limit_exhausts_retries_and_raises():
 
 async def test_data_not_ready_raises_typed_error():
     def handler(request: httpx.Request) -> httpx.Response:
-        return _error_response(400, "OPENAPI00009", "Please wait until the data is ready")
+        return _error_response(
+            400, "OPENAPI00009", "Please wait until the data is ready"
+        )
 
     async with _client(handler) as client:
         with pytest.raises(NexonAPIError) as exc:
@@ -147,7 +152,9 @@ async def test_fetch_image_downloads_and_caches():
 
     def handler(request: httpx.Request) -> httpx.Response:
         calls["n"] += 1
-        return httpx.Response(200, content=b"\x89PNG-bytes", headers={"content-type": "image/png"})
+        return httpx.Response(
+            200, content=b"\x89PNG-bytes", headers={"content-type": "image/png"}
+        )
 
     async with _client(handler) as client:
         assert await client.fetch_image(url) == b"\x89PNG-bytes"
@@ -170,7 +177,9 @@ async def test_fetch_image_rejects_non_image_body_and_does_not_cache():
 
     def handler(request: httpx.Request) -> httpx.Response:
         calls["n"] += 1
-        return httpx.Response(200, text="<html>점검중</html>", headers={"content-type": "text/html"})
+        return httpx.Response(
+            200, text="<html>점검중</html>", headers={"content-type": "text/html"}
+        )
 
     async with _client(handler) as client:
         with pytest.raises(NexonAPIError):

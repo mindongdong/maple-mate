@@ -3,6 +3,7 @@
 Spike 0(handoff §3.4): champion_grade 관측값 = "SSS","S" 등. 등급 문자열을 **그대로** 집계
 (하드코딩 매핑 금지 — 등장하는 값을 센다). 표시 순서만 알려진 등급 순서로 정렬한다.
 """
+
 from __future__ import annotations
 
 from dataclasses import dataclass

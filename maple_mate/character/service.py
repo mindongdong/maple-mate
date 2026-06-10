@@ -3,6 +3,7 @@
 순수 변환(전투력 추출·심볼 집계·HEXA 파싱)은 단위테스트 대상(handoff §6). 넥슨 호출은
 date 무지정(최신 ready). `/아이템` 장비 파싱은 item.py 로 분리.
 """
+
 from __future__ import annotations
 
 import logging
@@ -32,8 +33,12 @@ class SpecInfo:
     symbols: SymbolSummary
     hexa_cores: tuple[tuple[str, int, str], ...]  # (코어명, 레벨, 종류) — 단일 상세용
     hexa_stats: tuple[str, ...]  # 스탯명 포함 라인 — 단일 상세용
-    hexa_core_by_type: tuple[tuple[str, tuple[int, ...]], ...]  # (타입, (레벨들)) — 비교 색칩용
-    hexa_stat_triples: tuple[tuple[int, int, int], ...]  # (메인, 서브1, 서브2) — 비교 누적막대용
+    hexa_core_by_type: tuple[
+        tuple[str, tuple[int, ...]], ...
+    ]  # (타입, (레벨들)) — 비교 색칩용
+    hexa_stat_triples: tuple[
+        tuple[int, int, int], ...
+    ]  # (메인, 서브1, 서브2) — 비교 누적막대용
     date: str | None
 
 
@@ -97,7 +102,9 @@ def summarize_symbols(symbol_list: list[dict] | None) -> SymbolSummary:
         total += _to_int(symbol.get("symbol_force"))
         category = _symbol_category(symbol.get("symbol_name") or "")
         counts[category] = counts.get(category, 0) + 1
-    ordered = [(c, counts[c]) for c in ("아케인", "사크레드", "어센틱", "기타") if c in counts]
+    ordered = [
+        (c, counts[c]) for c in ("아케인", "사크레드", "어센틱", "기타") if c in counts
+    ]
     return SymbolSummary(total_force=total, counts=tuple(ordered))
 
 
@@ -161,7 +168,9 @@ _CORE_TYPE_SHORT = {
 }
 
 
-def hexa_core_levels_by_type(hexamatrix: dict) -> tuple[tuple[str, tuple[int, ...]], ...]:
+def hexa_core_levels_by_type(
+    hexamatrix: dict,
+) -> tuple[tuple[str, tuple[int, ...]], ...]:
     """HEXA 코어를 타입별로 묶어 레벨(정수)만 나열(순수함수, 비교 색칩용). 스킬명 제거.
 
     예: (('스킬', (1, 4)), ('마스터리', (29, 19, 1, 23)), ('강화', (15, 2, 1, 1)),

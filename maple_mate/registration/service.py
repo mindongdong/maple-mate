@@ -4,6 +4,7 @@
 Fernet 암호화 → (guild_id, discord_user_id) 1레코드 upsert. 서버 내 닉 중복 허용.
 결과는 `RegistrationResult` 로 반환하고, 전달 계층(commands/views)이 렌더링한다.
 """
+
 from __future__ import annotations
 
 import logging
@@ -34,14 +35,19 @@ class RegistrationResult:
     error: str | None = None
 
 
-async def resolve_ocid(nexon: NexonClient, nickname: str) -> tuple[str | None, str | None]:
+async def resolve_ocid(
+    nexon: NexonClient, nickname: str
+) -> tuple[str | None, str | None]:
     """닉 → ocid. 성공 시 (ocid, None), 실패 시 (None, 사용자메시지)."""
     try:
         ocid = await nexon.get_ocid(nickname)
         return ocid, None
     except NexonAPIError as exc:
         if exc.error_class in (ErrorClass.INVALID_PARAM, ErrorClass.INVALID_ID):
-            return None, f"'{nickname}' 닉네임을 찾을 수 없어요. 닉네임을 확인해 주세요."
+            return (
+                None,
+                f"'{nickname}' 닉네임을 찾을 수 없어요. 닉네임을 확인해 주세요.",
+            )
         log.warning("ocid 조회 실패: %s", exc)
         return None, "넥슨 API 오류로 등록하지 못했어요. 잠시 후 다시 시도해 주세요."
 
@@ -54,9 +60,15 @@ async def verify_and_encrypt_key(
         valid = await nexon.verify_personal_key(api_key)
     except NexonAPIError as exc:
         log.warning("키 검증 중 API 오류: %s", exc)
-        return None, "키 검증 중 넥슨 API 오류가 발생했어요. 잠시 후 다시 시도해 주세요."
+        return (
+            None,
+            "키 검증 중 넥슨 API 오류가 발생했어요. 잠시 후 다시 시도해 주세요.",
+        )
     if not valid:
-        return None, "API 키가 무효입니다. 키 없이 등록하려면 키 인자를 빼고 다시 시도해 주세요."
+        return (
+            None,
+            "API 키가 무효입니다. 키 없이 등록하려면 키 인자를 빼고 다시 시도해 주세요.",
+        )
     return cipher.encrypt(api_key), None
 
 
@@ -123,7 +135,9 @@ async def register(
         ocid=ocid,
         api_key_encrypted=api_key_encrypted,
     )
-    return RegistrationResult(ok=True, nickname=nickname, has_key=api_key_encrypted is not None)
+    return RegistrationResult(
+        ok=True, nickname=nickname, has_key=api_key_encrypted is not None
+    )
 
 
 # ── Phase 2: 대상(target) 해석 + ocid lazy 갱신 + 부분 성공 수집 (handoff §2·§4) ──
@@ -285,5 +299,7 @@ async def fetch_each(
     """
     outcomes: list[TargetOutcome] = []
     for target in targets:
-        outcomes.append(await _fetch_one(nexon, session_factory, target, command, fetch))
+        outcomes.append(
+            await _fetch_one(nexon, session_factory, target, command, fetch)
+        )
     return outcomes

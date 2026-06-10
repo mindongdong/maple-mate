@@ -2,6 +2,7 @@
 
 상수시간 비교 자체(secrets.compare_digest)는 표준 라이브러리 신뢰. 여기선 분기만 검증한다.
 """
+
 from __future__ import annotations
 
 from types import SimpleNamespace

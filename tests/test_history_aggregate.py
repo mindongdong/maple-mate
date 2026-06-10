@@ -1,4 +1,5 @@
 """캐릭터 필터·결과 파싱·아이템별 집계(시작/최종★·matched/total) 단위테스트."""
+
 from __future__ import annotations
 
 import pytest
@@ -55,7 +56,9 @@ def test_parse_attempts_empty_when_no_match() -> None:
 # ── aggregate_starforce: 시작/최종★ · matched/total · 운지수 ────────────────
 
 
-def _attempt(item: str, before: int, after: int, when: str, *, success: bool = True) -> StarforceAttempt:
+def _attempt(
+    item: str, before: int, after: int, when: str, *, success: bool = True
+) -> StarforceAttempt:
     return StarforceAttempt(
         target_item=item,
         before_star=before,
@@ -70,7 +73,9 @@ def test_aggregate_start_and_final_star() -> None:
         _attempt("itemA", 0, 1, "2026-05-01T10:00:00+09:00"),
         _attempt("itemA", 1, 2, "2026-05-01T11:00:00+09:00"),
     ]
-    summary = aggregate_starforce(attempts, lambda item: 200 if item == "itemA" else None)
+    summary = aggregate_starforce(
+        attempts, lambda item: 200 if item == "itemA" else None
+    )
     # 시작★=0, 최종★=2 → expected = 누적 0→2.
     assert summary.expected == pytest.approx(expected_meso(200, 0, 2))
     # 총 사용 메소 = cost(200,0)+cost(200,1).
@@ -109,7 +114,9 @@ def test_aggregate_unmatched_item_excluded_but_counted_in_total() -> None:
         _attempt("unknown", 0, 1, "2026-05-01T10:00:00+09:00"),
         _attempt("unknown", 1, 2, "2026-05-01T11:00:00+09:00"),
     ]
-    summary = aggregate_starforce(attempts, lambda item: 200 if item == "matched" else None)
+    summary = aggregate_starforce(
+        attempts, lambda item: 200 if item == "matched" else None
+    )
     assert summary.matched_count == 1
     assert summary.total_count == 3
     assert summary.unmatched_items == ("unknown",)
@@ -132,7 +139,9 @@ def test_aggregate_excludes_listed_items() -> None:
         _attempt("matched", 0, 1, "2026-05-01T10:00:00+09:00"),
         _attempt("슈피겔만의 평범한 목걸이", 0, 1, "2026-05-01T11:00:00+09:00"),
     ]
-    summary = aggregate_starforce(attempts, lambda item: 200 if item == "matched" else None)
+    summary = aggregate_starforce(
+        attempts, lambda item: 200 if item == "matched" else None
+    )
     assert summary.matched_count == 1
     assert summary.total_count == 1  # 제외분은 분모에서도 빠짐(2가 아님)
     assert summary.unmatched_items == ()  # 미상으로 제보되지 않음
@@ -144,7 +153,9 @@ def test_aggregate_excludes_below_min_level() -> None:
         _attempt("matched", 0, 1, "2026-05-01T10:00:00+09:00"),
         _attempt("저레벨", 0, 5, "2026-05-01T11:00:00+09:00"),
     ]
-    summary = aggregate_starforce(attempts, lambda item: 200 if item == "matched" else 80)
+    summary = aggregate_starforce(
+        attempts, lambda item: 200 if item == "matched" else 80
+    )
     assert summary.matched_count == 1
     assert summary.total_count == 1
     assert summary.unmatched_items == ()

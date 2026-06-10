@@ -1,4 +1,5 @@
 """잠재 파싱·집계 단위테스트 (순수). 캐릭터 필터·총 큐브·등업 버킷·메소·단일 보조 분포."""
+
 from __future__ import annotations
 
 from maple_mate.history.potential_service import (
@@ -129,7 +130,9 @@ def test_tierup_only_counts_success() -> None:
 
 def test_tierup_excludes_legendary_from() -> None:
     # 레전드리(종착)는 from 이 될 수 없음 → 성공이어도 등업에서 제외(엔드게임 동급 재롤).
-    summary = aggregate_potential([_cube(result="성공", before=("레전드리", "유니크"))], [])
+    summary = aggregate_potential(
+        [_cube(result="성공", before=("레전드리", "유니크"))], []
+    )
     assert summary.tierups == ()
 
 
@@ -155,7 +158,9 @@ def test_tierup_combines_cube_and_reset() -> None:
 
 def test_from_grade_uses_highest_before_grade_regardless_of_order() -> None:
     # before 배열이 섞여 있어도 최고 등급이 from.
-    summary = aggregate_potential([_cube(result="성공", before=("레어", "유니크", "에픽"))], [])
+    summary = aggregate_potential(
+        [_cube(result="성공", before=("레어", "유니크", "에픽"))], []
+    )
     assert summary.tierups == (("유니크", 1),)
 
 
@@ -181,7 +186,9 @@ class _FakeCost:
 
 def test_meso_sums_cube_appraisal_and_reset_cost() -> None:
     # 총 메소 = 큐브 감정비 합 + 재설정비 합(큐브도 0이 아니라 감정비를 낸다).
-    summary = aggregate_potential([_cube(), _cube()], [_reset(), _reset(), _reset()], cost=_FakeCost())
+    summary = aggregate_potential(
+        [_cube(), _cube()], [_reset(), _reset(), _reset()], cost=_FakeCost()
+    )
     assert summary.appraisal_meso == 200  # 큐브 2 × 100
     assert summary.reset_meso == 3000  # 재설정 3 × 1000
     assert summary.total_meso == 3200
@@ -206,7 +213,9 @@ def test_meso_additional_reset_uses_additional_table() -> None:
 
     # 에디 재설정은 에디 단가표 + 에디 등급(before_add 비면 add_grade 폴백).
     summary = aggregate_potential(
-        [], [_reset(level=200, potential_type="에디셔널 잠재능력", add_grade="유니크")], cost=potential_cost
+        [],
+        [_reset(level=200, potential_type="에디셔널 잠재능력", add_grade="유니크")],
+        cost=potential_cost,
     )
     assert summary.reset_meso == 74_800_000  # 에디 200제 유니크
 

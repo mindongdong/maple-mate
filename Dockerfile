@@ -3,6 +3,10 @@ FROM ghcr.io/astral-sh/uv:python3.12-bookworm-slim
 
 WORKDIR /app
 
+# 표 이미지 렌더링용 한글 폰트 — slim 이미지엔 폰트가 없어 폴백(한글 글리프 없음)으로 그려진다.
+RUN apt-get update -qq && apt-get install -y -qq --no-install-recommends fonts-nanum \
+    && rm -rf /var/lib/apt/lists/*
+
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
     PYTHONUNBUFFERED=1

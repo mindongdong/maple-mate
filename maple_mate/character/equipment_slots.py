@@ -7,6 +7,7 @@
 
 매칭 키는 item_equipment_slot(부위 카테고리가 아닌 슬롯) — 반지1~4·펜던트2 를 슬롯으로 구분.
 """
+
 from __future__ import annotations
 
 # /아이템 드롭다운 부위 = 표준 슬롯 개별(반지 4·펜던트 2 각각). Discord 25 choices 상한 내(24개).

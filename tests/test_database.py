@@ -1,4 +1,5 @@
 """normalize_db_url 순수함수 단위테스트 (배포 1-3: Render DSN → asyncpg 정규화)."""
+
 from __future__ import annotations
 
 from maple_mate.database.core import normalize_db_url
@@ -15,8 +16,7 @@ def test_postgresql_scheme_gets_asyncpg():
 def test_postgres_scheme_gets_asyncpg():
     # 일부 제공자(Heroku 계열)의 postgres:// 표기도 처리.
     assert (
-        normalize_db_url("postgres://u:p@host/db")
-        == "postgresql+asyncpg://u:p@host/db"
+        normalize_db_url("postgres://u:p@host/db") == "postgresql+asyncpg://u:p@host/db"
     )
 
 

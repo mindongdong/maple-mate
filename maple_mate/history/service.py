@@ -5,6 +5,7 @@
 - fetch_starforce_records: 날짜별 캐시 판정 → 미스 시 개인 키 호출 → upsert → 캐릭터 필터.
 - aggregate_starforce: 아이템별 시작★→최종★ + 운지수·손익메소(레벨 매칭 성공分만).
 """
+
 from __future__ import annotations
 
 import logging
@@ -31,7 +32,16 @@ MAX_PERIOD_DAYS = 365  # 상한 1년(API 롤링 ~2년 윈도우 내). 콜드 조
 
 # ── 기간 분해 (순수) ───────────────────────────────────────────────────────
 
-PRESETS = ("오늘", "어제", "최근7일", "최근30일", "최근90일", "최근1년", "이번주", "이번달")
+PRESETS = (
+    "오늘",
+    "어제",
+    "최근7일",
+    "최근30일",
+    "최근90일",
+    "최근1년",
+    "이번주",
+    "이번달",
+)
 DEFAULT_PRESET = "최근7일"
 
 
@@ -227,7 +237,9 @@ async def fetch_starforce_records(
 
     records: list[dict] = []
     for query_date in dates:
-        cached = await _cached_records(deps.session_factory, target.ocid, query_date, now)
+        cached = await _cached_records(
+            deps.session_factory, target.ocid, query_date, now
+        )
         if cached is not None:
             records.extend(cached)
             continue
@@ -248,13 +260,19 @@ class StarforceSummary:
     luck_score(메소 백분위)·메소(total/net/expected) 모두 레벨 매칭 시도 기준 — 손익과 일관.
     """
 
-    luck_score: float | None  # 메소 행운 백분위(0~100, 높을수록 운 좋음=싸게 끝냄, ADR-0002)
+    luck_score: (
+        float | None
+    )  # 메소 행운 백분위(0~100, 높을수록 운 좋음=싸게 끝냄, ADR-0002)
     total_meso: int  # 총 사용 메소(매칭 시도 Σcost)
     net_meso: int  # 기댓값 대비 손익(total_meso − expected)
     expected: float  # 기댓값(매칭 시도 Σexpected_meso)
     matched_count: int  # 레벨 매칭된 시도 수
-    total_count: int  # 집계 대상 시도 수(매칭+미상). 제외분(EXCLUDED/100미만)은 분모에서도 뺀다.
-    unmatched_items: tuple[str, ...]  # 레벨 미상으로 제외된 장비명(EXCLUDED/저레벨 제외분은 불포함)
+    total_count: (
+        int  # 집계 대상 시도 수(매칭+미상). 제외분(EXCLUDED/100미만)은 분모에서도 뺀다.
+    )
+    unmatched_items: tuple[
+        str, ...
+    ]  # 레벨 미상으로 제외된 장비명(EXCLUDED/저레벨 제외분은 불포함)
 
 
 def _sort_key(a: StarforceAttempt) -> tuple:
