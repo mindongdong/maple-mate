@@ -23,6 +23,9 @@ _REQUIRED_STR_KEYS = (
 _REQUIRED_INT_KEYS = ("ADMIN_CHANNEL_ID",)
 # 선택 정수 키 — 없으면 None(운영 글로벌 동기화), 있으면 정수여야 함(잘못된 값은 오류).
 _OPTIONAL_INT_KEYS = ("DEV_GUILD_ID",)
+# 앱 키 넥슨 호출 간격(초). 개발단계 기본 0.25(4/s), 서비스단계 등록 후 0.02 로 하향(ADR-0004).
+_NEXON_THROTTLE_KEY = "NEXON_THROTTLE"
+DEFAULT_NEXON_THROTTLE = 0.25
 
 
 class ConfigError(RuntimeError):
@@ -36,7 +39,7 @@ class ConfigError(RuntimeError):
             parts.append("누락된 필수 환경변수: " + ", ".join(self.missing))
         if self.invalid:
             parts.append(
-                "형식이 잘못된 환경변수(정수 필요): " + ", ".join(self.invalid)
+                "형식이 잘못된 환경변수(숫자 필요): " + ", ".join(self.invalid)
             )
         super().__init__(" / ".join(parts) or "환경설정 오류")
 
@@ -50,6 +53,7 @@ class Config:
     database_url: str
     admin_channel_id: int
     dev_guild_id: int | None  # 없으면 None → 운영 글로벌 동기화
+    nexon_throttle: float  # 앱 키 호출 간격(초). 기본 0.25, 서비스단계 등록 후 0.02
 
     @classmethod
     def from_env(cls, env: Mapping[str, str]) -> "Config":
@@ -88,6 +92,15 @@ class Config:
             except ValueError:
                 invalid.append(key)
 
+        # 선택 실수: 비어 있으면 기본값, 값이 있으면 float 여야 함(잘못된 값은 invalid).
+        nexon_throttle = DEFAULT_NEXON_THROTTLE
+        raw_throttle = (env.get(_NEXON_THROTTLE_KEY) or "").strip()
+        if raw_throttle:
+            try:
+                nexon_throttle = float(raw_throttle)
+            except ValueError:
+                invalid.append(_NEXON_THROTTLE_KEY)
+
         if missing or invalid:
             raise ConfigError(missing, invalid)
 
@@ -99,6 +112,7 @@ class Config:
             database_url=strs["DATABASE_URL"],
             admin_channel_id=ints["ADMIN_CHANNEL_ID"],
             dev_guild_id=opt_ints["DEV_GUILD_ID"],
+            nexon_throttle=nexon_throttle,
         )
 
 

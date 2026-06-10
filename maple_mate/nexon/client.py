@@ -22,6 +22,20 @@ log = logging.getLogger(__name__)
 BASE_URL = "https://open.api.nexon.com"
 KST = timezone(timedelta(hours=9))
 
+# 개인 키 호출 간격(초). 넥슨 개발단계 한도 5/s 는 유저가 바꿀 수 없는 정책값이라
+# 환경변수로 노출하지 않는다(ADR-0004). 앱 키 간격은 생성자 `throttle`(NEXON_THROTTLE).
+PERSONAL_KEY_THROTTLE = 0.2
+
+
+class _ThrottleBucket:
+    """키 1개의 스로틀 상태. lock 으로 같은 키 호출만 직렬화한다(타 키 비차단)."""
+
+    __slots__ = ("lock", "next_allowed")
+
+    def __init__(self) -> None:
+        self.lock = asyncio.Lock()
+        self.next_allowed = 0.0  # time.monotonic() 기준 다음 호출 허용 시각
+
 
 def _extract_error(response: httpx.Response) -> tuple[str | None, str | None]:
     """넥슨 표준 에러 바디 { "error": { name, message } } 에서 (code, message) 추출."""
@@ -45,6 +59,7 @@ class NexonClient:
         app_key: str,
         *,
         throttle: float = 0.25,
+        personal_throttle: float = PERSONAL_KEY_THROTTLE,
         max_retry: int = 3,
         retry_wait: float = 2.0,
         timeout: float = 10.0,
@@ -52,6 +67,7 @@ class NexonClient:
     ):
         self._app_key = app_key
         self._throttle = throttle
+        self._personal_throttle = personal_throttle
         self._max_retry = max_retry
         self._retry_wait = retry_wait
         self._client = httpx.AsyncClient(
@@ -60,8 +76,10 @@ class NexonClient:
             timeout=timeout,
             transport=transport,
         )
-        self._lock = asyncio.Lock()
-        self._next_allowed = 0.0  # time.monotonic() 기준 다음 호출 허용 시각
+        # 키별 스로틀 버킷(ADR-0004): None=앱 키, 그 외=해당 개인 키. in-memory 라
+        # 단일 프로세스 전제(단계 3 분산 시 Redis 리미터로 대체). entry 수는
+        # 활성 개인 키 수(≈등록 유저 수) 수준이라 정리 로직 불요.
+        self._buckets: dict[str | None, _ThrottleBucket] = {}
         self._image_cache: dict[
             str, bytes
         ] = {}  # 정적 아이콘 URL → bytes (불변 자산이라 영구 캐시)
@@ -75,15 +93,20 @@ class NexonClient:
     async def __aexit__(self, *exc: object) -> None:
         await self.aclose()
 
-    async def _await_throttle(self) -> None:
-        if self._throttle <= 0:
+    async def _await_throttle(self, api_key: str | None) -> None:
+        """키별 버킷 스로틀: 같은 키 호출 간격만 보장, 다른 키는 서로 비차단."""
+        interval = self._throttle if api_key is None else self._personal_throttle
+        if interval <= 0:
             return
-        async with self._lock:
+        bucket = self._buckets.get(api_key)
+        if bucket is None:
+            bucket = self._buckets[api_key] = _ThrottleBucket()
+        async with bucket.lock:
             now = time.monotonic()
-            wait = self._next_allowed - now
+            wait = bucket.next_allowed - now
             if wait > 0:
                 await asyncio.sleep(wait)
-            self._next_allowed = time.monotonic() + self._throttle
+            bucket.next_allowed = time.monotonic() + interval
 
     async def _request(
         self, path: str, *, api_key: str | None = None, **params: object
@@ -93,7 +116,7 @@ class NexonClient:
         headers = {"x-nxopen-api-key": api_key} if api_key else None
         attempt = 0
         while True:
-            await self._await_throttle()
+            await self._await_throttle(api_key)
             try:
                 response = await self._client.get(path, params=query, headers=headers)
             except (httpx.TimeoutException, httpx.TransportError) as exc:
