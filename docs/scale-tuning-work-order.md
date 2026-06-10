@@ -3,6 +3,9 @@
 > [deploy-plan.md](deploy-plan.md) §3 단계 2(공개 커뮤니티 대비 튜닝)를 그릴링 세션(2026-06-10)에서
 > 전부 확정한 **실행용 SSOT**. deploy-plan 은 로드맵·근거, 이 문서는 "확정된 대로 무엇을 만드는가"에 집중한다.
 > 시나리오 기준: **100서버 × 활성 5명 × 10명령/일 = 5,000명령/일**.
+>
+> **✅ 구현 완료 (2026-06-10)** — 3-1~3-6 전부 [PR #14](https://github.com/mindongdong/maple-mate/pull/14)
+> (브랜치 `phase-8-scale-tuning`, 항목별 커밋, CI 그린). 지시서 대비 편차·구현 노트는 §7.
 
 ## 0. 시작점
 
@@ -104,4 +107,18 @@
 - [x] 3-4 `to_thread` 오프로딩 (표 렌더 4명령 + 아이템 카드 + 마르코프 집계)
 - [x] 3-5 history_cache prune(date−400일) — 운영 요약 일일 잡 편승
 - [x] 3-6 부하 시뮬 테스트 그린 ([test_load_simulation.py](../tests/test_load_simulation.py), `slow` 마커 ~2.4초)
-- [ ] PR → CI 그린 → 머지 → §4 운영자 작업 안내
+- [x] PR [#14](https://github.com/mindongdong/maple-mate/pull/14) + CI 그린 (lint·test·migrations, 전체 413 passed)
+- [ ] 머지 → §4 운영자 작업 안내
+
+## 7. 구현 기록 — 지시서 대비 편차·노트 (as-built, 2026-06-10)
+
+| 항목 | 편차/노트 |
+|---|---|
+| 3-1 | 개인키 0.2s 는 모듈 상수 `PERSONAL_KEY_THROTTLE` + 생성자 인자 `personal_throttle`(기본값=상수)로 구현 — **env 비노출은 유지**(ADR-0004), 인자는 타이밍 단위테스트 주입용. 버킷은 `_ThrottleBucket`(키별 Lock + next_allowed) — 같은 키만 직렬화, 타 키 비차단 |
+| 3-2 | 계획대로 [client.py `_spec`](../maple_mate/nexon/client.py) 에 `(path, ocid)` 캐시, `SPEC_CACHE_TTL=30분`. 캐시 엔트리 수 = 엔드포인트(10) × 조회 캐릭터 수라 정리 불요 |
+| 3-3 | [bot/cooldowns.py](../maple_mate/bot/cooldowns.py) **팩토리 함수**로 구현 — `checks.cooldown` 데코레이터 객체를 여러 명령에 재사용하면 쿨다운 매핑이 공유되므로(이력류끼리 서로 차단) 명령마다 새로 생성. 안내는 명령별 핸들러가 아니라 **트리 공통 `on_app_command_error`**([bot/core.py](../maple_mate/bot/core.py)) — 비-쿨다운 에러의 앱로그 안전망 겸함 |
+| 3-4 | "3곳" = 모듈 3개의 호출부 **6지점**: 표 렌더 4명령(스타포스·잠재·유니온·스펙) + 아이템 카드 1 + `aggregate_starforce`(마르코프) 1. 대상 함수는 동기 유지 → 기존 렌더·기대값 테스트 무수정 그린 |
+| 3-5 | prune 함수는 [history/service.py](../maple_mate/history/service.py) 소유(`prune_old_history_cache` + 순수 `history_cache_cutoff`), 실행만 운영 요약 잡([scheduler.py](../maple_mate/notification/scheduler.py)) 편승 — error_log 도메인에 history 의존을 넣지 않기 위함 |
+| 3-6 | cold "1년 1건"은 **12일치로 축소** — 365콜 × 0.2s ≈ 73초라 CI 불가. 비차단 속성(스펙류가 cold 종료 전 전부 완료)은 동일하게 단언, 실행 ~2.4초. 앱키 간격도 시뮬용 0.05s(실값 0.25면 5초+) |
+| 테스트 함정 | discord.py `Cooldown.update_rate_limit` 은 `current or time.time()` — **epoch 0 타임스탬프로 시각 주입하면 실시간으로 폴백**해 깨진다. 테스트는 0 아닌 기준점(`_BASE`) 사용 |
+| 부수 변경 | `NEXON_THROTTLE` 을 [.env.example](../.env.example) 에 추가(서비스단계 승인 전 설정 금지 경고 포함) · pytest `slow` 마커 등록 · ConfigError 메시지 "정수 필요"→"숫자 필요"(float 키 수용) |
