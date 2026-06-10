@@ -12,7 +12,7 @@ from datetime import date, datetime
 import discord
 from discord import app_commands
 
-from ..bot import comparison, table_image
+from ..bot import comparison, cooldowns, table_image
 from ..bot.embeds import KST, append_source, defer, make_embed
 from ..character.service import format_eok
 from ..dependencies import Deps
@@ -348,6 +348,7 @@ def setup(bot: discord.Client) -> None:
         member4="추가 비교 대상",
         member5="추가 비교 대상",
     )
+    @cooldowns.history_cooldown()
     async def starforce_command(
         interaction: discord.Interaction,
         period: app_commands.Choice[str] | None = None,

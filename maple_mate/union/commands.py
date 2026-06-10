@@ -8,7 +8,7 @@ from __future__ import annotations
 import discord
 from discord import app_commands
 
-from ..bot import comparison, table_image
+from ..bot import comparison, cooldowns, table_image
 from ..bot.embeds import append_source, defer, make_embed
 from ..dependencies import Deps
 from ..registration import service as reg
@@ -140,6 +140,7 @@ def setup(bot: discord.Client) -> None:
         member4="추가 비교 대상",
         member5="추가 비교 대상",
     )
+    @cooldowns.spec_cooldown()
     async def union_command(
         interaction: discord.Interaction,
         member1: discord.Member | None = None,

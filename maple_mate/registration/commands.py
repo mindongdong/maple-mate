@@ -9,6 +9,7 @@ from __future__ import annotations
 import discord
 from discord import app_commands
 
+from ..bot import cooldowns
 from ..bot.embeds import defer, make_embed
 from ..dependencies import Deps
 from . import service
@@ -69,6 +70,7 @@ def setup(bot: discord.Client) -> None:
         nickname="메이플 캐릭터 닉네임",
         api_key="넥슨 개인 API 키 (선택). 입력하면 스타포스·잠재 등 이력류 조회가 열립니다.",
     )
+    @cooldowns.settings_cooldown()
     async def register_command(
         interaction: discord.Interaction,
         nickname: str,
