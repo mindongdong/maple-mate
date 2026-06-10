@@ -1,4 +1,5 @@
 """아이템 카드 PNG 렌더 단위테스트 (전달-무관 순수 렌더 — PNG 유효성 + 뱃지/줄 구성)."""
+
 from __future__ import annotations
 
 import io
@@ -15,7 +16,9 @@ def _card(**kw) -> ItemCard:
         found=True,
         item_name="하이네스 워리어헬름",
         starforce="19",
-        potential=CardPotential("레전드리", ("스킬 재사용 대기시간 -3초", "최대 HP +9%")),
+        potential=CardPotential(
+            "레전드리", ("스킬 재사용 대기시간 -3초", "최대 HP +9%")
+        ),
         additional=CardPotential("에픽", ("공격력 +21",)),
         add_option="STR +76",
         upgrade="주문서 12회",
@@ -40,11 +43,15 @@ def test_render_stacks_multiple_cards():
     png_two = item_card.render_item_cards([_card(), _card(label="점프 · 모자")])
     assert _is_png(png_two)
     # 세로 스택이므로 2장이 1장보다 키가 크다.
-    assert Image.open(io.BytesIO(png_two)).height > Image.open(io.BytesIO(png_one)).height
+    assert (
+        Image.open(io.BytesIO(png_two)).height > Image.open(io.BytesIO(png_one)).height
+    )
 
 
 def test_render_not_found_card_is_valid_png():
-    assert _is_png(item_card.render_item_cards([ItemCard(label="점프 · 모자", found=False)]))
+    assert _is_png(
+        item_card.render_item_cards([ItemCard(label="점프 · 모자", found=False)])
+    )
 
 
 def test_render_empty_list_raises():
@@ -93,7 +100,9 @@ def test_to_item_card_combines_options_from_result():
         "additional_potential_option_2": "공격력 +10",
         "item_etc_option": {"str": "29"},
     }
-    result = item.ItemResult(found=True, slot="모자", item=item.parse_item(raw, "모자"), date=None)
+    result = item.ItemResult(
+        found=True, slot="모자", item=item.parse_item(raw, "모자"), date=None
+    )
     card = _to_item_card("손바 · 모자", result, icon_png=b"icon")
 
     assert card.found is True

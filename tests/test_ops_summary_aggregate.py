@@ -3,6 +3,7 @@
 ErrorLog 인스턴스를 직접 구성(세션 없이, timestamp 미설정 — 입력 순서=시간순). DB·discord 없음.
 aggregate 는 error_type/discord_user_id/command/detail 만 읽으므로 세션 없이 검증된다.
 """
+
 from __future__ import annotations
 
 from maple_mate.error_log.models import ErrorLog
@@ -80,7 +81,7 @@ def test_unmatched_top_n_and_kinds_for_extra():
 
     s = aggregate(rows)
     assert len(s.unmatched) == UNMATCHED_TOP_N  # 상위 10종
-    assert s.unmatched_kinds == 11              # 전체 11종
+    assert s.unmatched_kinds == 11  # 전체 11종
     assert s.unmatched[0] == (equipments[0], 2)  # 빈도 1위
 
 

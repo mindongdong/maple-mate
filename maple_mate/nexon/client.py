@@ -5,6 +5,7 @@
   test_ 키 한도가 ~5/sec 였고 live 한도는 미확인 → 보수적 기본값을 생성자 인자로 노출.
 - 비정상 응답은 NexonAPIError 로 변환(error_class 로 호출자가 분기).
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -27,7 +28,9 @@ def _extract_error(response: httpx.Response) -> tuple[str | None, str | None]:
     try:
         body = response.json()
     except ValueError:  # JSON 아님(점검 HTML 등) → 원문 텍스트로 폴백
-        log.debug("non-JSON error body (%s): %s", response.status_code, response.text[:200])
+        log.debug(
+            "non-JSON error body (%s): %s", response.status_code, response.text[:200]
+        )
         return None, response.text
     if isinstance(body, dict):
         err = body.get("error")
@@ -59,7 +62,9 @@ class NexonClient:
         )
         self._lock = asyncio.Lock()
         self._next_allowed = 0.0  # time.monotonic() 기준 다음 호출 허용 시각
-        self._image_cache: dict[str, bytes] = {}  # 정적 아이콘 URL → bytes (불변 자산이라 영구 캐시)
+        self._image_cache: dict[
+            str, bytes
+        ] = {}  # 정적 아이콘 URL → bytes (불변 자산이라 영구 캐시)
 
     async def aclose(self) -> None:
         await self._client.aclose()
@@ -80,7 +85,9 @@ class NexonClient:
                 await asyncio.sleep(wait)
             self._next_allowed = time.monotonic() + self._throttle
 
-    async def _request(self, path: str, *, api_key: str | None = None, **params: object) -> dict:
+    async def _request(
+        self, path: str, *, api_key: str | None = None, **params: object
+    ) -> dict:
         """GET 호출. 스로틀 + 재시도. 비정상 응답은 NexonAPIError 로 raise."""
         query = {k: v for k, v in params.items() if v is not None}
         headers = {"x-nxopen-api-key": api_key} if api_key else None
@@ -95,7 +102,10 @@ class NexonClient:
                     await asyncio.sleep(self._retry_wait * attempt)
                     continue
                 raise NexonAPIError(
-                    "TIMEOUT", str(exc), http_status=None, error_class=ErrorClass.TIMEOUT
+                    "TIMEOUT",
+                    str(exc),
+                    http_status=None,
+                    error_class=ErrorClass.TIMEOUT,
                 ) from exc
 
             if response.status_code == 200:
@@ -106,10 +116,18 @@ class NexonClient:
             # rate_limit(429) 는 백오프 후 재시도
             if error_class is ErrorClass.RATE_LIMIT and attempt < self._max_retry:
                 attempt += 1
-                log.warning("rate_limit(%s) — %.1fs 후 재시도 %d/%d", code, self._retry_wait * attempt, attempt, self._max_retry)
+                log.warning(
+                    "rate_limit(%s) — %.1fs 후 재시도 %d/%d",
+                    code,
+                    self._retry_wait * attempt,
+                    attempt,
+                    self._max_retry,
+                )
                 await asyncio.sleep(self._retry_wait * attempt)
                 continue
-            raise NexonAPIError(code, message, http_status=response.status_code, error_class=error_class)
+            raise NexonAPIError(
+                code, message, http_status=response.status_code, error_class=error_class
+            )
 
     async def fetch_image(self, url: str) -> bytes:
         """장비 아이콘 등 정적 이미지 다운로드 (메모리 캐시).
@@ -125,13 +143,18 @@ class NexonClient:
             try:
                 response = await self._client.get(url)
                 response.raise_for_status()
-            except httpx.HTTPError as exc:  # Timeout/Transport/HTTPStatus/InvalidURL 등 전부
+            except (
+                httpx.HTTPError
+            ) as exc:  # Timeout/Transport/HTTPStatus/InvalidURL 등 전부
                 if attempt < self._max_retry:
                     attempt += 1
                     await asyncio.sleep(self._retry_wait * attempt)
                     continue
                 raise NexonAPIError(
-                    "IMAGE_FETCH", str(exc), http_status=None, error_class=ErrorClass.TIMEOUT
+                    "IMAGE_FETCH",
+                    str(exc),
+                    http_status=None,
+                    error_class=ErrorClass.TIMEOUT,
                 ) from exc
             # 비이미지 응답(점검 HTML 등)은 캐시 오염 방지 위해 실패 처리 — 캐시하지 않음.
             content_type = response.headers.get("content-type", "")
@@ -218,9 +241,13 @@ class NexonClient:
         cursor: str | None = None
         while True:
             if cursor is None:
-                data = await self._request(path, api_key=api_key, count=count, date=date_iso)
+                data = await self._request(
+                    path, api_key=api_key, count=count, date=date_iso
+                )
             else:  # cursor 전달 시 date 제외(실측: date 우선·cursor 무시)
-                data = await self._request(path, api_key=api_key, count=count, cursor=cursor)
+                data = await self._request(
+                    path, api_key=api_key, count=count, cursor=cursor
+                )
             page = data.get(wrapper)
             if isinstance(page, list):
                 records.extend(page)
@@ -241,7 +268,11 @@ class NexonClient:
     ) -> list[dict]:
         """개인 키로 그 계정 potential(메소 재설정) 이력(해당 KST 1일). null→[]."""
         return await self._history(
-            "maplestory/v1/history/potential", "potential_history", api_key, date_iso, count
+            "maplestory/v1/history/potential",
+            "potential_history",
+            api_key,
+            date_iso,
+            count,
         )
 
     # ── Phase 2 스펙류 (앱 키 + ocid, date 무지정=최신 ready) ──────────────
@@ -263,16 +294,22 @@ class NexonClient:
     async def character_ability(self, ocid: str, date: str | None = None) -> dict:
         return await self._spec("maplestory/v1/character/ability", ocid, date)
 
-    async def character_symbol_equipment(self, ocid: str, date: str | None = None) -> dict:
+    async def character_symbol_equipment(
+        self, ocid: str, date: str | None = None
+    ) -> dict:
         return await self._spec("maplestory/v1/character/symbol-equipment", ocid, date)
 
     async def character_hexamatrix(self, ocid: str, date: str | None = None) -> dict:
         return await self._spec("maplestory/v1/character/hexamatrix", ocid, date)
 
-    async def character_hexamatrix_stat(self, ocid: str, date: str | None = None) -> dict:
+    async def character_hexamatrix_stat(
+        self, ocid: str, date: str | None = None
+    ) -> dict:
         return await self._spec("maplestory/v1/character/hexamatrix-stat", ocid, date)
 
-    async def character_item_equipment(self, ocid: str, date: str | None = None) -> dict:
+    async def character_item_equipment(
+        self, ocid: str, date: str | None = None
+    ) -> dict:
         return await self._spec("maplestory/v1/character/item-equipment", ocid, date)
 
     async def union(self, ocid: str, date: str | None = None) -> dict:
@@ -297,7 +334,9 @@ class NexonClient:
 
     async def notice_event_detail(self, notice_id: int) -> dict:
         """이벤트 상세(`contents` HTML 포함). 본문 배너 이미지 URL 추출에 사용."""
-        return await self._request("maplestory/v1/notice-event/detail", notice_id=notice_id)
+        return await self._request(
+            "maplestory/v1/notice-event/detail", notice_id=notice_id
+        )
 
     # `/공지알림` 폴링 대상(이벤트 제외). 둘 다 파라미터 없이 최신순(date 내림차순) 목록 반환
     # (docs/api/notice.md, Spike 0 실호출 확정). 래퍼 키: notice=`notice`, 업데이트=`update_notice`.

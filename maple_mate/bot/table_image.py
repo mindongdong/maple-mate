@@ -5,6 +5,7 @@
 셀은 2종 — 문자열(그대로 텍스트), `NumGrid`(고정 칸 수의 수치 그리드; 세로줄로 칸을 나눠
 각 칸 가운데 정렬, 빈 칸은 0, bold_first 면 첫 칸만 볼드). 한글 폰트(macOS 시스템) 필요.
 """
+
 from __future__ import annotations
 
 import io
@@ -126,7 +127,10 @@ def render_table_image(
 
     def badges_width(cell: GradeBadges) -> float:
         """GradeBadges pill 묶음의 가로 폭(pill 폭 합 + 간격)."""
-        widths = [text_w(badge_text(lbl, cnt), badge_font) + 2 * _BADGE_PAD_X for lbl, cnt in cell.items]
+        widths = [
+            text_w(badge_text(lbl, cnt), badge_font) + 2 * _BADGE_PAD_X
+            for lbl, cnt in cell.items
+        ]
         return sum(widths) + _BADGE_GAP * max(0, len(widths) - 1)
 
     col_w: list[float] = []
@@ -182,14 +186,24 @@ def render_table_image(
             sub_w = col_w[c] / slots
             for i in range(1, slots):
                 sx = x + i * sub_w
-                draw.line([(sx, header_bottom), (sx, table_bottom)], fill=_GRID_SUB, width=1)
+                draw.line(
+                    [(sx, header_bottom), (sx, table_bottom)], fill=_GRID_SUB, width=1
+                )
         x += col_w[c]
 
     # 3) 가로 테두리(위/아래) + 헤더 밑줄(오렌지).
-    draw.line([(_MARGIN, table_top), (total_w - _MARGIN, table_top)], fill=_GRID, width=1)
-    draw.line([(_MARGIN, table_bottom), (total_w - _MARGIN, table_bottom)], fill=_GRID, width=1)
     draw.line(
-        [(_MARGIN, header_bottom), (total_w - _MARGIN, header_bottom)], fill=_UNDERLINE, width=2
+        [(_MARGIN, table_top), (total_w - _MARGIN, table_top)], fill=_GRID, width=1
+    )
+    draw.line(
+        [(_MARGIN, table_bottom), (total_w - _MARGIN, table_bottom)],
+        fill=_GRID,
+        width=1,
+    )
+    draw.line(
+        [(_MARGIN, header_bottom), (total_w - _MARGIN, header_bottom)],
+        fill=_UNDERLINE,
+        width=2,
     )
 
     def draw_text_cell(s, font, x_left, col, align, y, color) -> None:
@@ -208,14 +222,26 @@ def render_table_image(
         for i, v in enumerate(vals):
             s = str(v)
             first = i == 0
-            font = bold if (first and (cell.bold_first or cell.highlight_first)) else regular
+            font = (
+                bold
+                if (first and (cell.bold_first or cell.highlight_first))
+                else regular
+            )
             color = _BEST if (first and cell.highlight_first) else _TEXT
             tw = text_w(s, font)
-            draw.text((x_left + i * sub_w + (sub_w - tw) / 2, y + _PAD_Y), s, font=font, fill=color)
+            draw.text(
+                (x_left + i * sub_w + (sub_w - tw) / 2, y + _PAD_Y),
+                s,
+                font=font,
+                fill=color,
+            )
 
     def draw_grade_badges(cell: GradeBadges, x_left, col, align, y) -> None:
         """등급 색 라운드 pill('등급 ×횟수')을 가로 나열. 행 높이 안에서 세로 중앙."""
-        pills = [(badge_text(lbl, cnt), GRADE_COLORS.get(lbl, _GRADE_BADGE_DEFAULT)) for lbl, cnt in cell.items]
+        pills = [
+            (badge_text(lbl, cnt), GRADE_COLORS.get(lbl, _GRADE_BADGE_DEFAULT))
+            for lbl, cnt in cell.items
+        ]
         widths = [text_w(t, badge_font) + 2 * _BADGE_PAD_X for t, _ in pills]
         group_w = sum(widths) + _BADGE_GAP * max(0, len(pills) - 1)
         if align == "right":
@@ -229,7 +255,13 @@ def render_table_image(
         px = sx
         for (text, color), w in zip(pills, widths):
             fill = tuple(int(ch * 0.22 + bg * 0.78) for ch, bg in zip(color, _BG))
-            draw.rounded_rectangle([px, py, px + w, py + pill_h], radius=pill_h / 2, fill=fill, outline=color, width=2)
+            draw.rounded_rectangle(
+                [px, py, px + w, py + pill_h],
+                radius=pill_h / 2,
+                fill=fill,
+                outline=color,
+                width=2,
+            )
             tw = text_w(text, badge_font)
             draw.text((px + (w - tw) / 2, py + 6), text, font=badge_font, fill=color)
             px += w + _BADGE_GAP

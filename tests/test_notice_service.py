@@ -3,6 +3,7 @@
 신규 판정은 notice_id 최대값 기준, 발송은 오래된→최신 순, baseline(last_id None)은 미발송.
 DB 함수(notice_state 마커·채널 토글)는 pg_insert 통합 영역이라 제외(썬데이 테스트와 동일 방침).
 """
+
 from __future__ import annotations
 
 from maple_mate.notification.notice_service import (
@@ -12,7 +13,6 @@ from maple_mate.notification.notice_service import (
     parse_notices,
     select_new,
 )
-
 
 # ── _format_date: +09:00/Z, 초·밀리초 혼재, None/garbage 가드 ────────────────
 
@@ -39,9 +39,24 @@ def test_format_date_none_and_garbage_fall_back():
 def test_parse_sorts_ascending_reversing_newest_first_input():
     # 넥슨은 최신순(내림차순) → 발송용 오름차순으로 뒤집힌다.
     raw = [
-        {"notice_id": 30, "title": "C", "url": "u3", "date": "2026-01-03T00:00:00+09:00"},
-        {"notice_id": 10, "title": "A", "url": "u1", "date": "2026-01-01T00:00:00+09:00"},
-        {"notice_id": 20, "title": "B", "url": "u2", "date": "2026-01-02T00:00:00+09:00"},
+        {
+            "notice_id": 30,
+            "title": "C",
+            "url": "u3",
+            "date": "2026-01-03T00:00:00+09:00",
+        },
+        {
+            "notice_id": 10,
+            "title": "A",
+            "url": "u1",
+            "date": "2026-01-01T00:00:00+09:00",
+        },
+        {
+            "notice_id": 20,
+            "title": "B",
+            "url": "u2",
+            "date": "2026-01-02T00:00:00+09:00",
+        },
     ]
     items = parse_notices(raw)
     assert [i.notice_id for i in items] == [10, 20, 30]

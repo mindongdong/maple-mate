@@ -1,4 +1,5 @@
 """GradeBadges 셀 렌더 단위테스트 (PNG bytes 생성·폭 계산·미상 등급)."""
+
 from __future__ import annotations
 
 import io

@@ -3,6 +3,7 @@
 DB 함수(dedup 마커·채널 토글)는 pg_insert 통합 영역이라 제외(기존 registration 테스트와 동일 방침).
 여기서는 매칭·주차·기간 포맷·이벤트 선별만 검증한다.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timezone
@@ -16,7 +17,6 @@ from maple_mate.notification.service import (
     match_sunday,
     select_sunday_events,
 )
-
 
 # ── match_sunday: 공백 무시 부분일치(미실측 양성 매칭 완화의 핵심) ──────────────
 
@@ -110,7 +110,10 @@ def test_extract_content_image_none_when_no_image():
 
 
 def test_extract_content_image_handles_single_quotes():
-    assert extract_content_image("<img src='https://cdn/x/a.jpg'>") == "https://cdn/x/a.jpg"
+    assert (
+        extract_content_image("<img src='https://cdn/x/a.jpg'>")
+        == "https://cdn/x/a.jpg"
+    )
 
 
 # ── select_sunday_events: 페치 + 필터 + 구성 ────────────────────────────────
@@ -162,7 +165,11 @@ async def test_select_passes_through_missing_thumbnail_and_multi_match():
     nexon = _FakeNexon(
         [
             {"title": "썬데이 메이플 1", "url": "https://x/1"},  # thumbnail 없음
-            {"title": "[썬데이 메이플] 2", "url": "https://x/2", "thumbnail_url": "https://x/t.jpg"},
+            {
+                "title": "[썬데이 메이플] 2",
+                "url": "https://x/2",
+                "thumbnail_url": "https://x/t.jpg",
+            },
         ]
     )
     events = await select_sunday_events(nexon)
@@ -190,7 +197,9 @@ async def test_select_banner_none_when_detail_fetch_fails():
     # 상세 페치 실패는 비치명 — 이벤트는 발송하되 배너만 생략(목록 페치 실패와 구분).
     nexon = _FakeNexon(
         events=[{"title": "썬데이 메이플", "url": "https://x/1", "notice_id": 1329}],
-        detail_error=NexonAPIError("OPENAPI00001", "boom", error_class=ErrorClass.NEXON_API),
+        detail_error=NexonAPIError(
+            "OPENAPI00001", "boom", error_class=ErrorClass.NEXON_API
+        ),
     )
     [event] = await select_sunday_events(nexon)
     assert event.detail_image_url is None

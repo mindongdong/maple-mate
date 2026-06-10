@@ -1,7 +1,7 @@
 """아이템 파싱 + 정적 부위표 단위테스트 (handoff §6: 0성 vs 스타포스 불가 구분)."""
+
 from __future__ import annotations
 
-from maple_mate.character import item
 from maple_mate.character.equipment_slots import SLOT_CHOICES, starforce_capable
 from maple_mate.character.item import (
     combine_options,
@@ -12,7 +12,6 @@ from maple_mate.character.item import (
     summarize_upgrade,
     summarize_upgrade_stats,
 )
-
 
 # ── 정적 부위표 ──────────────────────────────────────────────────────
 
@@ -112,7 +111,11 @@ def test_summarize_upgrade():
 
 
 def test_summarize_upgrade_none_when_pristine():
-    raw = {"scroll_upgrade": "0", "starforce_scroll_flag": "미사용", "golden_hammer_flag": "미적용"}
+    raw = {
+        "scroll_upgrade": "0",
+        "starforce_scroll_flag": "미사용",
+        "golden_hammer_flag": "미적용",
+    }
     assert summarize_upgrade(raw) is None
 
 
@@ -121,14 +124,28 @@ def test_summarize_upgrade_none_when_pristine():
 
 def test_summarize_upgrade_stats_main_stats_only():
     # HP/MP/방어력은 노이즈로 제외, 주스탯·공·마력만.
-    etc = {"str": "29", "dex": "22", "int": "17", "luk": "0", "max_hp": "230",
-           "max_mp": "280", "attack_power": "25", "magic_power": "17", "armor": "24"}
-    assert summarize_upgrade_stats(etc) == "STR +29, DEX +22, INT +17, 공격력 +25, 마력 +17"
+    etc = {
+        "str": "29",
+        "dex": "22",
+        "int": "17",
+        "luk": "0",
+        "max_hp": "230",
+        "max_mp": "280",
+        "attack_power": "25",
+        "magic_power": "17",
+        "armor": "24",
+    }
+    assert (
+        summarize_upgrade_stats(etc)
+        == "STR +29, DEX +22, INT +17, 공격력 +25, 마력 +17"
+    )
 
 
 def test_summarize_upgrade_stats_empty():
     assert summarize_upgrade_stats(None) is None
-    assert summarize_upgrade_stats({"str": "0", "max_hp": "100"}) is None  # 주스탯 0 → None
+    assert (
+        summarize_upgrade_stats({"str": "0", "max_hp": "100"}) is None
+    )  # 주스탯 0 → None
 
 
 def test_combine_options_sums_same_name_and_unit():
@@ -179,8 +196,16 @@ def test_parse_item_includes_icon_url_and_upgrade_stats():
 def test_find_slot_item_matches_by_slot_not_part():
     payload = {
         "item_equipment": [
-            {"item_equipment_part": "반지", "item_equipment_slot": "반지1", "item_name": "반지A"},
-            {"item_equipment_part": "반지", "item_equipment_slot": "반지2", "item_name": "반지B"},
+            {
+                "item_equipment_part": "반지",
+                "item_equipment_slot": "반지1",
+                "item_name": "반지A",
+            },
+            {
+                "item_equipment_part": "반지",
+                "item_equipment_slot": "반지2",
+                "item_name": "반지B",
+            },
         ]
     }
     assert find_slot_item(payload, "반지2")["item_name"] == "반지B"
@@ -199,7 +224,11 @@ async def test_fetch_item_found_and_not_worn():
     payload = {
         "date": None,
         "item_equipment": [
-            {"item_equipment_slot": "모자", "item_name": "앱솔랩스 모자", "starforce": "22"}
+            {
+                "item_equipment_slot": "모자",
+                "item_name": "앱솔랩스 모자",
+                "starforce": "22",
+            }
         ],
     }
     nexon = _FakeNexon(payload)

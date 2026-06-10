@@ -4,6 +4,7 @@
 - NoticeState: 카테고리별 마지막 발송 식별자 + 썬데이 마지막 발송 주차(키-값).
 Phase 1 은 테이블만 생성(발송 로직은 Phase 4).
 """
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -20,8 +21,12 @@ class ChannelSettings(Base):
     guild_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     channel_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
 
-    notice_alert: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
-    sunday_alert: Mapped[bool] = mapped_column(Boolean, nullable=False, server_default=text("false"))
+    notice_alert: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
+    sunday_alert: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
 
 
 class NoticeState(Base):
@@ -31,5 +36,8 @@ class NoticeState(Base):
     category: Mapped[str] = mapped_column(String(32), primary_key=True)
     last_identifier: Mapped[str | None] = mapped_column(String(128), nullable=True)
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )

@@ -1,4 +1,5 @@
 """registration ORM — (guild_id, discord_user_id) 1레코드 (design §5①)."""
+
 from __future__ import annotations
 
 from datetime import datetime
@@ -25,6 +26,9 @@ class Registration(Base):
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
     updated_at: Mapped[datetime] = mapped_column(
-        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
     )
     # 서버 내 닉네임 중복 허용(MVP) → maple_nickname 에 unique 제약 없음.

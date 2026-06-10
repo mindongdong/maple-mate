@@ -2,9 +2,10 @@
 
 지난 날짜 = 'YYYY-MM-DD' / 오늘(KST) = 'HH:MM 기준'.
 """
+
 from __future__ import annotations
 
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime, timezone
 
 from maple_mate.bot.embeds import DATA_SOURCE, KST, append_source, format_footer
 

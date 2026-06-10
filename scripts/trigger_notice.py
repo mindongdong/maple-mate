@@ -10,6 +10,7 @@
     예) uv run python -m scripts.trigger_notice 123456789012345678          # 공지 최근 3개
         uv run python -m scripts.trigger_notice 123456789012345678 update 5  # 업데이트 최근 5개
 """
+
 from __future__ import annotations
 
 import asyncio

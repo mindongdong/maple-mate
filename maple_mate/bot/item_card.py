@@ -6,6 +6,7 @@
 스코프: 우열 판정/환산 점수 없음(설계 §10) — API 실제 값만 표기. 닉↔주인 태그는 이미지에
 못 넣으므로(멘션 불가) 호출부가 임베드 범례로 분리한다. 한글 폰트는 table_image 와 공유.
 """
+
 from __future__ import annotations
 
 import io
@@ -148,7 +149,9 @@ def _card_size(
     pill_w = sum(_text_w(draw, t, f.pill_b) + 2 * 14 for t, _ in pills)
     pill_w += _PILL_GAP * max(0, len(pills) - 1)
     text_w = max(text_w, pill_w)
-    label_col = max((_text_w(draw, lbl, f.label_b) for lbl, _, _ in rows), default=0) + 16
+    label_col = (
+        max((_text_w(draw, lbl, f.label_b) for lbl, _, _ in rows), default=0) + 16
+    )
     for lbl, _, val in rows:
         text_w = max(text_w, label_col + _text_w(draw, val, f.body_r))
 
@@ -160,7 +163,9 @@ def _card_size(
 
     inner_h = max(_ICON_BOX, int(text_h))
     width = int(_PAD + _ICON_BOX + _GAP + text_w + _PAD)
-    width = max(width, int(_PAD + _text_w(draw, card.label, f.label_b) + _PAD))  # 긴 라벨도 안 잘리게
+    width = max(
+        width, int(_PAD + _text_w(draw, card.label, f.label_b) + _PAD)
+    )  # 긴 라벨도 안 잘리게
     height = int(_PAD + 28 + 6 + inner_h + _PAD)  # 헤더줄(라벨) 포함
     return width, height, pills, rows
 
@@ -173,14 +178,24 @@ def _draw_pill(
     h = _PILL_SIZE + 12
     w = tw + 2 * 14
     fill = tuple(int(c * 0.22 + 30 * 0.78) for c in color)  # 색조 옅게
-    draw.rounded_rectangle([x, y, x + w, y + h], radius=h / 2, fill=fill, outline=color, width=2)
+    draw.rounded_rectangle(
+        [x, y, x + w, y + h], radius=h / 2, fill=fill, outline=color, width=2
+    )
     draw.text((x + 14, y + 6), text, font=font, fill=color)
     return x + w
 
 
 def _draw_card(
-    img: Image.Image, draw: ImageDraw.ImageDraw, f: _Fonts, card: ItemCard,
-    x0: int, y0: int, w: int, h: int, pills: list[_Pill], rows: list[_DetailRow],
+    img: Image.Image,
+    draw: ImageDraw.ImageDraw,
+    f: _Fonts,
+    card: ItemCard,
+    x0: int,
+    y0: int,
+    w: int,
+    h: int,
+    pills: list[_Pill],
+    rows: list[_DetailRow],
 ) -> None:
     accent = _grade(card.potential.grade)[0] if card.potential else _STAR
     # 패널 + 좌측 등급 액센트 스트라이프.
@@ -193,8 +208,13 @@ def _draw_card(
 
     # 아이콘 칸.
     ix, iy = x0 + _PAD, top
-    draw.rounded_rectangle([ix, iy, ix + _ICON_BOX, iy + _ICON_BOX], radius=10, fill=_ICON_BG,
-                           outline=accent, width=2)
+    draw.rounded_rectangle(
+        [ix, iy, ix + _ICON_BOX, iy + _ICON_BOX],
+        radius=10,
+        fill=_ICON_BG,
+        outline=accent,
+        width=2,
+    )
     if card.icon_png is not None:
         icon = _scaled_icon(card.icon_png)
         if icon is not None:
@@ -204,7 +224,12 @@ def _draw_card(
 
     tx = ix + _ICON_BOX + _GAP
     if not card.found:
-        draw.text((tx, top + (_ICON_BOX - _NAME_SIZE) // 2), "미착용", font=f.name_r, fill=_MUTED)
+        draw.text(
+            (tx, top + (_ICON_BOX - _NAME_SIZE) // 2),
+            "미착용",
+            font=f.name_r,
+            fill=_MUTED,
+        )
         return
 
     # 이름.
@@ -219,7 +244,9 @@ def _draw_card(
     y += _PILL_SIZE + 12 + _ROW_GAP
 
     # 디테일줄(라벨 + 값).
-    label_col = max((_text_w(draw, lbl, f.label_b) for lbl, _, _ in rows), default=0) + 16
+    label_col = (
+        max((_text_w(draw, lbl, f.label_b) for lbl, _, _ in rows), default=0) + 16
+    )
     for lbl, lbl_color, val in rows:
         draw.text((tx, y), lbl, font=f.label_b, fill=lbl_color)
         draw.text((tx + label_col, y), val, font=f.body_r, fill=_TEXT)
@@ -236,7 +263,12 @@ def render_item_cards(cards: list[ItemCard]) -> bytes:
     sizes = [_card_size(probe, f, c) for c in cards]
     card_w = max(w for w, _, _, _ in sizes)
     total_w = card_w + 2 * _MARGIN
-    total_h = _MARGIN + sum(h for _, h, _, _ in sizes) + _CARD_GAP * (len(cards) - 1) + _MARGIN
+    total_h = (
+        _MARGIN
+        + sum(h for _, h, _, _ in sizes)
+        + _CARD_GAP * (len(cards) - 1)
+        + _MARGIN
+    )
 
     img = Image.new("RGB", (total_w, total_h), _IMG_BG)
     draw = ImageDraw.Draw(img)

@@ -4,6 +4,7 @@ expected_meso(level, 0, N) 는 기댓값 이미지 "누적기댓값"(정가 plai
 이미지는 정수 메소로 절사 표기 → 엔진 float 와 ±1 차이(허용오차 2)로 검증. 파괴 구간(16성+)
 포함 — 파괴→12성 되돌림 고정점 풀이가 맞아야 통과한다.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -17,23 +18,38 @@ from maple_mate.history.expected_cost import (
 
 # 기댓값/200레벨_기댓값.png "누적기댓값" (reach N → 메소). 16~20성 = 파괴 구간.
 _CUM_200 = {
-    1: 234_947, 2: 729_836, 5: 3_952_431, 10: 18_069_010, 15: 732_061_370,
-    16: 1_015_240_995, 17: 1_360_520_194, 18: 2_811_073_257, 20: 13_539_425_831,
+    1: 234_947,
+    2: 729_836,
+    5: 3_952_431,
+    10: 18_069_010,
+    15: 732_061_370,
+    16: 1_015_240_995,
+    17: 1_360_520_194,
+    18: 2_811_073_257,
+    20: 13_539_425_831,
 }
 # 기댓값/250레벨_기댓값.png "누적기댓값".
 _CUM_250 = {
-    1: 457_894, 5: 7_714_142, 10: 35_278_280, 12: 161_432_369,
-    14: 700_722_369, 15: 1_429_782_702,
+    1: 457_894,
+    5: 7_714_142,
+    10: 35_278_280,
+    12: 161_432_369,
+    14: 700_722_369,
+    15: 1_429_782_702,
 }
 
 
 @pytest.mark.parametrize("n,expected", _CUM_200.items())
-def test_expected_meso_level_200_matches_cumulative_image(n: int, expected: int) -> None:
+def test_expected_meso_level_200_matches_cumulative_image(
+    n: int, expected: int
+) -> None:
     assert expected_meso(200, 0, n) == pytest.approx(expected, abs=2)
 
 
 @pytest.mark.parametrize("n,expected", _CUM_250.items())
-def test_expected_meso_level_250_matches_cumulative_image(n: int, expected: int) -> None:
+def test_expected_meso_level_250_matches_cumulative_image(
+    n: int, expected: int
+) -> None:
     assert expected_meso(250, 0, n) == pytest.approx(expected, abs=2)
 
 

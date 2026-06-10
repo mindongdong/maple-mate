@@ -1,4 +1,5 @@
 """crypto.py Fernet 라운드트립 단위테스트 (handoff §6)."""
+
 from __future__ import annotations
 
 import pytest

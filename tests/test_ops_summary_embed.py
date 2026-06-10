@@ -2,6 +2,7 @@
 
 OpsSummary/HealthEntry 를 직접 만들어 입력. 순수 함수라 DB·봇 mock 불필요.
 """
+
 from __future__ import annotations
 
 from datetime import date
@@ -44,6 +45,7 @@ def test_app_key_failure_color_is_red():
     embed = build_ops_summary_embed(s, _REF)
     assert embed is not None
     import discord
+
     assert embed.color == discord.Color.red()
 
 

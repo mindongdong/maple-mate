@@ -1,4 +1,5 @@
 """비교 렌더 헬퍼 단위테스트 (페이지 분할·실패필드·푸터·이미지 표)."""
+
 from __future__ import annotations
 
 import io
@@ -48,7 +49,10 @@ def test_field_pages_clips_oversized_value():
 
 def test_attach_failures_adds_grouped_field_to_each_page():
     pages = comparison.field_pages("T", [("a", "x")])
-    outcomes = [_outcome("성공", ok=True), _outcome("실패자", ok=False, error="닉 변경?")]
+    outcomes = [
+        _outcome("성공", ok=True),
+        _outcome("실패자", ok=False, error="닉 변경?"),
+    ]
     comparison.attach_failures(pages, outcomes)
     failure_fields = [f for f in pages[0].fields if "조회 실패" in f.name]
     assert len(failure_fields) == 1
@@ -67,7 +71,9 @@ def test_data_footer_null_is_latest():
 
 
 def test_all_failed_embed_lists_reasons():
-    embed = comparison.all_failed_embed("유니온 비교", [_outcome("떡볶이", ok=False, error="미등록")])
+    embed = comparison.all_failed_embed(
+        "유니온 비교", [_outcome("떡볶이", ok=False, error="미등록")]
+    )
     assert "떡볶이" in embed.description and "미등록" in embed.description
 
 
@@ -75,9 +81,19 @@ def test_all_failed_embed_lists_reasons():
 
 
 def test_mention_renders_tag_or_empty():
-    assert comparison.mention(Target(guild_id=1, discord_user_id=42, nickname="닉", ocid="oc")) == "<@42>"
+    assert (
+        comparison.mention(
+            Target(guild_id=1, discord_user_id=42, nickname="닉", ocid="oc")
+        )
+        == "<@42>"
+    )
     # 미등록 합성 대상(id 0/빈 ocid)은 태그 없음
-    assert comparison.mention(Target(guild_id=1, discord_user_id=0, nickname="닉", ocid="")) == ""
+    assert (
+        comparison.mention(
+            Target(guild_id=1, discord_user_id=0, nickname="닉", ocid="")
+        )
+        == ""
+    )
 
 
 def test_display_width_counts_hangul_as_two():
@@ -157,9 +173,7 @@ def test_highlight_cell_renders_gold_only_when_wrapped():
     with_highlight = table_image.render_table_image(
         ["유니온"], [[table_image.Highlight("9348")]], aligns=["center"]
     )
-    without = table_image.render_table_image(
-        ["유니온"], [["9348"]], aligns=["center"]
-    )
+    without = table_image.render_table_image(["유니온"], [["9348"]], aligns=["center"])
     assert has_gold(with_highlight)
     assert not has_gold(without)
 
@@ -172,7 +186,8 @@ def test_numgrid_highlight_first_renders_gold_only_when_set():
         return any(color == table_image._BEST for _, color in colors)
 
     highlighted = table_image.render_table_image(
-        ["스탯"], [[table_image.NumGrid((4, 10, 6), 3, bold_first=True, highlight_first=True)]]
+        ["스탯"],
+        [[table_image.NumGrid((4, 10, 6), 3, bold_first=True, highlight_first=True)]],
     )
     plain = table_image.render_table_image(
         ["스탯"], [[table_image.NumGrid((4, 10, 6), 3, bold_first=True)]]
@@ -184,7 +199,10 @@ def test_numgrid_highlight_first_renders_gold_only_when_set():
 def test_table_image_message_embed_has_legend_and_attachment():
     targets = [Target(1, 111, "손바", "oc"), Target(1, 222, "점프", "oc2")]
     rows = [["손바", "9327"], ["점프", "9205"]]
-    outcomes = [_outcome("손바", ok=True), _outcome("실패자", ok=False, error="닉 변경?")]
+    outcomes = [
+        _outcome("손바", ok=True),
+        _outcome("실패자", ok=False, error="닉 변경?"),
+    ]
     embed, file = comparison.table_image_message(
         "유니온 비교",
         ["캐릭터", "유니온"],
@@ -204,7 +222,10 @@ def test_table_image_message_embed_has_legend_and_attachment():
 
 def test_image_message_wraps_prerendered_png_with_legend_and_failures():
     targets = [Target(1, 111, "손바", "oc")]
-    outcomes = [_outcome("손바", ok=True), _outcome("실패자", ok=False, error="닉 변경?")]
+    outcomes = [
+        _outcome("손바", ok=True),
+        _outcome("실패자", ok=False, error="닉 변경?"),
+    ]
     embed, file = comparison.image_message(
         "아이템 — 모자",
         b"\x89PNG\r\n\x1a\n fake png bytes",

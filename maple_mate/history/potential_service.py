@@ -13,6 +13,7 @@
   - 메소: meso_cost(단가표, G2) 주입 시만 합산. 미주입이면 None('사용 메소' 컬럼 숨김, D3).
   - 단일 대상 보조: 큐브종류 분포·등급별 재설정 횟수(잠재/에디).
 """
+
 from __future__ import annotations
 
 import logging
@@ -220,16 +221,34 @@ async def fetch_potential_records(
     for query_date in dates:
         date_iso = query_date.isoformat()
 
-        cached_cube = await _cached(deps.session_factory, target.ocid, CUBE_TYPE, query_date, now)
+        cached_cube = await _cached(
+            deps.session_factory, target.ocid, CUBE_TYPE, query_date, now
+        )
         if cached_cube is None:
             cached_cube = await deps.nexon.cube_history(api_key, date_iso)
-            await _store(deps.session_factory, target.ocid, CUBE_TYPE, query_date, cached_cube, now)
+            await _store(
+                deps.session_factory,
+                target.ocid,
+                CUBE_TYPE,
+                query_date,
+                cached_cube,
+                now,
+            )
         cube_raw.extend(cached_cube)
 
-        cached_reset = await _cached(deps.session_factory, target.ocid, RESET_TYPE, query_date, now)
+        cached_reset = await _cached(
+            deps.session_factory, target.ocid, RESET_TYPE, query_date, now
+        )
         if cached_reset is None:
             cached_reset = await deps.nexon.potential_history(api_key, date_iso)
-            await _store(deps.session_factory, target.ocid, RESET_TYPE, query_date, cached_reset, now)
+            await _store(
+                deps.session_factory,
+                target.ocid,
+                RESET_TYPE,
+                query_date,
+                cached_reset,
+                now,
+            )
         reset_raw.extend(cached_reset)
 
     return (
@@ -348,7 +367,9 @@ def aggregate_potential(
         if rec.add_grade in GRADE_ORDER:
             add_by_grade[rec.add_grade] += 1
     grades_seen = sorted(
-        set(pot_by_grade) | set(add_by_grade), key=lambda g: GRADE_ORDER[g], reverse=True
+        set(pot_by_grade) | set(add_by_grade),
+        key=lambda g: GRADE_ORDER[g],
+        reverse=True,
     )
     by_grade = tuple((g, pot_by_grade[g], add_by_grade[g]) for g in grades_seen)
 

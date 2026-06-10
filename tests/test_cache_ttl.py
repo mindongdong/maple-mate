@@ -2,6 +2,7 @@
 
 과거 일자=불변(항상 fresh), 오늘(KST)=5분 TTL.
 """
+
 from __future__ import annotations
 
 from datetime import datetime, timedelta

@@ -4,6 +4,7 @@
 security.auth.verify_operator_token, 발송 오케스트레이션은 scheduler.manual_broadcast_sunday
 에 위임하고 여기서는 바디 검증·매핑만 담당한다. api/core.py 가 이 라우터를 include 한다.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, Depends, Request
@@ -22,7 +23,9 @@ class SundayBroadcastBody(BaseModel):
     title: str = Field(min_length=1)  # 빈/누락 → pydantic 422(#6)
     link: str | None = None
     period: str | None = None
-    image: str | None = None  # 본문 하단 큰 배너 이미지 URL(선택). 자동 /썬데이의 detail_image_url 대응
+    image: str | None = (
+        None  # 본문 하단 큰 배너 이미지 URL(선택). 자동 /썬데이의 detail_image_url 대응
+    )
 
 
 def _to_event(body: SundayBroadcastBody) -> SundayEvent:

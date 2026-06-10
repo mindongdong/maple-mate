@@ -4,6 +4,7 @@
 이벤트 선별(`select_sunday_events`). DB: 주차 dedup 마커(notice_state) 읽기/쓰기, 알림 채널
 조회, 채널 토글 upsert. 작업지시서(docs/sunday-work-order.md) §2 빌드 단위 #2.
 """
+
 from __future__ import annotations
 
 import logging

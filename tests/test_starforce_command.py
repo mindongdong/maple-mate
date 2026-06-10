@@ -3,6 +3,7 @@
 핵심 도메인 구분: 기록 없음(키 있으나 기간 내 강화 0) vs 조회 실패(넥슨 에러) vs 성공.
 키 미등록은 handle 단계 필터라 여기선 _process_target(키 있는 대상)만 검증.
 """
+
 from __future__ import annotations
 
 from datetime import date
@@ -88,12 +89,19 @@ def test_format_profit_intuitive_sign() -> None:
 
 def _target() -> HistoryTarget:
     return HistoryTarget(
-        guild_id=1, discord_user_id=2, nickname="손바", ocid="oc1", api_key_encrypted="enc"
+        guild_id=1,
+        discord_user_id=2,
+        nickname="손바",
+        ocid="oc1",
+        api_key_encrypted="enc",
     )
 
 
 async def test_success_returns_target_and_summary() -> None:
-    nexon = _FakeNexon(records=[_record("손바", 0, 1), _record("손바", 1, 2)], equipped={"하이네스 워리어헬름": 150})
+    nexon = _FakeNexon(
+        records=[_record("손바", 0, 1), _record("손바", 1, 2)],
+        equipped={"하이네스 워리어헬름": 150},
+    )
     deps, _ = _make_deps(nexon)
     result = await _process_target(deps, _target(), DATES, {})
     assert isinstance(result, tuple)
@@ -132,4 +140,7 @@ async def test_unmatched_equipment_is_reported_to_error_log() -> None:
     result = await _process_target(deps, _target(), DATES, {})
     assert isinstance(result, tuple)
     logs = [o for o in added if isinstance(o, ErrorLog)]
-    assert any(o.error_type == "unmatched_equipment" and o.detail == "정체불명 장비" for o in logs)
+    assert any(
+        o.error_type == "unmatched_equipment" and o.detail == "정체불명 장비"
+        for o in logs
+    )

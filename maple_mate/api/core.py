@@ -4,6 +4,7 @@
 HTTP 엔드포인트가 없어 비어 있고, 헬스체크만 노출한다.
 Phase 4 추가 예: `from ..notification.views import router as sunday_router; api_router.include_router(sunday_router)`.
 """
+
 from __future__ import annotations
 
 from fastapi import APIRouter, FastAPI

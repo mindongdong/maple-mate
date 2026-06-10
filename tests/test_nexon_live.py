@@ -5,6 +5,7 @@
     uv run pytest -m live tests/test_nexon_live.py -s
 NEXON_APP_KEY + TEST_CHARACTER_NAME 이 환경에 없으면 skip.
 """
+
 from __future__ import annotations
 
 import os

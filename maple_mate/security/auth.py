@@ -3,6 +3,7 @@
 security/__init__.py 가 예고한 "OPERATOR_TOKEN 상수시간 비교" 자리. FastAPI 의존성으로
 수동 발송 라우트에 부착한다.
 """
+
 from __future__ import annotations
 
 import logging

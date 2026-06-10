@@ -3,6 +3,7 @@
 **우열 판정 안 함**(design §3.2) — 표시만. 스타포스는 정적 부위표로 보정(0성 vs 불가),
 잠재/에디셔널 잠재는 grade==null 이면 숨김(불가/미설정 동적 판정). 순수 파싱은 단위테스트 대상.
 """
+
 from __future__ import annotations
 
 import re
@@ -28,7 +29,9 @@ class ItemSlotView:
     additional_potential: PotentialView | None
     add_option: str | None  # 추가옵션 요약(없으면 None)
     upgrade: str | None  # 주문서/업그레이드 요약(없으면 None)
-    upgrade_stats: str | None  # 주문서 작으로 오른 스탯 요약(item_etc_option, 없으면 None)
+    upgrade_stats: (
+        str | None
+    )  # 주문서 작으로 오른 스탯 요약(item_etc_option, 없으면 None)
 
 
 @dataclass(frozen=True)
@@ -177,7 +180,11 @@ def parse_item(raw: dict, slot: str) -> ItemSlotView:
         starforce=starforce,
         potential=_potential(
             raw.get("potential_option_grade"),
-            [raw.get("potential_option_1"), raw.get("potential_option_2"), raw.get("potential_option_3")],
+            [
+                raw.get("potential_option_1"),
+                raw.get("potential_option_2"),
+                raw.get("potential_option_3"),
+            ],
         ),
         additional_potential=_potential(
             raw.get("additional_potential_option_grade"),
@@ -198,4 +205,6 @@ async def fetch_item(nexon: NexonClient, ocid: str, slot: str) -> ItemResult:
     data = await nexon.character_item_equipment(ocid)
     raw = find_slot_item(data, slot)
     item = parse_item(raw, slot) if raw is not None else None
-    return ItemResult(found=raw is not None, slot=slot, item=item, date=data.get("date"))
+    return ItemResult(
+        found=raw is not None, slot=slot, item=item, date=data.get("date")
+    )

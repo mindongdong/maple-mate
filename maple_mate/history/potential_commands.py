@@ -5,6 +5,7 @@
 도달 등급별 등업 뱃지. 단일 대상 조회 시만 큐브종류·등급 분포 보조 노출(D5).
 부분 성공(키미등록·기록없음·조회실패·미등록)은 묶음 필드.
 """
+
 from __future__ import annotations
 
 import logging
@@ -35,13 +36,27 @@ log = logging.getLogger(__name__)
 
 _PERIOD_CHOICES = [
     app_commands.Choice(name=p, value=p)
-    for p in ("오늘", "어제", "최근7일", "최근30일", "최근90일", "최근1년", "이번주", "이번달")
+    for p in (
+        "오늘",
+        "어제",
+        "최근7일",
+        "최근30일",
+        "최근90일",
+        "최근1년",
+        "이번주",
+        "이번달",
+    )
 ]
 
 
 def _to_spec_target(t: HistoryTarget) -> Target:
     """범례·부분성공 행용 스펙류 Target 으로 변환(키 제외)."""
-    return Target(guild_id=t.guild_id, discord_user_id=t.discord_user_id, nickname=t.nickname, ocid=t.ocid)
+    return Target(
+        guild_id=t.guild_id,
+        discord_user_id=t.discord_user_id,
+        nickname=t.nickname,
+        ocid=t.ocid,
+    )
 
 
 def _parse_date(raw: str | None) -> tuple[date | None, bool]:
@@ -83,10 +98,16 @@ async def _process_target(
             )
         return TargetOutcome(target=spec_target, error=classify_target_error(exc))
 
-    if not cubes and not resets:  # 키는 있으나 기간 내 기록 없음 = 기록 없음(키 미등록과 구분)
-        return TargetOutcome(target=spec_target, error="기간 내 잠재(큐브·재설정) 기록이 없어요.")
+    if (
+        not cubes and not resets
+    ):  # 키는 있으나 기간 내 기록 없음 = 기록 없음(키 미등록과 구분)
+        return TargetOutcome(
+            target=spec_target, error="기간 내 잠재(큐브·재설정) 기록이 없어요."
+        )
 
-    summary = aggregate_potential(cubes, resets, cost=potential_cost)  # 감정비+재설정비(G2 단가표)
+    summary = aggregate_potential(
+        cubes, resets, cost=potential_cost
+    )  # 감정비+재설정비(G2 단가표)
     return spec_target, summary
 
 
@@ -106,14 +127,20 @@ def _build_table(
     footer: str,
 ) -> tuple[discord.Embed, discord.File]:
     """사용 메소 내림차순(동률 시 사용 큐브) 표. 최상위 사용 메소 셀 강조. 등업 뱃지 병기."""
-    ranked = sorted(results, key=lambda rs: (-(rs[1].total_meso or 0), -rs[1].cube_count))
-    meso_values = [float(s.total_meso) if s.total_meso is not None else None for _, s in ranked]
+    ranked = sorted(
+        results, key=lambda rs: (-(rs[1].total_meso or 0), -rs[1].cube_count)
+    )
+    meso_values = [
+        float(s.total_meso) if s.total_meso is not None else None for _, s in ranked
+    ]
     best = comparison.highest_indices(meso_values) if len(ranked) > 1 else set()
 
     headers = ["순위", "캐릭터", "잠재 재설정", "사용 큐브", "사용 메소", "등업"]
     rows: list[list] = []
     for i, (tgt, summary) in enumerate(ranked):
-        meso_text = format_eok(summary.total_meso) if summary.total_meso is not None else "—"
+        meso_text = (
+            format_eok(summary.total_meso) if summary.total_meso is not None else "—"
+        )
         rows.append(
             [
                 str(i + 1),
@@ -147,7 +174,9 @@ def _aux_fields(embed: discord.Embed, summary: PotentialSummary) -> None:
             parts.append(f"큐브 감정비 {format_eok(summary.appraisal_meso)}")
         breakdown = f" ({' · '.join(parts)})" if parts else ""
         embed.add_field(
-            name="💰 사용 메소", value=f"**{format_eok(summary.total_meso)}**{breakdown}", inline=False
+            name="💰 사용 메소",
+            value=f"**{format_eok(summary.total_meso)}**{breakdown}",
+            inline=False,
         )
 
     if summary.by_cube_type:
@@ -156,9 +185,12 @@ def _aux_fields(embed: discord.Embed, summary: PotentialSummary) -> None:
 
     if summary.by_grade:
         lines = [
-            f"• **{grade}** — 잠재 {pot}회 · 에디 {add}회" for grade, pot, add in summary.by_grade
+            f"• **{grade}** — 잠재 {pot}회 · 에디 {add}회"
+            for grade, pot, add in summary.by_grade
         ]
-        embed.add_field(name="📊 등급별 재설정 횟수", value="\n".join(lines), inline=False)
+        embed.add_field(
+            name="📊 등급별 재설정 횟수", value="\n".join(lines), inline=False
+        )
 
     if summary.tierups:
         # from → to 진행(유니크 → 레전드리 처럼 한 단계 위). 레전드리는 종착이라 from 에 없음.
@@ -177,7 +209,9 @@ async def handle_potential(
 ) -> None:
     await defer(interaction)
     if interaction.guild_id is None:
-        await interaction.followup.send(embed=make_embed("잠재", "서버(길드) 안에서만 쓸 수 있어요."))
+        await interaction.followup.send(
+            embed=make_embed("잠재", "서버(길드) 안에서만 쓸 수 있어요.")
+        )
         return
 
     start, ok_start = _parse_date(start_raw)
@@ -189,7 +223,9 @@ async def handle_potential(
         return
 
     user_ids = [m.id for m in members] or None
-    targets = await get_history_targets(deps.session_factory, interaction.guild_id, user_ids)
+    targets = await get_history_targets(
+        deps.session_factory, interaction.guild_id, user_ids
+    )
 
     # 지정했지만 미등록인 멤버 → '미등록' 부분성공 행.
     missing: list[TargetOutcome] = []
@@ -197,7 +233,12 @@ async def handle_potential(
         registered = {t.discord_user_id for t in targets}
         missing = [
             TargetOutcome(
-                target=Target(guild_id=interaction.guild_id, discord_user_id=m.id, nickname=m.display_name, ocid=""),
+                target=Target(
+                    guild_id=interaction.guild_id,
+                    discord_user_id=m.id,
+                    nickname=m.display_name,
+                    ocid="",
+                ),
                 error="이 서버에 등록되지 않았어요. `/등록` 먼저 해주세요.",
             )
             for m in members
@@ -207,7 +248,10 @@ async def handle_potential(
     # 키 미등록(이력류 조회 불가) 분리 — 기록 없음과 반드시 구분(CONTEXT.md).
     keyed = [t for t in targets if t.api_key_encrypted is not None]
     no_key = [
-        TargetOutcome(target=_to_spec_target(t), error="개인 키 미등록이라 이력을 볼 수 없어요. `/등록`에 키를 추가해 주세요.")
+        TargetOutcome(
+            target=_to_spec_target(t),
+            error="개인 키 미등록이라 이력을 볼 수 없어요. `/등록`에 키를 추가해 주세요.",
+        )
         for t in targets
         if t.api_key_encrypted is None
     ]
@@ -215,10 +259,15 @@ async def handle_potential(
     if not keyed:
         outcomes = missing + no_key
         if outcomes:
-            await interaction.followup.send(embed=comparison.all_failed_embed("잠재", outcomes))
+            await interaction.followup.send(
+                embed=comparison.all_failed_embed("잠재", outcomes)
+            )
         else:
             await interaction.followup.send(
-                embed=make_embed("잠재", "이 서버에 키 등록자가 없어요. `/등록`에 개인 키를 추가해 주세요.")
+                embed=make_embed(
+                    "잠재",
+                    "이 서버에 키 등록자가 없어요. `/등록`에 개인 키를 추가해 주세요.",
+                )
             )
         return
 
@@ -238,7 +287,11 @@ async def handle_potential(
     footer = _period_footer(dates)
 
     if not results:
-        await interaction.followup.send(embed=comparison.all_failed_embed("잠재 큐브·등업 비교", outcomes, footer=footer))
+        await interaction.followup.send(
+            embed=comparison.all_failed_embed(
+                "잠재 큐브·등업 비교", outcomes, footer=footer
+            )
+        )
         return
 
     # 데이터 임베드(성공 표)에만 넥슨 출처표시 — 전체실패 에러 임베드(위)는 결과데이터 아님.
@@ -288,6 +341,8 @@ def setup(bot: discord.Client) -> None:
         member4: discord.Member | None = None,
         member5: discord.Member | None = None,
     ) -> None:
-        members = [m for m in (member1, member2, member3, member4, member5) if m is not None]
+        members = [
+            m for m in (member1, member2, member3, member4, member5) if m is not None
+        ]
         preset = period.value if period is not None else DEFAULT_PRESET
         await handle_potential(deps, interaction, members, preset, start, end)

@@ -3,6 +3,7 @@
 모든 I/O(DB·넥슨·디스코드)를 페이크로 막고 제어흐름만 검증한다. 실 스케줄러/디스코드
 통합은 일회성 스크립트로 확인(작업지시서 Q8)하므로 여기선 다루지 않는다.
 """
+
 from __future__ import annotations
 
 import pytest
@@ -55,8 +56,12 @@ def patched(monkeypatch):
     async def record(sf, **kwargs):
         calls.append(f"error_log:{kwargs.get('error_type')}")
 
-    monkeypatch.setattr(scheduler.service, "already_sent_this_week", already_sent_this_week)
-    monkeypatch.setattr(scheduler.service, "enabled_sunday_channels", enabled_sunday_channels)
+    monkeypatch.setattr(
+        scheduler.service, "already_sent_this_week", already_sent_this_week
+    )
+    monkeypatch.setattr(
+        scheduler.service, "enabled_sunday_channels", enabled_sunday_channels
+    )
     monkeypatch.setattr(scheduler.service, "select_sunday_events", select_sunday_events)
     monkeypatch.setattr(scheduler.service, "mark_week_sent", mark_week_sent)
     monkeypatch.setattr(scheduler, "broadcast_sunday", broadcast_sunday)
@@ -89,12 +94,18 @@ async def test_zero_match_does_not_mark(patched):
     calls, state = patched
     state["events"] = []
     await scheduler.run_sunday_job(bot=object(), deps=_deps())
-    assert calls == ["already_sent", "channels", "fetch"]  # 발송·마킹 없음(0매칭=마킹 안 함)
+    assert calls == [
+        "already_sent",
+        "channels",
+        "fetch",
+    ]  # 발송·마킹 없음(0매칭=마킹 안 함)
 
 
 async def test_nexon_failure_records_error_and_does_not_mark(patched):
     calls, state = patched
-    state["raise"] = NexonAPIError("OPENAPI00001", "boom", error_class=ErrorClass.NEXON_API)
+    state["raise"] = NexonAPIError(
+        "OPENAPI00001", "boom", error_class=ErrorClass.NEXON_API
+    )
     await scheduler.run_sunday_job(bot=object(), deps=_deps())
     assert calls == ["already_sent", "channels", "fetch", "error_log:nexon_api"]
     assert "broadcast" not in calls and "mark" not in calls

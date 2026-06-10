@@ -12,6 +12,7 @@
 
 match_level 은 순수함수 — 호출자가 (A)현재장착·(B)학습을 합쳐 `equipped` 로 넘기고 (C)는 seed.
 """
+
 from __future__ import annotations
 
 from sqlalchemy import func, select

@@ -5,6 +5,7 @@
 - 페이지네이션: `EmbedPaginator` 재사용.
 - 데이터 기준 시점 푸터: 넥슨 응답 date(무지정 호출은 null → '최신 기준')를 format_footer 로.
 """
+
 from __future__ import annotations
 
 import io
@@ -37,7 +38,9 @@ def mention(target: Target) -> str:
 
 def _display_width(text: str) -> int:
     """표시 폭(한글·전각=2, 그 외=1) — 긴 닉/직업을 폭 기준으로 자를 때 사용."""
-    return sum(2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1 for ch in text)
+    return sum(
+        2 if unicodedata.east_asian_width(ch) in ("W", "F") else 1 for ch in text
+    )
 
 
 def truncate_display(text: str, max_width: int) -> str:
@@ -228,7 +231,9 @@ def field_pages(
     return pages
 
 
-def all_failed_embed(title: str, outcomes: list[TargetOutcome], *, footer: str | None = None) -> discord.Embed:
+def all_failed_embed(
+    title: str, outcomes: list[TargetOutcome], *, footer: str | None = None
+) -> discord.Embed:
     """전체 실패 시 에러 임베드(실패 사유 행)."""
     body = _clip("\n".join(_failure_lines(outcomes)) or "조회된 대상이 없어요.")
     return make_embed(title, body, footer=footer)

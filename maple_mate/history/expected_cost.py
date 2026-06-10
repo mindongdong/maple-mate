@@ -8,6 +8,7 @@
 
 검증: expected_meso(level, 0, N) 가 기댓값 이미지 "누적기댓값" 재현(test_expected_cost.py).
 """
+
 from __future__ import annotations
 
 import random
@@ -16,8 +17,12 @@ from functools import lru_cache
 
 from .starforce_data import DESTROY_STAR, MAX_STAR, STARFORCE_PROB, cost
 
-DEFAULT_SIMS = 5000  # (시작★,최종★)별 몬테카를로 표본 수. 분포는 레벨 무관이라 1회만 계산·캐시.
-_DECORR_STRIDE = 7919  # 같은 (시작★,최종★) 아이템 간 페어링 탈상관용 소수 오프셋(아래 참조).
+DEFAULT_SIMS = (
+    5000  # (시작★,최종★)별 몬테카를로 표본 수. 분포는 레벨 무관이라 1회만 계산·캐시.
+)
+_DECORR_STRIDE = (
+    7919  # 같은 (시작★,최종★) 아이템 간 페어링 탈상관용 소수 오프셋(아래 참조).
+)
 _SIM_GUARD = 5000  # 단일 시뮬 최대 시도(파괴 지옥 꼬리에서 무한루프 방지)
 
 
@@ -64,7 +69,9 @@ def net_meso(actual: int, expected: float) -> int:
 
 
 @lru_cache(maxsize=4096)
-def _climb_attempt_samples(start: int, end: int, n_sims: int) -> tuple[tuple[int, ...], ...]:
+def _climb_attempt_samples(
+    start: int, end: int, n_sims: int
+) -> tuple[tuple[int, ...], ...]:
     """start★→end★ climb 을 n_sims 회 시뮬 → 각 표본의 '성수별 시도횟수' 벡터.
 
     레벨 무관(확률표만 결정) → (start,end)별 1회 계산 후 캐시. 결정적 시드라 재현 가능.
@@ -92,7 +99,9 @@ def _climb_attempt_samples(start: int, end: int, n_sims: int) -> tuple[tuple[int
 
 
 @lru_cache(maxsize=4096)
-def _item_meso_samples(level: int, start: int, end: int, n_sims: int) -> tuple[int, ...]:
+def _item_meso_samples(
+    level: int, start: int, end: int, n_sims: int
+) -> tuple[int, ...]:
     """(level,start,end) climb 의 총 메소 표본 분포. 시도횟수 벡터에 레벨별 비용을 곱해 합산."""
     costs = [cost(level, s) for s in range(MAX_STAR)]
     return tuple(

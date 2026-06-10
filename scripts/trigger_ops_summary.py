@@ -8,6 +8,7 @@
     uv run python -m scripts.trigger_ops_summary            # 발송 + prune
     uv run python -m scripts.trigger_ops_summary --no-prune # 발송만(prune 생략)
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -19,8 +20,8 @@ from sqlalchemy.ext.asyncio import async_sessionmaker, create_async_engine
 
 from maple_mate.config import load_config
 from maple_mate.error_log import summary as ops_summary
-from maple_mate.notification.scheduler import build_ops_summary_embed
 from maple_mate.nexon.client import KST
+from maple_mate.notification.scheduler import build_ops_summary_embed
 
 
 async def main(no_prune: bool) -> None:

@@ -1,8 +1,8 @@
 """잠재 메소 단가표 단위테스트 (나무위키 알려진 값 픽스처 대조)."""
+
 from __future__ import annotations
 
 from maple_mate.history import potential_cost as pc
-
 
 # ── 큐브 감정비: floor(계수×L²/100)×100, 121+ 항상 부과 ─────────────────────
 
@@ -33,7 +33,9 @@ def test_appraisal_free_under_121_by_default() -> None:
 
 def test_appraisal_121_boundary_always_charged() -> None:
     # 121제는 무료 불가 → charge 옵션과 무관하게 부과.
-    assert pc.appraisal_cost(121) == 292_800  # floor(20×121²/100)×100 = floor(292820/100)×100
+    assert (
+        pc.appraisal_cost(121) == 292_800
+    )  # floor(20×121²/100)×100 = floor(292820/100)×100
     assert pc.appraisal_cost(121, charge_under_121=False) == 292_800
 
 
@@ -50,7 +52,9 @@ def test_reset_cost_additional_table_is_higher() -> None:
     assert pc.reset_cost(200, "유니크", "에디셔널 잠재능력") == 74_800_000
     assert pc.reset_cost(160, "레전드리", "에디셔널 잠재능력") == 83_000_000
     # 같은 레벨·등급이라도 에디가 일반보다 비싸다.
-    assert pc.reset_cost(200, "레전드리", "에디셔널 잠재능력") > pc.reset_cost(200, "레전드리", "잠재능력")
+    assert pc.reset_cost(200, "레전드리", "에디셔널 잠재능력") > pc.reset_cost(
+        200, "레전드리", "잠재능력"
+    )
 
 
 def test_reset_cost_bracket_boundaries() -> None:

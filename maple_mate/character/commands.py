@@ -3,6 +3,7 @@
 - `/스펙`: 인자 필수(1~5명). 1명=상세, 2~5명=항목별 페이지 비교(전투력·어빌리티·심볼·HEXA코어·HEXA스탯).
 - `/아이템`: build 5 에서 추가.
 """
+
 from __future__ import annotations
 
 import asyncio
@@ -36,12 +37,18 @@ def _render_spec_section(section: str, info: SpecInfo) -> str:
         lines = "\n".join(f"· {value}" for value in info.abilities) or "—"
         return f"[{grade}]\n{lines}"
     if section == "장착 심볼":
-        categories = " · ".join(f"{name} {count}" for name, count in info.symbols.counts) or "없음"
+        categories = (
+            " · ".join(f"{name} {count}" for name, count in info.symbols.counts)
+            or "없음"
+        )
         return f"총 포스 **{info.symbols.total_force}**\n{categories}"
     if section == "HEXA 코어":
         if not info.hexa_cores:
             return "없음"
-        return "\n".join(f"· {name} Lv.{level} ({core_type})" for name, level, core_type in info.hexa_cores)
+        return "\n".join(
+            f"· {name} Lv.{level} ({core_type})"
+            for name, level, core_type in info.hexa_cores
+        )
     if section == "HEXA 스탯":
         return "\n".join(f"· {line}" for line in info.hexa_stats) or "없음"
     return "—"
@@ -49,9 +56,13 @@ def _render_spec_section(section: str, info: SpecInfo) -> str:
 
 def _single_detail_embed(target, info: SpecInfo, footer: str) -> discord.Embed:
     # 설명에 유저 태그(누구 캐릭인지). 단일이라 표 대신 항목별 상세 필드.
-    embed = make_embed(f"{target.nickname} 스펙", description=comparison.mention(target), footer=footer)
+    embed = make_embed(
+        f"{target.nickname} 스펙", description=comparison.mention(target), footer=footer
+    )
     for section in _SPEC_SECTIONS:
-        embed.add_field(name=section, value=_render_spec_section(section, info)[:1024], inline=False)
+        embed.add_field(
+            name=section, value=_render_spec_section(section, info)[:1024], inline=False
+        )
     return embed
 
 
@@ -60,7 +71,9 @@ async def handle_spec(
 ) -> None:
     await defer(interaction)
     if interaction.guild_id is None:
-        await interaction.followup.send(embed=make_embed("스펙", "서버(길드) 안에서만 쓸 수 있어요."))
+        await interaction.followup.send(
+            embed=make_embed("스펙", "서버(길드) 안에서만 쓸 수 있어요.")
+        )
         return
     if not members:  # 인자 필수(보통 Discord 가 강제하지만 방어적으로)
         await interaction.followup.send(
@@ -72,7 +85,9 @@ async def handle_spec(
         deps.session_factory, interaction.guild_id, members
     )
     if not targets:
-        await interaction.followup.send(embed=comparison.all_failed_embed("스펙 비교", missing))
+        await interaction.followup.send(
+            embed=comparison.all_failed_embed("스펙 비교", missing)
+        )
         return
 
     outcomes = await reg.fetch_each(
@@ -86,7 +101,9 @@ async def handle_spec(
 
     successes = [o for o in outcomes if o.ok]
     if not successes:
-        await interaction.followup.send(embed=comparison.all_failed_embed("스펙 비교", outcomes))
+        await interaction.followup.send(
+            embed=comparison.all_failed_embed("스펙 비교", outcomes)
+        )
         return
 
     footer = append_source(comparison.data_footer(successes[0].data.date))
@@ -156,10 +173,15 @@ async def handle_spec(
             [
                 str(rank),
                 comparison.truncate_display(o.target.nickname, 20),
-                table_image.Highlight(power_text) if (rank - 1) in best_power else power_text,
+                table_image.Highlight(power_text)
+                if (rank - 1) in best_power
+                else power_text,
                 # 코어 = 칸 그리드(세로줄·가운데정렬·빈칸 0). 스탯 = 3칸 + 첫 칸(메인) 볼드,
                 # 코어별 메인 최고 행은 첫 칸 금색.
-                *(table_image.NumGrid(by_type.get(name, ()), slots) for name, slots in core_cols),
+                *(
+                    table_image.NumGrid(by_type.get(name, ()), slots)
+                    for name, slots in core_cols
+                ),
                 *(
                     table_image.NumGrid(
                         triples[i] if i < len(triples) else (),
@@ -191,7 +213,9 @@ def _card_potential(p: item.PotentialView | None) -> item_card.CardPotential | N
     return item_card.CardPotential(p.grade, item.combine_options(p.options))
 
 
-def _to_item_card(label: str, result: ItemResult, icon_png: bytes | None) -> item_card.ItemCard:
+def _to_item_card(
+    label: str, result: ItemResult, icon_png: bytes | None
+) -> item_card.ItemCard:
     """ItemResult(+아이콘 bytes) → 렌더용 ItemCard (순수). 미착용이면 found=False."""
     if not result.found or result.item is None:
         return item_card.ItemCard(label=label, found=False)
@@ -222,11 +246,16 @@ async def _fetch_icon(nexon: NexonClient, result: ItemResult) -> bytes | None:
 
 
 async def handle_item(
-    deps: Deps, interaction: discord.Interaction, slot: str, members: list[discord.Member]
+    deps: Deps,
+    interaction: discord.Interaction,
+    slot: str,
+    members: list[discord.Member],
 ) -> None:
     await defer(interaction)
     if interaction.guild_id is None:
-        await interaction.followup.send(embed=make_embed("아이템", "서버(길드) 안에서만 쓸 수 있어요."))
+        await interaction.followup.send(
+            embed=make_embed("아이템", "서버(길드) 안에서만 쓸 수 있어요.")
+        )
         return
 
     targets, missing = await comparison.resolve_targets(
@@ -234,10 +263,14 @@ async def handle_item(
     )
     if not targets:
         if missing:
-            await interaction.followup.send(embed=comparison.all_failed_embed(f"아이템 — {slot}", missing))
+            await interaction.followup.send(
+                embed=comparison.all_failed_embed(f"아이템 — {slot}", missing)
+            )
         else:
             await interaction.followup.send(
-                embed=make_embed("아이템", "이 서버에 등록자가 없어요. `/등록` 먼저 해주세요.")
+                embed=make_embed(
+                    "아이템", "이 서버에 등록자가 없어요. `/등록` 먼저 해주세요."
+                )
             )
         return
 
@@ -252,7 +285,9 @@ async def handle_item(
 
     successes = [o for o in outcomes if o.ok]
     if not successes:
-        await interaction.followup.send(embed=comparison.all_failed_embed(f"아이템 — {slot}", outcomes))
+        await interaction.followup.send(
+            embed=comparison.all_failed_embed(f"아이템 — {slot}", outcomes)
+        )
         return
 
     footer = append_source(comparison.data_footer(successes[0].data.date))
@@ -260,7 +295,9 @@ async def handle_item(
     icons = await asyncio.gather(*(_fetch_icon(deps.nexon, o.data) for o in successes))
     cards = [
         _to_item_card(
-            f"{comparison.truncate_display(o.target.nickname, 20)} · {slot}", o.data, icon
+            f"{comparison.truncate_display(o.target.nickname, 20)} · {slot}",
+            o.data,
+            icon,
         )
         for o, icon in zip(successes, icons)
     ]
@@ -284,7 +321,11 @@ def setup(bot: discord.Client) -> None:
         description="전투력·어빌리티·심볼·HEXA를 비교합니다 (1~5명 지정 필수).",
     )
     @app_commands.rename(
-        member1="유저1", member2="유저2", member3="유저3", member4="유저4", member5="유저5"
+        member1="유저1",
+        member2="유저2",
+        member3="유저3",
+        member4="유저4",
+        member5="유저5",
     )
     @app_commands.describe(
         member1="조회할 유저 (1명이면 단일 상세)",
@@ -301,7 +342,9 @@ def setup(bot: discord.Client) -> None:
         member4: discord.Member | None = None,
         member5: discord.Member | None = None,
     ) -> None:
-        members = [m for m in (member1, member2, member3, member4, member5) if m is not None]
+        members = [
+            m for m in (member1, member2, member3, member4, member5) if m is not None
+        ]
         await handle_spec(deps, interaction, members)
 
     @bot.tree.command(  # type: ignore[attr-defined]
@@ -336,5 +379,7 @@ def setup(bot: discord.Client) -> None:
         member4: discord.Member | None = None,
         member5: discord.Member | None = None,
     ) -> None:
-        members = [m for m in (member1, member2, member3, member4, member5) if m is not None]
+        members = [
+            m for m in (member1, member2, member3, member4, member5) if m is not None
+        ]
         await handle_item(deps, interaction, part.value, members)

@@ -1,4 +1,5 @@
 """유니온 변환 로직 단위테스트 (handoff §6: 챔피언 등급 분포 카운트)."""
+
 from __future__ import annotations
 
 from maple_mate.union.service import (
@@ -52,7 +53,9 @@ async def test_fetch_union_assembles_artifact_level_from_union_response():
             "union_artifact_level": 45,  # 아티팩트 레벨은 user/union 에 있음(docs/api/union.md)
             "date": None,
         },
-        champion={"union_champion": [{"champion_grade": "SSS"}, {"champion_grade": "S"}]},
+        champion={
+            "union_champion": [{"champion_grade": "SSS"}, {"champion_grade": "S"}]
+        },
     )
     info = await fetch_union(nexon, "oc1")
     assert info.union_level == 8750
@@ -64,7 +67,11 @@ async def test_fetch_union_assembles_artifact_level_from_union_response():
 
 async def test_fetch_union_nullable_fields_pass_through():
     nexon = _FakeNexon(
-        union={"union_level": None, "union_grade": None, "date": "2026-06-02T00:00:00+09:00"},
+        union={
+            "union_level": None,
+            "union_grade": None,
+            "date": "2026-06-02T00:00:00+09:00",
+        },
         champion={"union_champion": []},
     )
     info = await fetch_union(nexon, "oc1")

@@ -7,6 +7,7 @@
 
 `format_footer` 는 순수함수라 단위테스트 대상. 나머지는 discord.py 래핑.
 """
+
 from __future__ import annotations
 
 from datetime import date, datetime, timedelta, timezone
@@ -97,7 +98,9 @@ class EmbedPaginator(discord.ui.View):
 
     async def interaction_check(self, interaction: discord.Interaction) -> bool:
         if self._author_id is not None and interaction.user.id != self._author_id:
-            await interaction.response.send_message("본인만 조작할 수 있어요.", ephemeral=True)
+            await interaction.response.send_message(
+                "본인만 조작할 수 있어요.", ephemeral=True
+            )
             return False
         return True
 
@@ -106,11 +109,15 @@ class EmbedPaginator(discord.ui.View):
         await interaction.response.edit_message(embed=self.current, view=self)
 
     @discord.ui.button(label="이전", style=discord.ButtonStyle.secondary)
-    async def prev_button(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+    async def prev_button(
+        self, interaction: discord.Interaction, _button: discord.ui.Button
+    ) -> None:
         self._index = max(0, self._index - 1)
         await self._show(interaction)
 
     @discord.ui.button(label="다음", style=discord.ButtonStyle.secondary)
-    async def next_button(self, interaction: discord.Interaction, _button: discord.ui.Button) -> None:
+    async def next_button(
+        self, interaction: discord.Interaction, _button: discord.ui.Button
+    ) -> None:
         self._index = min(len(self._pages) - 1, self._index + 1)
         await self._show(interaction)
