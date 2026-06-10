@@ -8,13 +8,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import date, datetime
 
 import discord
 from discord import app_commands
 
-from ..bot import comparison, table_image
+from ..bot import comparison, cooldowns, table_image
 from ..bot.embeds import KST, append_source, defer, make_embed
 from ..character.service import format_eok
 from ..dependencies import Deps
@@ -295,7 +296,10 @@ async def handle_potential(
         return
 
     # 데이터 임베드(성공 표)에만 넥슨 출처표시 — 전체실패 에러 임베드(위)는 결과데이터 아님.
-    embed, file = _build_table(results, outcomes, append_source(footer))
+    # 표 PNG 렌더(CPU)는 워커 스레드로 — 이벤트루프 비차단(D6).
+    embed, file = await asyncio.to_thread(
+        _build_table, results, outcomes, append_source(footer)
+    )
     # 단일 대상(키 등록자가 1명만 조회됨) → 큐브종류·등급 분포 보조 노출(D5). 다인 비교 시 생략.
     if len(keyed) == 1 and len(results) == 1:
         _aux_fields(embed, results[0][1])
@@ -330,6 +334,7 @@ def setup(bot: discord.Client) -> None:
         member4="추가 비교 대상",
         member5="추가 비교 대상",
     )
+    @cooldowns.history_cooldown()
     async def potential_command(
         interaction: discord.Interaction,
         period: app_commands.Choice[str] | None = None,

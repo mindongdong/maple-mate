@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import asyncio
+import time
+
 import httpx
 import pytest
 
@@ -170,6 +173,144 @@ async def test_fetch_image_failure_raises_timeout_class():
         with pytest.raises(NexonAPIError) as exc:
             await client.fetch_image("https://x/icon")
     assert exc.value.error_class is ErrorClass.TIMEOUT
+
+
+# ── 키별 스로틀 버킷 (스케일 튜닝 3-1, ADR-0004) ──────────────────────
+
+
+def _bucket_probe_handler(times: dict[str, list[float]]):
+    """요청 키별 도달 시각(monotonic) 기록. /id·/history 둘 다 응답 가능한 바디."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        key = request.headers["x-nxopen-api-key"]
+        times.setdefault(key, []).append(time.monotonic())
+        return httpx.Response(
+            200, json={"ocid": "x", "starforce_history": [], "next_cursor": None}
+        )
+
+    return handler
+
+
+async def test_same_key_calls_keep_bucket_interval():
+    times: dict[str, list[float]] = {}
+    client = NexonClient(
+        "app_key",
+        throttle=0.05,
+        personal_throttle=0.1,
+        retry_wait=0.0,
+        transport=httpx.MockTransport(_bucket_probe_handler(times)),
+    )
+    async with client:
+        await asyncio.gather(
+            *(client.starforce_history("pk", "2026-06-01") for _ in range(3))
+        )
+        await asyncio.gather(client.get_ocid("a"), client.get_ocid("b"))
+
+    personal = sorted(times["pk"])
+    assert len(personal) == 3
+    assert all(b - a >= 0.1 - 0.02 for a, b in zip(personal, personal[1:]))
+    app = sorted(times["app_key"])
+    assert len(app) == 2
+    assert all(b - a >= 0.05 - 0.02 for a, b in zip(app, app[1:]))
+
+
+async def test_app_key_not_blocked_by_personal_key_burst():
+    # 개인 키 연타(0.2s 간격 × 3)가 버킷을 점유하는 동안 앱 키 호출은 대기 없이 통과.
+    # 구 전역 단일 버킷이면 앱 호출이 개인 키 대기열 뒤로 밀려 ≥0.2s 걸린다.
+    times: dict[str, list[float]] = {}
+    client = NexonClient(
+        "app_key",
+        throttle=0.05,
+        retry_wait=0.0,
+        transport=httpx.MockTransport(_bucket_probe_handler(times)),
+    )
+    async with client:
+        burst = asyncio.gather(
+            *(client.starforce_history("pk", "2026-06-01") for _ in range(3))
+        )
+        await asyncio.sleep(0.05)  # 버스트가 개인 키 버킷을 점유한 시점
+        t0 = time.monotonic()
+        await client.get_ocid("아무개")
+        app_latency = time.monotonic() - t0
+        await burst
+    assert app_latency < 0.15
+
+
+async def test_personal_keys_have_independent_buckets():
+    # 서로 다른 개인 키는 서로 비차단 — 같은 시각에 나란히 시작 가능.
+    times: dict[str, list[float]] = {}
+    client = NexonClient(
+        "app_key",
+        throttle=0.0,
+        retry_wait=0.0,
+        transport=httpx.MockTransport(_bucket_probe_handler(times)),
+    )
+    async with client:
+        t0 = time.monotonic()
+        await asyncio.gather(
+            *(client.starforce_history(f"pk{i}", "2026-06-01") for i in range(3))
+        )
+        elapsed = time.monotonic() - t0
+    assert elapsed < 0.15  # 같은 버킷에 직렬화됐다면 ≥0.4s(0.2×2)
+
+
+# ── 최신 스펙 30분 캐시 (스케일 튜닝 3-2, D5) ─────────────────────────
+
+
+def _spec_handler(calls: dict[str, int]):
+    def handler(request: httpx.Request) -> httpx.Response:
+        calls["n"] = calls.get("n", 0) + 1
+        return httpx.Response(200, json={"date": None, "character_level": 280})
+
+    return handler
+
+
+async def test_spec_without_date_is_cached_within_ttl():
+    calls: dict[str, int] = {}
+    async with _client(_spec_handler(calls)) as client:
+        first = await client.character_basic("oc1")
+        second = await client.character_basic("oc1")
+    assert first == second
+    assert calls["n"] == 1  # 30분 내 동일 (path, ocid) 재호출 → HTTP 0회
+
+
+async def test_spec_cache_keyed_by_path_and_ocid():
+    calls: dict[str, int] = {}
+    async with _client(_spec_handler(calls)) as client:
+        await client.character_basic("oc1")
+        await client.character_basic("oc2")  # 다른 ocid → 비적중
+        await client.character_stat("oc1")  # 다른 path → 비적중
+    assert calls["n"] == 3
+
+
+async def test_spec_cache_expires_after_ttl(monkeypatch):
+    from maple_mate.nexon import client as client_mod
+
+    clock = {"t": 1000.0}
+
+    class _FakeTime:
+        @staticmethod
+        def monotonic() -> float:
+            return clock["t"]
+
+    monkeypatch.setattr(client_mod, "time", _FakeTime)
+    calls: dict[str, int] = {}
+    async with _client(_spec_handler(calls)) as client:
+        await client.character_basic("oc1")
+        clock["t"] += client_mod.SPEC_CACHE_TTL - 1
+        await client.character_basic("oc1")  # TTL 직전 → 캐시
+        assert calls["n"] == 1
+        clock["t"] += 2
+        await client.character_basic("oc1")  # TTL 경과 → 재조회
+    assert calls["n"] == 2
+
+
+async def test_spec_with_date_is_not_cached():
+    calls: dict[str, int] = {}
+    async with _client(_spec_handler(calls)) as client:
+        await client.character_basic("oc1", date="2026-06-01")
+        await client.character_basic("oc1", date="2026-06-01")
+    assert calls["n"] == 2  # date 지정 호출은 비캐시
 
 
 async def test_fetch_image_rejects_non_image_body_and_does_not_cache():

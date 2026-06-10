@@ -9,6 +9,7 @@ from __future__ import annotations
 import discord
 from discord import app_commands
 
+from ..bot import cooldowns
 from ..bot.embeds import make_embed
 from ..dependencies import Deps
 from . import notice_service, service
@@ -102,6 +103,7 @@ def setup(bot: discord.Client) -> None:
             app_commands.Choice(name="끄기", value="off"),
         ]
     )
+    @cooldowns.settings_cooldown()
     async def sunday_command(
         interaction: discord.Interaction, status: app_commands.Choice[str]
     ) -> None:
@@ -119,6 +121,7 @@ def setup(bot: discord.Client) -> None:
             app_commands.Choice(name="끄기", value="off"),
         ]
     )
+    @cooldowns.settings_cooldown()
     async def notice_command(
         interaction: discord.Interaction, status: app_commands.Choice[str]
     ) -> None:

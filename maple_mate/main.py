@@ -36,7 +36,7 @@ def build_deps(config: Config) -> tuple[Deps, object]:
     """Config → Deps + engine(정리용). 봇/HTTP 가 공유할 의존성 컨테이너 구성."""
     engine = make_engine(config.database_url)
     session_factory = make_session_factory(engine)
-    nexon = NexonClient(config.nexon_app_key)
+    nexon = NexonClient(config.nexon_app_key, throttle=config.nexon_throttle)
     cipher = KeyCipher(config.fernet_master_key)
     deps = Deps(
         config=config, session_factory=session_factory, nexon=nexon, cipher=cipher

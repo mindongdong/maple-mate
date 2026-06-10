@@ -6,13 +6,14 @@
 
 from __future__ import annotations
 
+import asyncio
 import logging
 from datetime import date, datetime
 
 import discord
 from discord import app_commands
 
-from ..bot import comparison, table_image
+from ..bot import comparison, cooldowns, table_image
 from ..bot.embeds import KST, append_source, defer, make_embed
 from ..character.service import format_eok
 from ..dependencies import Deps
@@ -144,7 +145,10 @@ async def _process_target(
         )  # 관측 레벨 자동 학습
 
     known = {**learned, **equipped}  # (B)학습 위에 (A)현재 장착을 덮어씀(현재가 우선)
-    summary = aggregate_starforce(attempts, lambda item: match_level(item, known))
+    # 마르코프 기대값 계산(CPU)은 워커 스레드로 — 이벤트루프 비차단(D6).
+    summary = await asyncio.to_thread(
+        aggregate_starforce, attempts, lambda item: match_level(item, known)
+    )
     await _report_unmatched(deps, target, summary)
     return spec_target, summary
 
@@ -316,7 +320,10 @@ async def handle_starforce(
         return
 
     # 데이터 임베드(성공 표)에만 넥슨 출처표시 — 전체실패 에러 임베드(위)는 결과데이터 아님.
-    embed, file = _build_table(results, outcomes, append_source(footer))
+    # 표 PNG 렌더(CPU)는 워커 스레드로 — 이벤트루프 비차단(D6).
+    embed, file = await asyncio.to_thread(
+        _build_table, results, outcomes, append_source(footer)
+    )
     await interaction.followup.send(embed=embed, file=file)
 
 
@@ -348,6 +355,7 @@ def setup(bot: discord.Client) -> None:
         member4="추가 비교 대상",
         member5="추가 비교 대상",
     )
+    @cooldowns.history_cooldown()
     async def starforce_command(
         interaction: discord.Interaction,
         period: app_commands.Choice[str] | None = None,

@@ -70,3 +70,48 @@ def test_dev_guild_id_invalid_still_errors():
     with pytest.raises(ConfigError) as exc:
         Config.from_env({**_VALID, "DEV_GUILD_ID": "not-int"})
     assert "DEV_GUILD_ID" in exc.value.invalid
+
+
+# ── NEXON_THROTTLE (스케일 튜닝 3-1, ADR-0004) ───────────────────────
+
+
+def test_nexon_throttle_absent_uses_default():
+    cfg = Config.from_env(_VALID)
+    assert cfg.nexon_throttle == 0.25
+
+
+def test_nexon_throttle_parsed_as_float():
+    cfg = Config.from_env({**_VALID, "NEXON_THROTTLE": "0.02"})
+    assert cfg.nexon_throttle == 0.02
+
+
+def test_nexon_throttle_empty_is_default():
+    cfg = Config.from_env({**_VALID, "NEXON_THROTTLE": "  "})
+    assert cfg.nexon_throttle == 0.25
+
+
+def test_nexon_throttle_invalid_errors():
+    with pytest.raises(ConfigError) as exc:
+        Config.from_env({**_VALID, "NEXON_THROTTLE": "fast"})
+    assert "NEXON_THROTTLE" in exc.value.invalid
+
+
+async def test_build_deps_injects_nexon_throttle():
+    # 조립부(main.build_deps)가 NEXON_THROTTLE 을 NexonClient 앱 키 버킷 간격으로 주입.
+    from cryptography.fernet import Fernet
+
+    from maple_mate.main import build_deps
+
+    cfg = Config.from_env(
+        {
+            **_VALID,
+            "FERNET_MASTER_KEY": Fernet.generate_key().decode(),
+            "NEXON_THROTTLE": "0.07",
+        }
+    )
+    deps, engine = build_deps(cfg)
+    try:
+        assert deps.nexon._throttle == 0.07
+    finally:
+        await deps.nexon.aclose()
+        await engine.dispose()

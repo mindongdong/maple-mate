@@ -13,7 +13,7 @@ from collections.abc import Callable, Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -28,6 +28,12 @@ log = logging.getLogger(__name__)
 KST = timezone(timedelta(hours=9))
 CACHE_TYPE = "starforce"
 MAX_PERIOD_DAYS = 365  # 상한 1년(API 롤링 ~2년 윈도우 내). 콜드 조회는 날짜당 1콜이라 느림 → 캐시 의존.
+
+# history_cache 보존 일수 — **조회대상 날짜(date) 기준** 400일(스케일 튜닝 D4).
+# fetched_at 기준 90일(deploy-plan 원안)은 기각: 과거 일자 데이터는 불변이라 지우면
+# `최근1년` 재조회 시 그 유저 개인 키로 수백 콜이 재발생한다. 400일 = 기간 상한
+# 1년(365일) + 여유 — 그보다 오래된 date 는 어떤 프리셋으로도 다시 조회되지 않는다.
+HISTORY_CACHE_RETENTION_DAYS = 400
 
 
 # ── 기간 분해 (순수) ───────────────────────────────────────────────────────
@@ -248,6 +254,27 @@ async def fetch_starforce_records(
         records.extend(page)
 
     return parse_attempts(records, target.nickname)
+
+
+def history_cache_cutoff(now: datetime) -> date:
+    """prune 기준일(오늘 KST − 400일). date 가 이 값 **미만**인 행이 삭제 대상(순수)."""
+    return now.astimezone(KST).date() - timedelta(days=HISTORY_CACHE_RETENTION_DAYS)
+
+
+async def prune_old_history_cache(
+    session_factory: async_sessionmaker[AsyncSession], now: datetime
+) -> int:
+    """조회대상 날짜(date)가 400일 경과한 history_cache 행 단일 DELETE. 삭제 행수 반환.
+
+    운영 요약 일일 잡(error_log prune)에 편승해 실행된다(scheduler.run_ops_summary_job).
+    """
+    cutoff = history_cache_cutoff(now)
+    async with session_factory() as session:
+        result = await session.execute(
+            delete(HistoryCache).where(HistoryCache.date < cutoff)
+        )
+        await session.commit()
+        return result.rowcount or 0
 
 
 # ── 집계 (순수) ────────────────────────────────────────────────────────────

@@ -5,10 +5,12 @@
 
 from __future__ import annotations
 
+import asyncio
+
 import discord
 from discord import app_commands
 
-from ..bot import comparison, table_image
+from ..bot import comparison, cooldowns, table_image
 from ..bot.embeds import append_source, defer, make_embed
 from ..dependencies import Deps
 from ..registration import service as reg
@@ -106,7 +108,9 @@ async def handle_union(
                 ),
             ]
         )
-    embed, file = comparison.table_image_message(
+    # 표 PNG 렌더(CPU)는 워커 스레드로 — 이벤트루프 비차단(D6).
+    embed, file = await asyncio.to_thread(
+        comparison.table_image_message,
         "유니온 비교",
         headers,
         rows,
@@ -140,6 +144,7 @@ def setup(bot: discord.Client) -> None:
         member4="추가 비교 대상",
         member5="추가 비교 대상",
     )
+    @cooldowns.spec_cooldown()
     async def union_command(
         interaction: discord.Interaction,
         member1: discord.Member | None = None,

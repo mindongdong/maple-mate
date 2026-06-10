@@ -21,6 +21,7 @@ from ..bot.embeds import BRAND_COLOR, DATA_SOURCE
 from ..dependencies import Deps
 from ..error_log import service as error_log
 from ..error_log import summary as ops_summary
+from ..history import service as history_cache
 from ..nexon.client import KST
 from ..nexon.errors import NexonAPIError, to_error_log_type
 from . import notice_service, service
@@ -244,7 +245,16 @@ async def run_ops_summary_job(bot: discord.Client, deps: Deps) -> None:
     pruned = await ops_summary.prune_old_errors(
         deps.session_factory, now
     )  # 발송 여부와 독립
-    log.info("운영 요약: 발송=%s, prune=%d행", embed is not None, pruned)
+    # history_cache prune(date 기준 400일, D4)은 같은 일일 잡에 편승.
+    pruned_cache = await history_cache.prune_old_history_cache(
+        deps.session_factory, now
+    )
+    log.info(
+        "운영 요약: 발송=%s, error_log prune=%d행, history_cache prune=%d행",
+        embed is not None,
+        pruned,
+        pruned_cache,
+    )
 
 
 def build_notice_embeds(items: Sequence[NoticeItem]) -> list[discord.Embed]:

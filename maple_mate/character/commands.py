@@ -13,7 +13,7 @@ from datetime import datetime
 import discord
 from discord import app_commands
 
-from ..bot import comparison, item_card, table_image
+from ..bot import comparison, cooldowns, item_card, table_image
 from ..bot.embeds import append_source, defer, make_embed
 from ..dependencies import Deps
 from ..nexon.client import KST, NexonClient
@@ -193,7 +193,9 @@ async def handle_spec(
                 ),
             ]
         )
-    embed, file = comparison.table_image_message(
+    # 표 PNG 렌더(CPU)는 워커 스레드로 — 이벤트루프 비차단(D6).
+    embed, file = await asyncio.to_thread(
+        comparison.table_image_message,
         "스펙 비교",
         headers,
         rows,
@@ -301,7 +303,8 @@ async def handle_item(
         )
         for o, icon in zip(successes, icons)
     ]
-    png = item_card.render_item_cards(cards)
+    # 카드 PNG 렌더(CPU)는 워커 스레드로 — 이벤트루프 비차단(D6).
+    png = await asyncio.to_thread(item_card.render_item_cards, cards)
     embed, file = comparison.image_message(
         f"아이템 — {slot}",
         png,
@@ -334,6 +337,7 @@ def setup(bot: discord.Client) -> None:
         member4="비교 대상",
         member5="비교 대상",
     )
+    @cooldowns.spec_cooldown()
     async def spec_command(
         interaction: discord.Interaction,
         member1: discord.Member,
@@ -370,6 +374,7 @@ def setup(bot: discord.Client) -> None:
     @app_commands.choices(
         part=[app_commands.Choice(name=slot, value=slot) for slot in SLOT_CHOICES]
     )
+    @cooldowns.spec_cooldown()
     async def item_command(
         interaction: discord.Interaction,
         part: app_commands.Choice[str],
