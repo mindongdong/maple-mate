@@ -22,10 +22,21 @@ dependencies = [
 dev = [
     "pytest>=8",
     "pytest-asyncio>=0.23",
+    "ruff>=0.11",
 ]
 
 [tool.uv]
 package = false
+
+[tool.ruff]
+target-version = "py312"
+line-length = 88
+
+[tool.ruff.lint]
+select = ["E", "F", "I"]
+# E501 제외: 줄 길이는 ruff format(88)이 강제. 남는 위반은 줄바꿈 불가한
+# 긴 한국어 문자열·주석뿐이라 수동 수정 없이는 해소 불가.
+ignore = ["E501"]
 
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
