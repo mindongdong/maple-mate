@@ -3,6 +3,10 @@
 > [cicd-handoff.md](cicd-handoff.md)의 미확정 결정(D1~D6)을 그릴링 세션(2026-06-09)에서 전부 확정한
 > **실행용 SSOT**. 핸드오프는 배경·근거, 이 문서는 "확정된 대로 무엇을 만드는가"에 집중한다.
 
+> **✅ 구현 완료 (2026-06-10)** — PR #12 squash 머지(main `bac8b4b`). 실제 작업 기록과 지시서 대비 편차는 **§6 완료 기록** 참조.
+> 남은 것은 §4 운영자 작업: **branch protection 은 2026-06-10 기준 아직 미설정**(API 확인 — PR #12 는 보호 룰 없이 머지됨),
+> Render 서비스도 미생성이라 배포 실증은 Render Blueprint 설정 후 진행.
+
 ## 0. 시작점 (그릴링 세션 갱신 — 핸드오프 대비 정정)
 
 - **선행 PR #11 = MERGED** (squash → `origin/main` `5cafcfb`). 핸드오프의 "PR #11 미머지"는 **stale**.
@@ -54,20 +58,21 @@
 ## 3. 산출물 체크리스트 (완료 정의)
 
 - [x] D1~D6 확정 (그릴링 세션) + ADR-0003 작성
-- [ ] 새 브랜치 `phase-7-cicd` (origin/main `5cafcfb`에서 분기)
-- [ ] `.github/workflows/ci.yml` — lint·test·migrations 3잡
-- [ ] `pyproject.toml` ruff 핀 + `[tool.ruff]`(`E,F,I`+format) + `uv.lock` 갱신
-- [ ] `chore: adopt ruff` 1회 정규화 커밋(자동수정 11 + 포맷 82, 로직 불변)
-- [ ] 개발자 워크플로 문서 1블록
-- [ ] PR 에서 CI 3잡 그린 + 임시 결함 주입 시 차단 확인 후 되돌림
-- [ ] 커밋(`ci:`/`chore:`) + main 대상 PR
-- [ ] (운영자) branch protection 활성화
+- [x] 새 브랜치 `phase-7-cicd` (origin/main `5cafcfb`에서 분기)
+- [x] `.github/workflows/ci.yml` — lint·test·migrations 3잡
+- [x] `pyproject.toml` ruff 핀 + `[tool.ruff]`(`E,F,I`+format) + `uv.lock` 갱신 — 단, **E501 ignore**(§6-1)
+- [x] `chore: adopt ruff` 1회 정규화 커밋(실측: 자동수정 12 + 포맷 87, 로직 불변 — pytest 381 그린)
+- [x] 개발자 워크플로 문서 1블록 (README)
+- [x] PR 에서 CI 3잡 그린 + 임시 결함 주입 시 차단 확인 후 되돌림 (§6-3)
+- [x] 커밋(`ci:`/`chore:`) + main 대상 PR — **PR #12 머지 완료**(`bac8b4b`, 2026-06-10)
+- [ ] (운영자) branch protection 활성화 — **미설정**(2026-06-10 API 확인)
+- [ ] (운영자) Render Blueprint 설정 + 배포 1회 실증 — Render 서비스 미생성
 
 ## 4. 사람(운영자) 작업 — 에이전트 불가
 
-- **branch protection**(D1 A안): GitHub repo Settings → main 룰 — "Require a pull request before merging" + "Require status checks to pass"(**CI 잡 지정**) 켜기. **"Do not allow bypassing" 은 끈 채로**(admin 우회 허용).
-  - ⚠️ required status check 는 **CI 가 최소 1회 실행된 뒤**라야 체크 이름을 선택 가능 → 첫 PR(이 작업) CI 그린 이후 설정.
-- **머지 → Render 자동배포 1회 실증**: 로그에서 마이그레이션 성공 + "글로벌 동기화 N개"(배포 핸드오프 §6 라이브 검증과 연계).
+- **branch protection**(D1 A안): GitHub repo Settings → main 룰 — "Require a pull request before merging" + "Require status checks to pass"(**lint·test·migrations 3잡 지정**) 켜기. **"Do not allow bypassing" 은 끈 채로**(admin 우회 허용).
+  - ⚠️ required status check 는 **CI 가 최소 1회 실행된 뒤**라야 체크 이름을 선택 가능 → ~~첫 PR CI 그린 이후 설정~~ **CI 실행 이력 있음 — 즉시 설정 가능**. 2026-06-10 기준 **미설정**(설정 전까지 main 직푸시·CI 우회 머지가 그대로 가능 = D1 게이트 미가동).
+- **머지 → Render 자동배포 1회 실증**: 로그에서 마이그레이션 성공 + "글로벌 동기화 N개"(배포 핸드오프 §6 라이브 검증과 연계) + **표 이미지 한글 렌더링 확인**(§6-2 폰트 수정 효과). ⚠️ Render 서비스 자체가 미생성(배포 계획의 운영자 수동작업 선행) — Blueprint 설정 후 진행.
 
 ## 5. 스코프 밖 / 주의
 
@@ -75,3 +80,24 @@
 - **`render.yaml` 무변경**(D1=A). mypy 전면 도입·커버리지 강제는 별도(점진).
 - **커밋 금지 파일**: 루트 `기댓값/`·`starforce-simulator-system.md` 등 untracked 로컬 파일.
 - CI 는 비밀 없이 동작(테스트가 env mock). migrations 잡의 `DATABASE_URL` 은 service Postgres 로컬 값(시크릿 아님).
+
+## 6. 완료 기록 (as-built, 2026-06-10) — 지시서 대비 편차
+
+구현 = **PR #12**(phase-7-cicd → main, squash `bac8b4b`). 커밋 5개: ruff 설정 → 정규화 → ci.yml → docs → 폰트 수정.
+
+### 6-1 D3 편차: `E501` lint 제외 (룰 조정, §5 허용 범위)
+
+- `select = ["E","F","I"]` 유지하되 `ignore = ["E501"]`. **줄 길이는 `ruff format`(88)이 CI 에서 강제**하므로 코드 줄은 통제됨.
+- 근거: 포맷 적용 후에도 E501 **269건** 잔존 — 전부 포맷터가 줄바꿈 못 하는 **긴 한국어 문자열·주석**. 수동 수정은 §5 "로직 변경 금지" 리스크라 룰 조정 선택(ruff 기본 룰셋도 같은 이유로 E501 제외).
+- 실측치 정정: 자동수정 11→**12건**(I001 8·F401 4), 포맷 82→**87파일**(ruff 0.15.16 기준).
+
+### 6-2 스코프 추가: 리눅스 한글 폰트 — CI 가 발견한 **프로덕션 버그** 수정
+
+- 첫 CI 에서 test 잡 2건 실패(`test_comparison.py` 금색 하이라이트 픽셀 단언). 원인: [table_image.py](../maple_mate/bot/table_image.py) `_FONT_CANDIDATES` 가 **전부 macOS 경로** → 리눅스(CI 러너·**Render 컨테이너**)에선 비트맵 폴백 폰트로 렌더링(한글 글리프 없음·하이라이트 색 소실). 즉 prod 표 이미지도 깨진 상태였을 버그.
+- 수정(별도 커밋, §5 "기능 코드 변경 금지"의 의도적 예외로 PR 에 명시): 후보에 debian `fonts-nanum` 경로 1줄 추가 + CI test 잡·[Dockerfile](../Dockerfile) 에 `fonts-nanum` 설치. **첫 Render 배포부터 한글 정상 렌더링.**
+
+### 6-3 검증 결과
+
+- **§2-2 컨틴전시 미발동**: 빈 DB + raw `postgresql://` 로 `alembic upgrade head`+`check` 통과 — 허위 drift 없음(로컬·CI 동일).
+- **결함 주입 차단 검증**: 각 결함이 **정확히 해당 잡만** 빨강 — 실패 테스트→test([run](https://github.com/mindongdong/maple-mate/actions/runs/27257691610)) / 깨진 마이그레이션→migrations([run](https://github.com/mindongdong/maple-mate/actions/runs/27257733870)) / F401→lint([run](https://github.com/mindongdong/maple-mate/actions/runs/27257777561)). 검증 후 force-push 로 제거(머지 이력 미오염).
+- migrations 잡 첫 실행에서 Docker Hub pull 타임아웃 1회(일시적) — 재실행으로 해소, 구조 문제 아님.

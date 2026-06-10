@@ -39,5 +39,5 @@ Render 가 GitHub App 웹훅으로 **기본 브랜치(main) 변경을 자동 감
 
 ## 참조
 
-- 구현: `.github/workflows/ci.yml`(migrations 잡), [cicd-work-order.md](../cicd-work-order.md) §4·§6
-- 운영자 설정: branch protection 활성화는 [cicd-work-order.md](../cicd-work-order.md) §6
+- 구현: `.github/workflows/ci.yml`(migrations 잡), [cicd-work-order.md](../cicd-work-order.md) §2·§6(완료 기록)
+- 운영자 설정: branch protection 활성화는 [cicd-work-order.md](../cicd-work-order.md) §4

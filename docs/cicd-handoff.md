@@ -6,6 +6,9 @@
 
 > **✅ 결정 확정됨 (그릴링 세션 2026-06-09)** — D1~D6 전부 확정·실행지시서로 이관: [cicd-work-order.md](cicd-work-order.md). D1 근거는 [ADR-0003](adr/0003-cd-gating-via-branch-protection.md).
 > **정정**: 본문의 "선행 PR #11(미머지)"는 stale — **PR #11 은 이미 MERGED**(`origin/main` `5cafcfb`). CI 작업은 최신 main 에서 `phase-7-cicd` 신규 분기.
+>
+> **✅ 구현 완료 (2026-06-10)** — PR #12 머지(main `bac8b4b`). 이 문서는 **이력 보존용** — 현재 상태·편차(E501 ignore, 폰트 prod 버그 수정 등)는
+> [cicd-work-order.md](cicd-work-order.md) **§6 완료 기록**이 SSOT. 남은 운영자 작업(branch protection·Render 설정)은 동 문서 §4.
 
 ## 0. 먼저 읽을 것 (SSOT — 중복 금지, 경로로 참조)
 
