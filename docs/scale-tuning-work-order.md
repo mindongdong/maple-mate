@@ -98,10 +98,10 @@
 ## 6. 산출물 체크리스트 (완료 정의)
 
 - [x] D1~D8 확정 (그릴링 세션 2026-06-10) + [ADR-0004](adr/0004-per-key-throttle-buckets.md) 작성
-- [ ] 3-1 키별 스로틀 버킷 + `NEXON_THROTTLE` config
-- [ ] 3-2 스펙 30분 캐시
-- [ ] 3-3 명령군별 쿨다운 + ephemeral 안내
-- [ ] 3-4 `to_thread` 오프로딩 3곳
-- [ ] 3-5 history_cache prune(date−400일)
-- [ ] 3-6 부하 시뮬 테스트 그린
+- [x] 3-1 키별 스로틀 버킷 + `NEXON_THROTTLE` config
+- [x] 3-2 스펙 30분 캐시
+- [x] 3-3 명령군별 쿨다운 + ephemeral 안내 ([bot/cooldowns.py](../maple_mate/bot/cooldowns.py) + 트리 공통 핸들러)
+- [x] 3-4 `to_thread` 오프로딩 (표 렌더 4명령 + 아이템 카드 + 마르코프 집계)
+- [x] 3-5 history_cache prune(date−400일) — 운영 요약 일일 잡 편승
+- [x] 3-6 부하 시뮬 테스트 그린 ([test_load_simulation.py](../tests/test_load_simulation.py), `slow` 마커 ~2.4초)
 - [ ] PR → CI 그린 → 머지 → §4 운영자 작업 안내
