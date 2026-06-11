@@ -77,9 +77,9 @@ class _Line:
 
 class _Fonts:
     def __init__(self) -> None:
-        self.name_r, self.name_b = _load_fonts(_NAME_SIZE)
+        _, self.name_b = _load_fonts(_NAME_SIZE)  # 이름은 볼드만 사용
         self.body_r, self.body_b = _load_fonts(_BODY_SIZE)
-        self.small_r, self.small_b = _load_fonts(_SMALL_SIZE)
+        self.small_r, _ = _load_fonts(_SMALL_SIZE)  # 부가 정보는 레귤러만 사용
 
 
 def _line_metrics(draw: ImageDraw.ImageDraw, line: _Line) -> tuple[float, int]:

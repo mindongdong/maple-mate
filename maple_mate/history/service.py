@@ -172,7 +172,8 @@ def parse_attempts(records: Sequence[dict], nickname: str) -> list[StarforceAtte
         if r.get("character_name") != nickname:
             continue
         # superior_item_flag 는 서술형 한글 문자열(실측, docs/api/history.md) —
-        # "슈페리얼 장비 미해당"/"슈페리얼 장비 해당" → '미해당' 포함이면 일반 장비.
+        # "슈페리얼 장비 미해당"/"슈페리얼 장비 해당". '슈페리얼' 키워드 필수 +
+        # '미해당' 제외로 판정: 미상 포맷(빈값·"0" 등)은 일반 장비로 폴백(과잉 제외 방지).
         flag = r.get("superior_item_flag") or ""
         attempts.append(
             StarforceAttempt(
@@ -181,7 +182,7 @@ def parse_attempts(records: Sequence[dict], nickname: str) -> list[StarforceAtte
                 after_star=int(r.get("after_starforce_count", 0)),
                 result=r.get("item_upgrade_result", ""),
                 date_create=r.get("date_create", ""),
-                superior=bool(flag) and "미해당" not in flag,
+                superior="슈페리얼" in flag and "미해당" not in flag,
             )
         )
     return attempts

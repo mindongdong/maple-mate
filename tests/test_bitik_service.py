@@ -193,6 +193,24 @@ def test_parse_attempts_extracts_superior_flag() -> None:
     assert [a.superior for a in attempts] == [True, False]
 
 
+def test_parse_attempts_superior_unknown_format_falls_back_to_regular() -> None:
+    """미상 포맷(빈값·"0" 등 서술형 아님) → 일반 장비 폴백(전 아이템 과잉 제외 방지)."""
+    base = {
+        "character_name": "손바",
+        "target_item": "여명의 가디언 엔젤 링",
+        "before_starforce_count": 12,
+        "after_starforce_count": 13,
+        "item_upgrade_result": "성공",
+        "date_create": "2026-06-01T10:00:00+09:00",
+    }
+    records = [
+        {**base, "superior_item_flag": "0"},
+        {**base, "superior_item_flag": ""},
+        {**base},  # 필드 자체 부재
+    ]
+    assert [a.superior for a in parse_attempts(records, "손바")] == [False] * 3
+
+
 # ── 잠재 픽스처 ──────────────────────────────────────────────────────────────
 
 
