@@ -159,6 +159,7 @@ class StarforceAttempt:
     after_star: int
     result: str  # "성공"/"실패(유지)"/"실패(하락)"/"파괴"
     date_create: str  # ISO8601(KST)
+    superior: bool = False  # 슈페리얼 장비 여부(확률·비용공식 상이 → /비틱 집계 제외)
 
 
 def parse_attempts(records: Sequence[dict], nickname: str) -> list[StarforceAttempt]:
@@ -170,6 +171,9 @@ def parse_attempts(records: Sequence[dict], nickname: str) -> list[StarforceAtte
     for r in records:
         if r.get("character_name") != nickname:
             continue
+        # superior_item_flag 는 서술형 한글 문자열(실측, docs/api/history.md) —
+        # "슈페리얼 장비 미해당"/"슈페리얼 장비 해당" → '미해당' 포함이면 일반 장비.
+        flag = r.get("superior_item_flag") or ""
         attempts.append(
             StarforceAttempt(
                 target_item=r.get("target_item", ""),
@@ -177,6 +181,7 @@ def parse_attempts(records: Sequence[dict], nickname: str) -> list[StarforceAtte
                 after_star=int(r.get("after_starforce_count", 0)),
                 result=r.get("item_upgrade_result", ""),
                 date_create=r.get("date_create", ""),
+                superior=bool(flag) and "미해당" not in flag,
             )
         )
     return attempts
