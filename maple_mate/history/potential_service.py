@@ -68,6 +68,9 @@ class CubeRecord:
     before_add: tuple[str, ...]
     after_add: tuple[str, ...]
     date_create: str
+    # 사용 후 옵션 텍스트(예: "보스 몬스터 공격 시 데미지 : +40%"). /비틱 끝 옵션 풀표시용.
+    after_pot_values: tuple[str, ...] = ()
+    after_add_values: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -86,6 +89,9 @@ class ResetRecord:
     before_add: tuple[str, ...]
     after_add: tuple[str, ...]
     date_create: str
+    # 사용 후 옵션 텍스트. /비틱 끝 옵션 풀표시용(CubeRecord 와 동일).
+    after_pot_values: tuple[str, ...] = ()
+    after_add_values: tuple[str, ...] = ()
 
 
 def _grades(options: object) -> tuple[str, ...]:
@@ -93,6 +99,13 @@ def _grades(options: object) -> tuple[str, ...]:
     if not isinstance(options, list):
         return ()
     return tuple(o.get("grade", "") for o in options if isinstance(o, dict))
+
+
+def _values(options: object) -> tuple[str, ...]:
+    """넥슨 옵션 배열 → 옵션 텍스트 튜플. _grades 와 동일 규약."""
+    if not isinstance(options, list):
+        return ()
+    return tuple(o.get("value", "") for o in options if isinstance(o, dict))
 
 
 def _int(value: object) -> int:
@@ -122,6 +135,8 @@ def parse_cube_records(records: Sequence[dict], nickname: str) -> list[CubeRecor
                 before_add=_grades(r.get("before_additional_potential_option")),
                 after_add=_grades(r.get("after_additional_potential_option")),
                 date_create=r.get("date_create", ""),
+                after_pot_values=_values(r.get("after_potential_option")),
+                after_add_values=_values(r.get("after_additional_potential_option")),
             )
         )
     return out
@@ -147,6 +162,8 @@ def parse_reset_records(records: Sequence[dict], nickname: str) -> list[ResetRec
                 before_add=_grades(r.get("before_additional_potential_option")),
                 after_add=_grades(r.get("after_additional_potential_option")),
                 date_create=r.get("date_create", ""),
+                after_pot_values=_values(r.get("after_potential_option")),
+                after_add_values=_values(r.get("after_additional_potential_option")),
             )
         )
     return out
