@@ -207,3 +207,36 @@ async def set_sunday_alert(
         )
         await session.execute(stmt)
         await session.commit()
+
+
+async def enabled_exp_channels(
+    session_factory: async_sessionmaker[AsyncSession],
+) -> list[tuple[int, int]]:
+    """경험치 리더보드 알림이 켜진 (guild_id, channel_id) 목록(알림은 채널 단위, 작업지시서 Q8)."""
+    async with session_factory() as session:
+        stmt = select(ChannelSettings.guild_id, ChannelSettings.channel_id).where(
+            ChannelSettings.exp_alert.is_(True)
+        )
+        rows = (await session.execute(stmt)).all()
+    return [(row.guild_id, row.channel_id) for row in rows]
+
+
+async def set_exp_alert(
+    session_factory: async_sessionmaker[AsyncSession],
+    *,
+    guild_id: int,
+    channel_id: int,
+    enabled: bool,
+) -> None:
+    """채널의 경험치 리더보드 알림 토글 upsert. `exp_alert` 만 set 해 다른 토글은 보존(Q8)."""
+    async with session_factory() as session:
+        stmt = (
+            pg_insert(ChannelSettings)
+            .values(guild_id=guild_id, channel_id=channel_id, exp_alert=enabled)
+            .on_conflict_do_update(
+                index_elements=["guild_id", "channel_id"],
+                set_={"exp_alert": enabled},
+            )
+        )
+        await session.execute(stmt)
+        await session.commit()

@@ -93,6 +93,7 @@ class MapleMateBot(discord.Client):
         from ..character.commands import setup as setup_character
         from ..history.commands import setup as setup_history
         from ..history.potential_commands import setup as setup_potential
+        from ..leaderboard.commands import setup_leaderboard
         from ..notification.commands import setup as setup_notification
         from ..registration.commands import setup as setup_registration
         from ..union.commands import setup as setup_union
@@ -107,6 +108,7 @@ class MapleMateBot(discord.Client):
         setup_history(self)  # /스타포스
         setup_potential(self)  # /잠재
         setup_bitik(self)  # /비틱 (스타포스·잠재·득템)
+        setup_leaderboard(self)  # /경험치 · /경험치알림
         setup_notification(self)  # /썬데이
 
     async def on_ready(self) -> None:

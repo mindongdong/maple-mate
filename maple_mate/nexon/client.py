@@ -359,6 +359,23 @@ class NexonClient:
     async def union_champion(self, ocid: str, date: str | None = None) -> dict:
         return await self._spec("maplestory/v1/user/union-champion", ocid, date)
 
+    # ── 경험치 리더보드 (앱 키 + ocid, date 필수) ─────────────────────────
+    #
+    # ⚠️ ranking/overall 은 ocid 와 함께 date 가 **필수**(date 무지정 → 400 OPENAPI00004,
+    # 스파이크 G0). 스펙류(date 무지정=최신) 패턴과 반대라 항상 명시적 D-1(KST) 을 넘긴다.
+    # ocid+date 응답의 ranking 배열에는 대상 1건만 담겨 [0] 이 곧 그 캐릭터(닉 매칭 불요).
+    # 빈/누락 리스트 = 미등재/미준비 → None(에러 아님). 넥슨 장애는 NexonAPIError 로 전파.
+
+    async def ranking_overall(self, ocid: str, date_iso: str) -> dict | None:
+        """종합 랭킹에서 특정 캐릭터의 1일치 항목(앱 키, date 필수). 미등재/미준비면 None."""
+        data = await self._request(
+            "maplestory/v1/ranking/overall", ocid=ocid, date=date_iso
+        )
+        ranking = data.get("ranking")
+        if isinstance(ranking, list) and ranking:
+            return ranking[0]
+        return None
+
     # ── Phase 4 알림 (앱 키, 진행 중 이벤트 목록) ──────────────────────────
     #
     # notice-event 는 파라미터 없이 "현재 진행 중" 항목만 반환(docs/api/notice.md). 따라서

@@ -86,6 +86,10 @@ async def test_ops_summary_job_runs_both_prunes(monkeypatch):
         calls.append("history_cache")
         return 0
 
+    async def prune_old_snapshots_fake(sf, now):
+        calls.append("exp_snapshot")
+        return 0
+
     monkeypatch.setattr(
         scheduler.ops_summary, "fetch_yesterday_errors", fetch_yesterday_errors
     )
@@ -95,6 +99,11 @@ async def test_ops_summary_job_runs_both_prunes(monkeypatch):
         "prune_old_history_cache",
         prune_old_history_cache_fake,
     )
+    monkeypatch.setattr(
+        scheduler.leaderboard_service,
+        "prune_old_snapshots",
+        prune_old_snapshots_fake,
+    )
     deps = type("Deps", (), {"session_factory": object(), "config": None})()
     await scheduler.run_ops_summary_job(bot=object(), deps=deps)
-    assert calls == ["error_log", "history_cache"]
+    assert calls == ["error_log", "history_cache", "exp_snapshot"]
