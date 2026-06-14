@@ -133,10 +133,18 @@ async def _fetch_exp_rate(deps: Deps, ocid: str, date_iso: str) -> float | None:
         return None
 
 
-async def _fetch_one_day(deps: Deps, target: Target, snapshot_date: date) -> bool:
+async def _fetch_one_day(
+    deps: Deps,
+    target: Target,
+    snapshot_date: date,
+    *,
+    with_exp_rate: bool = True,
+) -> bool:
     """대상 1명의 1일치 조회→upsert. 미등재/미준비는 False(스킵), 적재 성공은 True.
 
-    주 소스 ranking/overall 성공 후 character/basic 을 best-effort 로 호출해 exp_rate 보강.
+    with_exp_rate=False 이면 character/basic 보강 호출을 건너뛰고 exp_rate=None 으로 저장한다.
+    백필 시 사용 — 과거 일자는 Δ 계산용 total_exp 만 필요하고 표시일(D-1)은 fetch_and_store 가
+    with_exp_rate=True 로 따로 호출하므로 앱키 버킷 부하가 절반으로 줄어든다.
     넥슨 장애(타임아웃·429·5xx)·앱키 실패만 error_log.record(작업지시서 readiness 가드).
     """
     date_iso = snapshot_date.isoformat()
@@ -159,7 +167,9 @@ async def _fetch_one_day(deps: Deps, target: Target, snapshot_date: date) -> boo
         return False
     if entry is None:  # 빈 ranking = 미등재/미준비 → 그날 그 캐릭 제외(에러 아님)
         return False
-    exp_rate = await _fetch_exp_rate(deps, target.ocid, date_iso)
+    exp_rate = (
+        await _fetch_exp_rate(deps, target.ocid, date_iso) if with_exp_rate else None
+    )
     await _upsert_snapshot(
         deps.session_factory,
         guild_id=target.guild_id,
@@ -223,7 +233,7 @@ async def backfill(
         for snapshot_date in dates:
             if snapshot_date in existing:
                 continue
-            await _fetch_one_day(deps, target, snapshot_date)
+            await _fetch_one_day(deps, target, snapshot_date, with_exp_rate=False)
 
 
 # ── 조회 + 순수 집계 ────────────────────────────────────────────────────────
@@ -236,6 +246,24 @@ async def has_snapshots(
     async with session_factory() as session:
         stmt = select(ExpSnapshot.snapshot_date).where(ExpSnapshot.guild_id == guild_id)
         return (await session.execute(stmt.limit(1))).first() is not None
+
+
+async def has_snapshot_on(
+    session_factory: async_sessionmaker[AsyncSession],
+    guild_id: int,
+    snapshot_date: date,
+) -> bool:
+    """길드의 특정 일자 스냅샷이 하나라도 있는지(온디맨드 부트스트랩 no-op 게이트)."""
+    async with session_factory() as session:
+        stmt = (
+            select(ExpSnapshot.snapshot_date)
+            .where(
+                ExpSnapshot.guild_id == guild_id,
+                ExpSnapshot.snapshot_date == snapshot_date,
+            )
+            .limit(1)
+        )
+        return (await session.execute(stmt)).first() is not None
 
 
 async def snapshots_on(

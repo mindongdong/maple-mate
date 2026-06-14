@@ -6,6 +6,7 @@ readiness 는 라이브 1회 확인(작업지시서 테스트 전략).
 
 from __future__ import annotations
 
+from datetime import date
 from types import SimpleNamespace
 
 from maple_mate.leaderboard import broadcast
@@ -161,3 +162,86 @@ async def test_per_guild_payload_built_once_for_two_channels(monkeypatch):
     await broadcast.run_leaderboard_job(bot=object(), deps=_deps())
     assert build_calls == [1]  # 길드 1에 대해 단 1회만 호출됨(메모이제이션)
     assert len(sent_files) == 2  # 채널 100, 101 각각 발송됨
+
+
+# ── refresh_guild: 첫 실행 백필 게이트 ───────────────────────────────────────
+
+
+async def test_refresh_guild_backfills_when_empty_then_fetches(monkeypatch):
+    calls: list[str] = []
+
+    async def has_snapshots(sf, guild_id):
+        return False  # 스냅샷 없음 → 백필
+
+    async def backfill(deps, guild_id, targets):
+        calls.append("backfill")
+
+    async def fetch_and_store(deps, guild_id, targets, date_iso):
+        calls.append("fetch")
+        return 2
+
+    monkeypatch.setattr(broadcast.service, "has_snapshots", has_snapshots)
+    monkeypatch.setattr(broadcast.service, "backfill", backfill)
+    monkeypatch.setattr(broadcast.service, "fetch_and_store", fetch_and_store)
+    skipped = await broadcast.refresh_guild(_deps(), 1, [object()], date(2026, 6, 13))
+    assert calls == ["backfill", "fetch"]
+    assert skipped == 2
+
+
+async def test_refresh_guild_skips_backfill_when_snapshots_exist(monkeypatch):
+    calls: list[str] = []
+
+    async def has_snapshots(sf, guild_id):
+        return True  # 이미 있음 → 백필 생략
+
+    async def backfill(deps, guild_id, targets):
+        calls.append("backfill")
+
+    async def fetch_and_store(deps, guild_id, targets, date_iso):
+        calls.append("fetch")
+        return 0
+
+    monkeypatch.setattr(broadcast.service, "has_snapshots", has_snapshots)
+    monkeypatch.setattr(broadcast.service, "backfill", backfill)
+    monkeypatch.setattr(broadcast.service, "fetch_and_store", fetch_and_store)
+    await broadcast.refresh_guild(_deps(), 1, [object()], date(2026, 6, 13))
+    assert calls == ["fetch"]  # 백필 안 함
+
+
+# ── ensure_guild_data: 온디맨드 부트스트랩(D-1 있으면 no-op) ──────────────────
+
+
+async def test_ensure_guild_data_noop_when_d1_exists(monkeypatch):
+    refreshed: list[int] = []
+
+    async def has_snapshot_on(sf, guild_id, ref_date):
+        return True  # D-1 이미 있음
+
+    async def refresh_guild(deps, guild_id, targets, ref_date):
+        refreshed.append(guild_id)
+        return 0
+
+    monkeypatch.setattr(broadcast.service, "has_snapshot_on", has_snapshot_on)
+    monkeypatch.setattr(broadcast, "refresh_guild", refresh_guild)
+    await broadcast.ensure_guild_data(_deps(), 1)
+    assert refreshed == []  # 페치 안 함(빠른 no-op)
+
+
+async def test_ensure_guild_data_refreshes_when_missing(monkeypatch):
+    refreshed: list[int] = []
+
+    async def has_snapshot_on(sf, guild_id, ref_date):
+        return False  # D-1 없음 → 부트스트랩
+
+    async def get_targets(sf, guild_id):
+        return [SimpleNamespace(discord_user_id=10, nickname="손바", ocid="o1")]
+
+    async def refresh_guild(deps, guild_id, targets, ref_date):
+        refreshed.append(guild_id)
+        return 0
+
+    monkeypatch.setattr(broadcast.service, "has_snapshot_on", has_snapshot_on)
+    monkeypatch.setattr(broadcast, "get_targets", get_targets)
+    monkeypatch.setattr(broadcast, "refresh_guild", refresh_guild)
+    await broadcast.ensure_guild_data(_deps(), 1)
+    assert refreshed == [1]  # 부트스트랩 페치 실행
