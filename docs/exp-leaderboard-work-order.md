@@ -5,6 +5,17 @@
 > 행마다 **어제 하루 획득량(Δ)**과 **전체 서버 순위**를 병기하고, **최근 7일 일일 Δ 라인 그래프**를 함께 보여준다.
 > 그릴링(`/grill-me`) 12문 + 라이브 스파이크(G0)로 아래를 확정했다.
 
+## 완료 기록 (As-built — PR #16, 2026-06-14 머지)
+
+빌드 단위 1~7 전부 구현·머지 완료. 검증: **498 passed · ruff clean · alembic up/down/check OK · 코드리뷰 APPROVE(CRITICAL/HIGH 0)**.
+
+- **스펙 대비 추가:** `exp%`(레벨 내 경험치 비율). 그릴링 Q2(행에 "레벨(exp%)")와 Q6(종합 랭킹 단일 소스)의 모순을 사용자 결정으로 해소 — `character/basic` **best-effort 1콜**로 보강하되, 실패·미준비 시 `Lv.287`로 다운그레이드하고 인클루전은 종합 랭킹 성공 여부로만 판단([ADR-0005](adr/0005-exp-leaderboard-data-source.md) §결정 3). `exp_snapshot.exp_rate`(Float, nullable) 컬럼 추가.
+- **데이터 소스 결정 → ADR 승격:** [ADR-0005](adr/0005-exp-leaderboard-data-source.md)(`ranking/overall` 단일 vs EXP 테이블).
+- **도메인 용어 등재:** [CONTEXT.md](../CONTEXT.md) — 종합 랭킹·경험치 리더보드·어제 Δ·경험치 알림·랭킹 미등재.
+- **as-built 구현 메모:** 잡·명령 공유 `LeaderboardPayload`는 PNG **bytes**를 들고 발송마다 `to_files()`로 fresh `discord.File` 생성(길드별 1회만 렌더 — 다채널 길드 중복 렌더 방지, 코드리뷰 MEDIUM 반영). `_resolve_channel` 경고 로그는 다중 호출자 공유로 "썬데이" 문구 제거.
+
+**잔류(라이브 확인 대상):** ① 실제 발송 모양(표+그래프 2장 갤러리) ② 10:00 D-1 readiness ③ 저렙 미등재 응답형태 ④ 그래프 시각 품질. `/경험치알림 켜기` → `/경험치`로 즉시 점검 가능.
+
 ## 참조 (중복 금지 — 경로로 참조)
 
 - [docs/api/ranking.md](api/ranking.md) — `ranking/overall` 응답 필드(스파이크로 실측 보정 — 아래 G0 참조)
