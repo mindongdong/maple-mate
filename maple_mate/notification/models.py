@@ -27,6 +27,9 @@ class ChannelSettings(Base):
     sunday_alert: Mapped[bool] = mapped_column(
         Boolean, nullable=False, server_default=text("false")
     )
+    exp_alert: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, server_default=text("false")
+    )
 
 
 class NoticeState(Base):

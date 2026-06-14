@@ -16,6 +16,7 @@ from sqlalchemy.ext.asyncio import async_engine_from_config
 
 import maple_mate.error_log.models  # noqa: E402,F401
 import maple_mate.history.models  # noqa: E402,F401
+import maple_mate.leaderboard.models  # noqa: E402,F401
 import maple_mate.notification.models  # noqa: E402,F401
 
 # 도메인 모델 모듈 임포트 → 테이블이 Base.metadata 에 등록(autogenerate/compare 용).

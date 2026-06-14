@@ -22,6 +22,7 @@ from ..dependencies import Deps
 from ..error_log import service as error_log
 from ..error_log import summary as ops_summary
 from ..history import service as history_cache
+from ..leaderboard import service as leaderboard_service
 from ..nexon.client import KST
 from ..nexon.errors import NexonAPIError, to_error_log_type
 from . import notice_service, service
@@ -45,6 +46,11 @@ NOTICE_MINUTE = 0
 
 # 운영 요약: 매일 09:00 KST.
 OPS_SUMMARY_HOUR, OPS_SUMMARY_MINUTE = 9, 0
+
+# 경험치 리더보드: 매일 10:00 KST(작업지시서 #7). 10:00 D-1 미준비면 그 캐릭만 그날 제외.
+EXP_HOUR, EXP_MINUTE = 10, 0
+# 봇이 10:00에 꺼져 있었으면 당일 안에 켜질 때 따라잡기(썬데이와 동일 정책). 10:00~자정 ≈ 13h59m.
+EXP_MISFIRE_GRACE_SAME_DAY = 13 * 3600 + 59 * 60
 # 한 메시지 임베드 상한(디스코드). 신규 다건이 이를 넘으면 여러 메시지로 쪼개 보낸다.
 EMBEDS_PER_MESSAGE = 10
 
@@ -83,7 +89,7 @@ async def _resolve_channel(
         return await bot.fetch_channel(channel_id)  # type: ignore[return-value]
     except discord.HTTPException as exc:  # NotFound/Forbidden 포함
         log.warning(
-            "썬데이 채널 해석 실패 (guild=%s channel=%s): %s", guild_id, channel_id, exc
+            "채널 해석 실패 (guild=%s channel=%s): %s", guild_id, channel_id, exc
         )
         return None
 
@@ -249,11 +255,17 @@ async def run_ops_summary_job(bot: discord.Client, deps: Deps) -> None:
     pruned_cache = await history_cache.prune_old_history_cache(
         deps.session_factory, now
     )
+    # exp_snapshot prune(snapshot_date 기준 90일, 작업지시서 Q12)도 같은 일일 잡에 편승.
+    pruned_exp = await leaderboard_service.prune_old_snapshots(
+        deps.session_factory, now
+    )
     log.info(
-        "운영 요약: 발송=%s, error_log prune=%d행, history_cache prune=%d행",
+        "운영 요약: 발송=%s, error_log prune=%d행, history_cache prune=%d행, "
+        "exp_snapshot prune=%d행",
         embed is not None,
         pruned,
         pruned_cache,
+        pruned_exp,
     )
 
 
@@ -415,12 +427,27 @@ def start_scheduler(bot: discord.Client, deps: Deps) -> AsyncIOScheduler:
         coalesce=True,
         max_instances=1,
     )
+    # 파일 비대화·순환 import 방지를 위해 잡 함수는 여기서 지연 import(작업지시서 #7).
+    from ..leaderboard.broadcast import run_leaderboard_job
+
+    scheduler.add_job(
+        run_leaderboard_job,
+        trigger=CronTrigger(hour=EXP_HOUR, minute=EXP_MINUTE, timezone=KST_ZONE),
+        args=[bot, deps],
+        id="leaderboard",
+        name="경험치 리더보드",
+        misfire_grace_time=EXP_MISFIRE_GRACE_SAME_DAY,
+        coalesce=True,
+        max_instances=1,
+    )
     scheduler.start()
     log.info(
-        "스케줄러 시작: 썬데이(금 %02d:%02d)·공지(%s시) KST 잡 등록",
+        "스케줄러 시작: 썬데이(금 %02d:%02d)·공지(%s시)·경험치(%02d:%02d) KST 잡 등록",
         SUNDAY_HOUR,
         SUNDAY_MINUTE,
         NOTICE_HOURS,
+        EXP_HOUR,
+        EXP_MINUTE,
     )
     return scheduler
 
