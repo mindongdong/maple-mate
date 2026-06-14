@@ -364,3 +364,97 @@ async def test_fetch_and_store_basic_timeout_still_stores_with_none(monkeypatch)
     [insert_params] = params
     assert insert_params["exp_rate"] is None
     assert recorded == []
+
+
+# ── backfill: 과거일은 ranking-only(character/basic 생략, 지연 최적화) ──────────
+
+
+class _RecordingNexon:
+    """ranking_overall·character_basic 호출을 기록하는 페이크(백필 콜 검증용)."""
+
+    def __init__(self, entry: dict | None):
+        self._entry = entry
+        self.ranking_calls: list[str] = []
+        self.basic_calls: list[str | None] = []
+
+    async def ranking_overall(self, ocid: str, date_iso: str) -> dict | None:
+        self.ranking_calls.append(date_iso)
+        return self._entry
+
+    async def character_basic(self, ocid: str, date: str | None = None) -> dict:
+        self.basic_calls.append(date)
+        return {"character_exp_rate": "10.0"}
+
+
+def _backfill_factory(upserts: list[dict] | None = None):
+    """_existing_dates(select.scalars().all()→[])와 _upsert_snapshot(execute/commit)를 함께 받는 세션.
+
+    upserts 가 주어지면 'exp_rate' 키를 가진 INSERT 파라미터만 모은다(백필 적재값 검증용).
+    """
+
+    class _Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def execute(self, stmt):
+            if upserts is not None:
+                params = stmt.compile().params
+                if "exp_rate" in params:  # _upsert_snapshot 의 INSERT 만(select 제외)
+                    upserts.append(params)
+            return SimpleNamespace(
+                scalars=lambda: SimpleNamespace(all=lambda: []),  # 기존 적재 없음
+                rowcount=1,
+            )
+
+        async def commit(self):
+            return None
+
+    return lambda: _Session()
+
+
+async def test_backfill_fetches_ranking_only_skips_basic():
+    # 과거 8일 백필은 ranking_overall 만 호출하고 character/basic(exp_rate)은 생략(앱키 부하 절반).
+    # 적재 행은 전부 exp_rate=None — 표시일 D-1 의 exp_rate 는 이후 fetch_and_store 가 채운다(ordering 불변식).
+    upserts: list[dict] = []
+    nexon = _RecordingNexon(
+        {"character_level": 287, "character_exp": _EXP_D1, "ranking": 1}
+    )
+    deps = SimpleNamespace(session_factory=_backfill_factory(upserts), nexon=nexon)
+    await service.backfill(deps, 1, [_target(10, "oc1")], days=8)
+    assert len(nexon.ranking_calls) == 8  # D-1~D-8
+    assert nexon.basic_calls == []  # 과거일은 ranking-only
+    assert len(upserts) == 8
+    assert all(p["exp_rate"] is None for p in upserts)  # 백필 적재는 전부 exp_rate=None
+
+
+# ── has_snapshot_on: 온디맨드 부트스트랩 no-op 게이트 ─────────────────────────
+
+
+def _first_factory(first_value):
+    class _Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def execute(self, stmt):
+            return SimpleNamespace(first=lambda: first_value)
+
+        async def commit(self):
+            return None
+
+    return lambda: _Session()
+
+
+async def test_has_snapshot_on_true_when_row_present():
+    assert (
+        await service.has_snapshot_on(_first_factory(("2026-06-13",)), 1, _REF) is True
+    )
+
+
+async def test_has_snapshot_on_false_when_absent():
+    assert await service.has_snapshot_on(_first_factory(None), 1, _REF) is False

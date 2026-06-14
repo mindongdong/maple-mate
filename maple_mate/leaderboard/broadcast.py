@@ -11,6 +11,7 @@ from __future__ import annotations
 import asyncio
 import io
 import logging
+from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 
@@ -22,7 +23,7 @@ from ..dependencies import Deps
 from ..nexon.client import KST
 from ..notification import service as channel_service
 from ..notification.scheduler import _resolve_channel
-from ..registration.service import get_targets
+from ..registration.service import Target, get_targets
 from . import service
 
 log = logging.getLogger(__name__)
@@ -110,6 +111,37 @@ async def build_payload(
     )
 
 
+async def refresh_guild(
+    deps: Deps,
+    guild_id: int,
+    targets: Sequence[Target],
+    ref_date: date,
+) -> int:
+    """길드 1개의 (첫 실행)백필 → D-1 적재 공통 블록. 스킵 카운트 반환.
+
+    `run_leaderboard_job` 과 `ensure_guild_data` 가 함께 사용한다.
+    """
+    session_factory = deps.session_factory
+    if not await service.has_snapshots(session_factory, guild_id):
+        await service.backfill(deps, guild_id, targets)  # 첫 실행 1회 백필(Q11)
+    return await service.fetch_and_store(deps, guild_id, targets, ref_date.isoformat())
+
+
+async def ensure_guild_data(deps: Deps, guild_id: int) -> None:
+    """`/경험치` 온디맨드 부트스트랩: D-1 스냅샷이 없으면 백필+적재해서 즉시 표시 가능하게 한다.
+
+    D-1 이 이미 있으면 빠른 no-op. exp_alert 를 켜지 않아도 명령 한 번으로 데이터가 뜨도록
+    `run_leaderboard_job` 의 첫 실행 경로를 /경험치 명령에서도 재현한다.
+    """
+    now = datetime.now(KST)
+    ref_date = service.yesterday_kst(now)
+    if await service.has_snapshot_on(deps.session_factory, guild_id, ref_date):
+        return  # D-1 이미 있음 → 아무 것도 안 함
+    targets = await get_targets(deps.session_factory, guild_id)
+    if targets:
+        await refresh_guild(deps, guild_id, targets, ref_date)
+
+
 async def run_leaderboard_job(bot: discord.Client, deps: Deps) -> None:
     """매일 10시 잡: exp_alert 채널 0개면 스킵 / 길드별 (첫 실행)백필 → D-1 적재 → 발송."""
     session_factory = deps.session_factory
@@ -126,11 +158,7 @@ async def run_leaderboard_job(bot: discord.Client, deps: Deps) -> None:
         targets = await get_targets(session_factory, guild_id)
         if not targets:
             continue
-        if not await service.has_snapshots(session_factory, guild_id):
-            await service.backfill(deps, guild_id, targets)  # 첫 실행 1회 백필(Q11)
-        skipped = await service.fetch_and_store(
-            deps, guild_id, targets, ref_date.isoformat()
-        )
+        skipped = await refresh_guild(deps, guild_id, targets, ref_date)
         if skipped:
             log.info("경험치 적재: 길드 %s 미등재/미준비 %d명 제외", guild_id, skipped)
 

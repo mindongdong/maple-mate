@@ -14,15 +14,21 @@ from ..bot import cooldowns
 from ..bot.embeds import defer, make_embed
 from ..dependencies import Deps
 from ..notification import service as channel_service
-from .broadcast import build_payload
+from ..registration.service import get_targets
+from .broadcast import build_payload, ensure_guild_data
 
-_NO_DATA = (
-    "아직 표시할 경험치 순위가 없어요. 매일 10시(KST)에 데이터가 쌓이면 보여드릴게요."
+_MSG_NOT_ENOUGH = "경험치 리더보드는 **2명 이상 등록**해야 순위가 떠요. 친구들도 `/등록` 하면 같이 나와요."
+_MSG_NOT_READY = (
+    "아직 종합 랭킹 데이터를 못 받았어요(전일 데이터 준비 전이거나 랭킹 미등재)."
+    " 잠시 후 다시 시도해 주세요."
 )
 
 
 async def handle_leaderboard(deps: Deps, interaction: discord.Interaction) -> None:
-    """`/경험치` 본체: defer → build_payload → 표+그래프 공개 발송(없으면 ephemeral 안내)."""
+    """`/경험치` 본체: defer → 온디맨드 부트스트랩 → build_payload → 표+그래프 공개 발송.
+
+    payload 가 None 이면 등록자 수를 확인해 <2명 vs 데이터 미준비를 구분해 안내한다.
+    """
     await defer(interaction)
     if interaction.guild_id is None:
         await interaction.followup.send(
@@ -31,10 +37,16 @@ async def handle_leaderboard(deps: Deps, interaction: discord.Interaction) -> No
         )
         return
 
+    # D-1 스냅샷이 없으면 즉시 백필+적재(첫 호출 온디맨드 부트스트랩).
+    await ensure_guild_data(deps, interaction.guild_id)
+
     payload = await build_payload(interaction.client, deps, interaction.guild_id)
-    if payload is None:  # 등재 2명 미만 / 데이터 없음 → 안내(Q10)
+    if payload is None:
+        # 등록자가 2명 미만인지, 데이터가 아직 미준비인지 구분해 안내한다.
+        targets = await get_targets(deps.session_factory, interaction.guild_id)
+        msg = _MSG_NOT_ENOUGH if len(targets) < 2 else _MSG_NOT_READY
         await interaction.followup.send(
-            embed=make_embed("경험치 리더보드", _NO_DATA), ephemeral=True
+            embed=make_embed("경험치 리더보드", msg), ephemeral=True
         )
         return
 
@@ -89,7 +101,7 @@ def setup_leaderboard(bot: discord.Client) -> None:
         name="경험치",
         description="등록 캐릭터들의 누적 경험치 순위와 최근 7일 획득 추세를 보여줍니다.",
     )
-    @cooldowns.spec_cooldown()  # 10초 — 스냅샷 DB 조회만(넥슨 콜 없음, 작업지시서 파생 결정)
+    @cooldowns.spec_cooldown()  # 10초 — 첫 호출은 넥슨 온디맨드 백필 가능; 이후는 DB 조회만
     async def leaderboard_command(interaction: discord.Interaction) -> None:
         await handle_leaderboard(deps, interaction)
 

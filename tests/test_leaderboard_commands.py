@@ -83,6 +83,10 @@ class _FakeInteraction:
         self.followup = _FakeFollowup()
 
 
+async def _noop_ensure(deps, guild_id):
+    pass
+
+
 async def test_leaderboard_command_sends_public_payload(monkeypatch):
     payload = LeaderboardPayload(
         table_png=b"\x89PNG",
@@ -94,6 +98,7 @@ async def test_leaderboard_command_sends_public_payload(monkeypatch):
     async def fake_build(bot, deps, guild_id):
         return payload
 
+    monkeypatch.setattr(commands, "ensure_guild_data", _noop_ensure)
     monkeypatch.setattr(commands, "build_payload", fake_build)
     interaction = _FakeInteraction()
     await commands.handle_leaderboard(deps=object(), interaction=interaction)
@@ -103,16 +108,47 @@ async def test_leaderboard_command_sends_public_payload(monkeypatch):
     assert "ephemeral" not in call  # 공개 발송
 
 
-async def test_leaderboard_command_no_data_branch(monkeypatch):
-    async def fake_build(bot, deps, guild_id):
-        return None  # 2명 미만 / 데이터 없음
+async def test_leaderboard_command_no_data_below_two_registrants(monkeypatch):
+    """등록자 < 2명이면 '2명 이상 등록' 안내."""
 
+    async def fake_build(bot, deps, guild_id):
+        return None
+
+    async def fake_get_targets(sf, guild_id):
+        return [SimpleNamespace(discord_user_id=10, nickname="손바", ocid="o1")]
+
+    monkeypatch.setattr(commands, "ensure_guild_data", _noop_ensure)
     monkeypatch.setattr(commands, "build_payload", fake_build)
+    monkeypatch.setattr(commands, "get_targets", fake_get_targets)
     interaction = _FakeInteraction()
-    await commands.handle_leaderboard(deps=object(), interaction=interaction)
+    deps = SimpleNamespace(session_factory=object())
+    await commands.handle_leaderboard(deps=deps, interaction=interaction)
     [call] = interaction.followup.sent
     assert call["ephemeral"] is True
-    assert "아직" in (call["embed"].description or "")
+    assert "2명 이상" in (call["embed"].description or "")
+
+
+async def test_leaderboard_command_no_data_data_not_ready(monkeypatch):
+    """등록자 ≥ 2명인데 payload None이면 '데이터 미준비' 안내."""
+
+    async def fake_build(bot, deps, guild_id):
+        return None
+
+    async def fake_get_targets(sf, guild_id):
+        return [
+            SimpleNamespace(discord_user_id=10, nickname="손바", ocid="o1"),
+            SimpleNamespace(discord_user_id=20, nickname="라딘라면", ocid="o2"),
+        ]
+
+    monkeypatch.setattr(commands, "ensure_guild_data", _noop_ensure)
+    monkeypatch.setattr(commands, "build_payload", fake_build)
+    monkeypatch.setattr(commands, "get_targets", fake_get_targets)
+    interaction = _FakeInteraction()
+    deps = SimpleNamespace(session_factory=object())
+    await commands.handle_leaderboard(deps=deps, interaction=interaction)
+    [call] = interaction.followup.sent
+    assert call["ephemeral"] is True
+    assert "잠시 후" in (call["embed"].description or "")
 
 
 async def test_leaderboard_command_dm_guard(monkeypatch):
@@ -128,6 +164,32 @@ async def test_leaderboard_command_dm_guard(monkeypatch):
     assert called["build"] is False  # 길드 밖이면 build_payload 호출 안 함
     [call] = interaction.followup.sent
     assert call["ephemeral"] is True
+
+
+async def test_leaderboard_command_bootstrap_fetches_when_no_snapshot(monkeypatch):
+    """D-1 스냅샷 없으면 ensure_guild_data → refresh_guild 호출 후 build_payload."""
+    bootstrap_called: list[int] = []
+
+    async def fake_ensure(deps, guild_id):
+        bootstrap_called.append(guild_id)
+
+    payload = LeaderboardPayload(
+        table_png=b"\x89PNG",
+        graph_png=b"\x89PNG",
+        embed="embed",
+        ref_date=date(2026, 6, 13),
+    )
+
+    async def fake_build(bot, deps, guild_id):
+        return payload
+
+    monkeypatch.setattr(commands, "ensure_guild_data", fake_ensure)
+    monkeypatch.setattr(commands, "build_payload", fake_build)
+    interaction = _FakeInteraction(guild_id=42)
+    await commands.handle_leaderboard(deps=object(), interaction=interaction)
+    assert bootstrap_called == [42]  # ensure_guild_data 호출됨
+    [call] = interaction.followup.sent
+    assert call["embed"] == "embed"  # 이후 정상 발송
 
 
 # ── /경험치알림 토글 (권한 가드 + upsert 호출) ──────────────────────────────
