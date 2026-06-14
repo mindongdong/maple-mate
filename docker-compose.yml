@@ -1,5 +1,7 @@
-# Phase 1 로컬 개발용 Postgres. 호스트 5432는 Homebrew postgres가 점유 중이라 5433으로 매핑.
-# DATABASE_URL=postgresql+asyncpg://maple:maple@localhost:5433/maple_mate
+# 전체 스택(앱+DB)을 한 번에 기동: `docker compose up --build`.
+#   - db  : 로컬 Postgres. 호스트 5432는 Homebrew postgres가 점유 중이라 5433으로 매핑(호스트 실행용).
+#   - app : 봇 + FastAPI(uvicorn) + APScheduler 단일 프로세스. .env 의 시크릿 5종이 필요(없으면 기동 거부).
+# 호스트에서 `uv run` 으로 띄울 땐 .env 의 DATABASE_URL=...@localhost:5433 을, 컨테이너는 아래 override 를 쓴다.
 services:
   db:
     image: postgres:16
@@ -17,6 +19,28 @@ services:
       interval: 5s
       timeout: 5s
       retries: 5
+
+  app:
+    build: .
+    container_name: maple-mate-app
+    env_file: .env
+    environment:
+      # 컨테이너 내부 DSN 으로 override(.env 의 localhost:5433 을 덮음). compose 우선순위 environment > env_file.
+      DATABASE_URL: postgresql+asyncpg://maple:maple@db:5432/maple_mate
+    ports:
+      - "8080:8080"
+    depends_on:
+      db:
+        condition: service_healthy  # DB 헬스 통과 후 기동 → alembic upgrade head 실패 방지
+    healthcheck:
+      # base 이미지(uv slim)에 curl 이 없어 표준 라이브러리로 /health 확인.
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://localhost:8080/health').status==200 else 1)"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+    # 주의: 스케줄러가 in-process 라 정확히 1개만 — `--scale app=2` 금지(알림 중복발송).
 
 volumes:
   maple_mate_pgdata:
