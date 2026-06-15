@@ -17,7 +17,6 @@ import numpy as np
 from matplotlib.backends.backend_agg import FigureCanvasAgg
 from matplotlib.figure import Figure
 from matplotlib.font_manager import FontProperties
-from matplotlib.ticker import MaxNLocator
 
 from .table_image import _BG, _FONT_CANDIDATES, _GRID, _GRID_SUB, _HEADER_TEXT, _TEXT
 
@@ -163,8 +162,9 @@ def render_progress_graph(
 
     ax.set_xticks(xs)
     ax.set_xticklabels([f"{d:%m/%d}" for d in dates])
-    ax.yaxis.set_major_locator(MaxNLocator(integer=True))
-    ax.yaxis.set_major_formatter(lambda v, _pos: f"Lv.{int(round(v))}")
+    # y눈금은 기본 AutoLocator(범위에 맞춰 정수~0.1 단위 자동). :g 로 'Lv.287'·'Lv.287.6' 처럼
+    # 구분되게 — int 반올림은 같은 레벨 안(범위<1)에서 287.6·287.8 을 둘 다 'Lv.288'로 뭉갠다.
+    ax.yaxis.set_major_formatter(lambda v, _pos: f"Lv.{v:g}")
     ax.margins(y=0.22)
     ax.grid(True, color=grid, linewidth=0.8, alpha=0.7)
     for label in ax.get_xticklabels() + ax.get_yticklabels():
