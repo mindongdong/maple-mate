@@ -1,7 +1,7 @@
 """`/경험치`·`/경험치알림` 명령 계층 단위테스트 (Discord/DB mock).
 
-순수 렌더 헬퍼(레벨·Δ·전체순위 라벨), 명령 분기(2명 미만/데이터 없음 → 안내, 발송), 토글
-권한 가드·upsert 호출을 검증한다. 실제 발송·select 시각은 라이브 확인(작업지시서 테스트 전략).
+푸터 라벨, 명령 분기(2명 미만/데이터 없음 → 안내, 그래프 발송), 토글 권한 가드·upsert 호출을
+검증한다. 실제 발송·select 시각은 라이브 확인(작업지시서 테스트 전략).
 """
 
 from __future__ import annotations
@@ -11,40 +11,10 @@ from types import SimpleNamespace
 
 import pytest
 
-from maple_mate.bot.leaderboard_image import (
-    _delta_text,
-    _level_text,
-    _world_rank_text,
-)
 from maple_mate.leaderboard import broadcast, commands
 from maple_mate.leaderboard.broadcast import LeaderboardPayload, _footer_text
 
-_DELTA = 935_107_160_853  # 스파이크 실측 어제 획득
-
-
-# ── 순수 라벨 헬퍼 ───────────────────────────────────────────────────────────
-
-
-def test_level_text_without_rate():
-    assert _level_text(287, None) == "Lv.287"
-
-
-def test_level_text_with_rate():
-    assert _level_text(287, 45.2) == "Lv.287 (45.2%)"
-
-
-def test_delta_text_positive_uses_eok():
-    assert _delta_text(_DELTA) == "+9351억 716만"
-
-
-def test_delta_text_none_and_zero_are_dash():
-    assert _delta_text(None) == "—"
-    assert _delta_text(0) == "—"
-
-
-def test_world_rank_text_formats_with_commas():
-    assert _world_rank_text(129978) == "#129,978"
-    assert _world_rank_text(None) == "—"
+# ── 푸터 라벨 ────────────────────────────────────────────────────────────────
 
 
 def test_footer_label_says_yesterday_kst():
@@ -89,7 +59,6 @@ async def _noop_ensure(deps, guild_id):
 
 async def test_leaderboard_command_sends_public_payload(monkeypatch):
     payload = LeaderboardPayload(
-        table_png=b"\x89PNG",
         graph_png=b"\x89PNG",
         embed="embed",
         ref_date=date(2026, 6, 13),
@@ -104,7 +73,7 @@ async def test_leaderboard_command_sends_public_payload(monkeypatch):
     await commands.handle_leaderboard(deps=object(), interaction=interaction)
     [call] = interaction.followup.sent
     assert call["embed"] == "embed"
-    assert len(call["files"]) == 2  # to_files() → 표 + 그래프
+    assert len(call["files"]) == 1  # to_files() → 그래프 1장
     assert "ephemeral" not in call  # 공개 발송
 
 
@@ -174,7 +143,6 @@ async def test_leaderboard_command_bootstrap_fetches_when_no_snapshot(monkeypatc
         bootstrap_called.append(guild_id)
 
     payload = LeaderboardPayload(
-        table_png=b"\x89PNG",
         graph_png=b"\x89PNG",
         embed="embed",
         ref_date=date(2026, 6, 13),

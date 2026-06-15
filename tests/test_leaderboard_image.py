@@ -1,4 +1,4 @@
-"""경험치 리더보드 PNG 렌더 스모크 테스트 (예외 없이 PNG + 빈/단일 유저 분기)."""
+"""경험치 리더보드 그래프 렌더 테스트 (matplotlib — 예외 없이 PNG + 라벨·일평균 순수 로직)."""
 
 from __future__ import annotations
 
@@ -8,8 +8,7 @@ from datetime import date
 from PIL import Image
 
 from maple_mate.bot import leaderboard_image
-from maple_mate.bot.leaderboard_image import render_delta_graph, render_table
-from maple_mate.leaderboard.service import LeaderRow
+from maple_mate.bot.leaderboard_image import render_progress_graph
 
 _REF = date(2026, 6, 13)
 _PNG_MAGIC = b"\x89PNG\r\n\x1a\n"
@@ -24,71 +23,62 @@ def _is_png(buf: io.BytesIO) -> bool:
     return img.format == "PNG"
 
 
-def _row(rank: int, **kw) -> LeaderRow:
-    base = dict(
-        rank=rank,
-        nickname=f"유저{rank}",
-        level=287,
-        exp_rate=None,
-        delta=935_107_160_853,
-        world_rank=129978,
-    )
-    base.update(kw)
-    return LeaderRow(**base)
+# ── 점 라벨·일평균(순수) ──────────────────────────────────────────────────────
 
 
-# ── 순위표 ───────────────────────────────────────────────────────────────────
+def test_progress_label_formats_level_and_pct():
+    # 연속 progress(레벨+exp%/100) → 'Lv.287 (69%)'. 정수 레벨 + 정수 exp%.
+    f = leaderboard_image._progress_label
+    assert f(287.69) == "Lv.287 (69%)"
+    assert f(288.0) == "Lv.288 (0%)"
+    assert f(290.5) == "Lv.290 (50%)"
+    assert f(287.999) == "Lv.287 (99%)"  # 99.5%↑ 는 99로 클램프('(100%)' 방지)
 
 
-def test_render_table_produces_png():
-    rows = [_row(1), _row(2, delta=None, world_rank=None)]
-    assert _is_png(render_table(rows, _REF))
+def test_daily_average_is_level_gain_over_days():
+    # 첫 가용 287.0 ~ 끝 290.0(+3레벨), 간격 6일 → (3.0*100)/6 = 50%/일. 레벨업도 연속 합산.
+    f = leaderboard_image._daily_average
+    pts = [
+        (date(2026, 6, 7), 287.0),
+        (date(2026, 6, 10), 288.5),
+        (date(2026, 6, 13), 290.0),
+    ]
+    assert f(pts) == 50.0
 
 
-def test_render_table_with_exp_rate_label():
-    # exp_rate 가 있으면 'Lv.287 (45.2%)' 라벨 경로, 없으면 'Lv.287'(분기 동시 검증).
-    rows = [_row(1, exp_rate=45.2), _row(2)]
-    assert _is_png(render_table(rows, _REF))
+def test_daily_average_zero_for_single_or_no_point():
+    f = leaderboard_image._daily_average
+    assert f([(date(2026, 6, 13), 287.0)]) == 0.0  # 데이터 1개
+    assert f([(date(2026, 6, 7), None), (date(2026, 6, 13), 287.0)]) == 0.0  # 가용 1개
 
 
-# ── 7일 Δ 그래프 ─────────────────────────────────────────────────────────────
+# ── 7일 레벨 추이 그래프 ──────────────────────────────────────────────────────
 
 
-def _series(**users) -> dict[str, list[tuple[date, int | None]]]:
+def _series(**users) -> dict[str, list[tuple[date, float | None]]]:
     dates = [date(2026, 6, 7 + i) for i in range(7)]  # 06/07..06/13
     return {nick: list(zip(dates, vals)) for nick, vals in users.items()}
 
 
 def test_render_graph_multi_user():
+    # progress = 레벨+exp%/100. None 구간 선 끊김, 레벨업(287→288) 연속.
     series = _series(
-        손바=[10_000_000, 0, 50_000_000, None, 30_000_000, 0, 12_000_000],
-        라딘라면=[5_000_000, 8_000_000, 0, 0, 9_000_000, 1_000_000, 0],
+        손바=[287.0, 287.2, 287.5, None, 288.0, 288.3, 288.7],
+        라딘라면=[290.0, 290.1, 290.3, 290.4, 290.6, 290.8, 291.0],
     )
-    assert _is_png(render_delta_graph(series, _REF))
+    assert _is_png(render_progress_graph(series, _REF))
 
 
 def test_render_graph_single_user():
-    series = _series(손바=[None, None, None, None, None, 5_000_000, 9_000_000])
-    assert _is_png(render_delta_graph(series, _REF))
+    series = _series(손바=[None, None, None, None, None, 287.0, 287.9])
+    assert _is_png(render_progress_graph(series, _REF))
 
 
 def test_render_graph_empty_data_guard():
-    # 첫날·전원 None → 안내 문구만 그리고 예외 없이 PNG.
+    # 전원 None → 안내 문구만 그리고 예외 없이 PNG.
     series = _series(손바=[None] * 7, 라딘라면=[None] * 7)
-    assert _is_png(render_delta_graph(series, _REF))
+    assert _is_png(render_progress_graph(series, _REF))
 
 
 def test_render_graph_no_series_guard():
-    assert _is_png(render_delta_graph({}, _REF))
-
-
-# ── y축 눈금(순수) ───────────────────────────────────────────────────────────
-
-
-def test_nice_max_rounds_up_to_1_2_5():
-    f = leaderboard_image._nice_max
-    assert f(0) == 1
-    assert f(3) == 5
-    assert f(12) == 20
-    assert f(60) == 100
-    assert f(935_107_160_853) == 1_000_000_000_000
+    assert _is_png(render_progress_graph({}, _REF))

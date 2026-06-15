@@ -1,6 +1,6 @@
 """`/경험치` · `/경험치알림` 디스코드 어댑터 (얇은 전달 계층, 작업지시서 빌드 단위 #6).
 
-- `/경험치`: defer → build_payload(현재 길드) → 표+그래프 공개 응답(2명 미만/데이터 없음 안내).
+- `/경험치`: defer → build_payload(현재 길드) → 7일 레벨 추이 그래프 공개 응답(2명 미만/데이터 없음 안내).
 - `/경험치알림 [켜기|끄기]`: channel_settings.exp_alert 토글(set_exp_alert, set_sunday_alert 복제).
   서버 관리(manage_guild) 권한 인라인 체크 + DM 가드(공지/썬데이 명령과 동일).
 """
@@ -17,7 +17,7 @@ from ..notification import service as channel_service
 from ..registration.service import get_targets
 from .broadcast import build_payload, ensure_guild_data
 
-_MSG_NOT_ENOUGH = "경험치 리더보드는 **2명 이상 등록**해야 순위가 떠요. 친구들도 `/등록` 하면 같이 나와요."
+_MSG_NOT_ENOUGH = "경험치 리더보드는 **2명 이상 등록**해야 추이가 떠요. 친구들도 `/등록` 하면 같이 나와요."
 _MSG_NOT_READY = (
     "아직 종합 랭킹 데이터를 못 받았어요(전일 데이터 준비 전이거나 랭킹 미등재)."
     " 잠시 후 다시 시도해 주세요."
@@ -25,7 +25,7 @@ _MSG_NOT_READY = (
 
 
 async def handle_leaderboard(deps: Deps, interaction: discord.Interaction) -> None:
-    """`/경험치` 본체: defer → 온디맨드 부트스트랩 → build_payload → 표+그래프 공개 발송.
+    """`/경험치` 본체: defer → 온디맨드 부트스트랩 → build_payload → 7일 레벨 추이 그래프 공개 발송.
 
     payload 가 None 이면 등록자 수를 확인해 <2명 vs 데이터 미준비를 구분해 안내한다.
     """
@@ -99,7 +99,7 @@ def setup_leaderboard(bot: discord.Client) -> None:
 
     @bot.tree.command(  # type: ignore[attr-defined]
         name="경험치",
-        description="등록 캐릭터들의 누적 경험치 순위와 최근 7일 획득 추세를 보여줍니다.",
+        description="등록 캐릭터들의 최근 7일 레벨 추이 그래프를 보여줍니다.",
     )
     @cooldowns.spec_cooldown()  # 10초 — 첫 호출은 넥슨 온디맨드 백필 가능; 이후는 DB 조회만
     async def leaderboard_command(interaction: discord.Interaction) -> None:
