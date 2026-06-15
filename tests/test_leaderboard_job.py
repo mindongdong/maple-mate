@@ -57,7 +57,7 @@ async def test_first_run_backfills_then_fetches_and_sends(monkeypatch):
 
     async def build_payload(bot, deps, guild_id):
         calls.append("build")
-        return SimpleNamespace(embed="e", to_files=lambda: ["f1", "f2"])
+        return SimpleNamespace(embed="e", to_files=lambda: ["f1"])
 
     class _Channel:
         async def send(self, **kwargs):
@@ -140,7 +140,7 @@ async def test_per_guild_payload_built_once_for_two_channels(monkeypatch):
 
     async def build_payload(bot, deps, guild_id):
         build_calls.append(guild_id)
-        return SimpleNamespace(embed="e", to_files=lambda: ["f1", "f2"])
+        return SimpleNamespace(embed="e", to_files=lambda: ["f1"])
 
     class _Channel:
         async def send(self, **kwargs):

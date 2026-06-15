@@ -1,7 +1,7 @@
 """경험치 리더보드 Discord 잡 어댑터 + 명령 본체 공유 (작업지시서 빌드 단위 #5).
 
 전달-무관 service 위에 Discord 발송과 스케줄을 얹는 얇은 어댑터. `build_payload` 는 `/경험치`
-명령과 매일 10시 잡이 공유하는 산출물 빌더(표 PNG + 7일 그래프 PNG). `run_leaderboard_job` 은
+명령과 매일 10시 잡이 공유하는 산출물 빌더(최근 7일 레벨 추이 그래프 PNG). `run_leaderboard_job` 은
 exp_alert 채널 0개면 스킵(넥슨 콜 없음) → 길드별 (첫 실행)백필 → D-1 적재 → build_payload →
 _resolve_channel 발송(부분실패 앱로그, 썬데이 패턴). prune 는 09:00 운영 잡에 편승.
 """
@@ -32,29 +32,24 @@ log = logging.getLogger(__name__)
 MIN_RANKED = 2
 
 # 첨부 파일명(임베드 image 매칭).
-_TABLE_FILE = "leaderboard.png"
 _GRAPH_FILE = "leaderboard_graph.png"
 
 
 @dataclass(frozen=True)
 class LeaderboardPayload:
-    """발송 산출물(잡·명령 공유). 표·그래프 PNG 원시 바이트 + 임베드 + 기준일.
+    """발송 산출물(잡·명령 공유). 7일 레벨 추이 그래프 PNG 원시 바이트 + 임베드 + 기준일.
 
     `discord.File` 은 `BytesIO` 를 소비하므로 채널당 신규 파일 객체가 필요하다.
-    `to_files()` 로 매 발송마다 fresh `discord.File` 쌍을 생성한다.
+    `to_files()` 로 매 발송마다 fresh `discord.File` 을 생성한다.
     """
 
-    table_png: bytes
     graph_png: bytes
     embed: discord.Embed
     ref_date: date
 
     def to_files(self) -> list[discord.File]:
-        """발송용 `discord.File` 쌍을 새로 만든다(BytesIO 소비 방지)."""
-        return [
-            discord.File(io.BytesIO(self.table_png), filename=_TABLE_FILE),
-            discord.File(io.BytesIO(self.graph_png), filename=_GRAPH_FILE),
-        ]
+        """발송용 `discord.File` 을 새로 만든다(BytesIO 소비 방지)."""
+        return [discord.File(io.BytesIO(self.graph_png), filename=_GRAPH_FILE)]
 
 
 def _footer_text(ref_date: date) -> str:
@@ -63,13 +58,16 @@ def _footer_text(ref_date: date) -> str:
 
 
 def _build_embed(ref_date: date) -> discord.Embed:
-    """순위표 + 그래프를 담을 임베드(표를 메인 이미지로, 그래프는 같은 메시지 추가 첨부)."""
+    """7일 레벨 추이 그래프를 담을 임베드(그래프를 메인 이미지로)."""
     embed = discord.Embed(
-        title="📊 경험치 리더보드",
-        description="등록 캐릭터들의 누적 경험치 순위와 어제 하루 획득량이에요.",
+        title="📈 경험치 리더보드 — 최근 7일 레벨 추이",
+        description=(
+            "등록 캐릭터들의 최근 7일 레벨 진행이에요. 각 점은 그날의 레벨(경험치%),"
+            " 범례는 하루 평균 진행 속도예요."
+        ),
         color=discord.Color.from_rgb(255, 140, 0),
     )
-    embed.set_image(url=f"attachment://{_TABLE_FILE}")
+    embed.set_image(url=f"attachment://{_GRAPH_FILE}")
     embed.set_footer(text=_footer_text(ref_date))
     return embed
 
@@ -77,9 +75,10 @@ def _build_embed(ref_date: date) -> discord.Embed:
 async def build_payload(
     bot: discord.Client, deps: Deps, guild_id: int
 ) -> LeaderboardPayload | None:
-    """get_targets → 오늘(D-1)/어제(D-2) 스냅샷 → build_rows → 2명 미만이면 None → 표·그래프 렌더.
+    """get_targets → D-1 스냅샷 → 등재 2명 미만이면 None → 7일 레벨 추이 그래프 렌더.
 
     `/경험치` 명령과 매일 10시 잡이 공유한다(작업지시서 #5). 렌더는 to_thread(이벤트 루프 비차단).
+    등재 카운트 게이트는 build_rows(순수 — total_exp 정렬·미등재 제외)로 판정한다.
     """
     targets = await get_targets(deps.session_factory, guild_id)
     nicknames = {t.discord_user_id: t.nickname for t in targets}
@@ -91,6 +90,7 @@ async def build_payload(
     today_snaps = await service.snapshots_on(deps.session_factory, guild_id, ref_date)
     prev_snaps = await service.snapshots_on(deps.session_factory, guild_id, prev_date)
 
+    # rows 는 등재 카운트 게이트로만 쓴다(미렌더). build_rows = 등재 인원의 단일 출처(순위·미등재 제외).
     rows, _excluded = service.build_rows(today_snaps, prev_snaps, nicknames=nicknames)
     if len(rows) < MIN_RANKED:  # 등재 2명 미만 → 발송/표시 생략(Q10)
         return None
@@ -98,13 +98,10 @@ async def build_payload(
     series = await service.history_progress(
         deps.session_factory, guild_id, nicknames, ref_date
     )
-
-    table_buf = await asyncio.to_thread(leaderboard_image.render_table, rows, ref_date)
     graph_buf = await asyncio.to_thread(
         leaderboard_image.render_progress_graph, series, ref_date
     )
     return LeaderboardPayload(
-        table_png=table_buf.getvalue(),
         graph_png=graph_buf.getvalue(),
         embed=_build_embed(ref_date),
         ref_date=ref_date,
