@@ -136,7 +136,7 @@ def _build_table(
     ]
     best = comparison.highest_indices(meso_values) if len(ranked) > 1 else set()
 
-    headers = ["순위", "캐릭터", "잠재 재설정", "사용 큐브", "사용 메소", "등업"]
+    headers = ["순위", "대상", "잠재 재설정", "사용 큐브", "사용 메소", "등업"]
     rows: list[list] = []
     for i, (tgt, summary) in enumerate(ranked):
         meso_text = (
@@ -161,6 +161,11 @@ def _build_table(
         footer=footer,
         outcomes=outcomes,
         filename="potential.png",
+    )
+    embed.add_field(
+        name="ℹ️ 계정 전체 합산",
+        value="이력은 등록 캐릭터 본인 계정의 **전체 캐릭터(부캐 포함)** 를 합산한 값이에요.",
+        inline=False,
     )
     return embed, file
 
@@ -240,7 +245,7 @@ async def handle_potential(
                     nickname=m.display_name,
                     ocid="",
                 ),
-                error="이 서버에 등록되지 않았어요. `/등록` 먼저 해주세요.",
+                error="이 서버에 등록되지 않았어요. `/캐릭터등록` 먼저 해주세요.",
             )
             for m in members
             if m.id not in registered
@@ -251,7 +256,7 @@ async def handle_potential(
     no_key = [
         TargetOutcome(
             target=_to_spec_target(t),
-            error="개인 키 미등록이라 이력을 볼 수 없어요. `/등록`에 키를 추가해 주세요.",
+            error="개인 키 미등록이라 이력을 볼 수 없어요. `/키등록`으로 키를 추가해 주세요.",
         )
         for t in targets
         if t.api_key_encrypted is None
@@ -267,7 +272,7 @@ async def handle_potential(
             await interaction.followup.send(
                 embed=make_embed(
                     "잠재",
-                    "이 서버에 키 등록자가 없어요. `/등록`에 개인 키를 추가해 주세요.",
+                    "이 서버에 키 등록자가 없어요. `/키등록`으로 개인 키를 추가해 주세요.",
                 )
             )
         return

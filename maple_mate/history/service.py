@@ -1,9 +1,9 @@
 """스타포스 이력 기간·페치·캐시·집계 (전달-무관). discord/http 타입 비의존.
 
 - resolve_period: 프리셋/커스텀 → 날짜 목록(30일 상한 클램프·미래 컷). 순수.
-- get_history_targets: 등록 레코드(개인 키 포함) 조회, 입력순서 보존.
-- fetch_starforce_records: 날짜별 캐시 판정 → 미스 시 개인 키 호출 → upsert → 캐릭터 필터.
-- aggregate_starforce: 아이템별 시작★→최종★ + 운지수·손익메소(레벨 매칭 성공分만).
+- get_history_targets: 유저별 1대상(개인 키 + 대표 닉 + 캐시 앵커 ocid), 입력순서 보존.
+- fetch_starforce_records: 날짜별 캐시 판정 → 미스 시 개인 키 호출 → upsert → 계정 전체 파싱.
+- aggregate_starforce: (캐릭터, 아이템)별 시작★→최종★ + 운지수·손익메소(레벨 매칭 성공分만).
 """
 
 from __future__ import annotations
@@ -105,7 +105,11 @@ def resolve_period(
 
 @dataclass(frozen=True)
 class HistoryTarget:
-    """이력류 대상 1명. 스펙류 Target 과 달리 개인 키 암호문을 포함한다."""
+    """이력류 대상 1명(계정 단위). 스펙류 Target 과 달리 개인 키 암호문을 포함한다.
+
+    nickname = 표시용 대표 닉(이력은 계정 전체 합산이라 헤더 라벨용). ocid = **안정적 캐시 앵커**
+    (최초 등록 = min(created_at) 캐릭터의 ocid) — 닉변경/대표변경에도 캐시 키가 흔들리지 않는다.
+    """
 
     guild_id: int
     discord_user_id: int
@@ -119,28 +123,46 @@ async def get_history_targets(
     guild_id: int,
     user_ids: Sequence[int] | None = None,
 ) -> list[HistoryTarget]:
-    """등록자(개인 키 포함) 조회. user_ids 지정 시 입력순서 보존.
+    """등록자(개인 키 포함) 조회 — 유저별 1대상(계정 단위). user_ids 지정 시 입력순서 보존.
 
-    키 없는 등록자(api_key_encrypted is None)도 반환한다 — 호출자가 '키 미등록' 행으로 처리.
+    nickname = 대표 닉(표시용), ocid = 캐시 앵커(최초 등록 캐릭터). 키 없는 등록자도 반환한다
+    (호출자가 '키 미등록' 행으로 처리). 캐릭터 0개 등록(키만)은 표시 불가라 제외한다.
     """
-    from ..registration.models import Registration
+    from ..registration.models import Character, Registration
+    from ..registration.service import pick_representative
 
     async with session_factory() as session:
-        stmt = select(Registration).where(Registration.guild_id == guild_id)
+        reg_stmt = select(Registration).where(Registration.guild_id == guild_id)
+        char_stmt = select(Character).where(Character.guild_id == guild_id)
         if user_ids is not None:
-            stmt = stmt.where(Registration.discord_user_id.in_(list(user_ids)))
-        rows = (await session.execute(stmt)).scalars().all()
+            ids = list(user_ids)
+            reg_stmt = reg_stmt.where(Registration.discord_user_id.in_(ids))
+            char_stmt = char_stmt.where(Character.discord_user_id.in_(ids))
+        regs = (await session.execute(reg_stmt)).scalars().all()
+        chars = (await session.execute(char_stmt)).scalars().all()
 
-    targets = [
-        HistoryTarget(
-            guild_id=r.guild_id,
-            discord_user_id=r.discord_user_id,
-            nickname=r.maple_nickname,
-            ocid=r.ocid,
-            api_key_encrypted=r.api_key_encrypted,
+    by_user: dict[int, list[Character]] = {}
+    for c in chars:
+        by_user.setdefault(c.discord_user_id, []).append(c)
+
+    targets: list[HistoryTarget] = []
+    for reg in regs:
+        clist = by_user.get(reg.discord_user_id)
+        if not clist:
+            continue  # 캐릭터 없는 등록(키만) → 표시 불가
+        rep = pick_representative(clist, reg.representative_ocid)
+        anchor = min(clist, key=lambda c: (c.created_at, c.ocid))  # 안정 캐시 앵커
+        targets.append(
+            HistoryTarget(
+                guild_id=reg.guild_id,
+                discord_user_id=reg.discord_user_id,
+                nickname=rep.maple_nickname
+                if rep is not None
+                else anchor.maple_nickname,
+                ocid=anchor.ocid,
+                api_key_encrypted=reg.api_key_encrypted,
+            )
         )
-        for r in rows
-    ]
     if user_ids is not None:
         order = {uid: i for i, uid in enumerate(user_ids)}
         targets.sort(key=lambda t: order.get(t.discord_user_id, len(order)))
@@ -152,25 +174,25 @@ async def get_history_targets(
 
 @dataclass(frozen=True)
 class StarforceAttempt:
-    """스타포스 강화 시도 1건(집계용 스냅샷)."""
+    """스타포스 강화 시도 1건(집계용 스냅샷). character_name 으로 계정 내 캐릭터를 구분한다."""
 
     target_item: str
     before_star: int
     after_star: int
     result: str  # "성공"/"실패(유지)"/"실패(하락)"/"파괴"
     date_create: str  # ISO8601(KST)
+    character_name: str = ""  # 계정 전체화 — 동명 장비를 캐릭터별로 분리(집계 그룹 키)
     superior: bool = False  # 슈페리얼 장비 여부(확률·비용공식 상이 → /비틱 집계 제외)
 
 
-def parse_attempts(records: Sequence[dict], nickname: str) -> list[StarforceAttempt]:
-    """넥슨 starforce 레코드 → StarforceAttempt 목록. character_name==nickname 만(순수).
+def parse_attempts(records: Sequence[dict]) -> list[StarforceAttempt]:
+    """넥슨 starforce 레코드 → StarforceAttempt 목록(계정 전체, 순수).
 
-    개인 키는 계정 전체(부캐 포함)를 반환하므로 등록 캐릭터만 필터(집계 단위 = 등록 캐릭터).
+    개인 키는 계정 전체(부캐 포함)를 반환한다. 이력류는 계정 전체 합산이므로 닉 필터를 하지 않고
+    character_name 을 보존한다(집계는 (character_name, target_item) 그룹핑, /비틱만 대표 닉 필터).
     """
     attempts: list[StarforceAttempt] = []
     for r in records:
-        if r.get("character_name") != nickname:
-            continue
         # superior_item_flag 는 서술형 한글 문자열(실측, docs/api/history.md) —
         # "슈페리얼 장비 미해당"/"슈페리얼 장비 해당". '슈페리얼' 키워드 필수 +
         # '미해당' 제외로 판정: 미상 포맷(빈값·"0" 등)은 일반 장비로 폴백(과잉 제외 방지).
@@ -182,6 +204,7 @@ def parse_attempts(records: Sequence[dict], nickname: str) -> list[StarforceAtte
                 after_star=int(r.get("after_starforce_count", 0)),
                 result=r.get("item_upgrade_result", ""),
                 date_create=r.get("date_create", ""),
+                character_name=r.get("character_name", ""),
                 superior="슈페리얼" in flag and "미해당" not in flag,
             )
         )
@@ -259,7 +282,7 @@ async def fetch_starforce_records(
         await _store_records(deps.session_factory, target.ocid, query_date, page, now)
         records.extend(page)
 
-    return parse_attempts(records, target.nickname)
+    return parse_attempts(records)  # 계정 전체(닉 필터 없음)
 
 
 def history_cache_cutoff(now: datetime) -> date:
@@ -330,12 +353,15 @@ def aggregate_starforce(
     total_meso += Σcost(level, before_star). 미매칭(레벨 미상) 아이템은 unmatched_items 로 분리.
     운빨(luck_score) = 그 아이템들의 실제 총 메소가 가능 분포에서 차지하는 백분위(메소 기반).
 
+    계정 전체화: 그룹 키 = (character_name, target_item). 동명 장비를 캐릭터별로 분리해
+    서로 다른 캐릭터의 같은 이름 장비가 한 묶음으로 합쳐지는 버그를 막는다.
+
     집계 제외(미상과 구분): excluded_items(특정 장비) · min_level 미만 레벨 장비는 통째로 빠진다 —
     총메소·기댓값·운빨은 물론 분모(total_count)·미상 제보에서도 제외(없던 셈).
     """
-    by_item: dict[str, list[StarforceAttempt]] = {}
+    by_group: dict[tuple[str, str], list[StarforceAttempt]] = {}
     for a in attempts:
-        by_item.setdefault(a.target_item, []).append(a)
+        by_group.setdefault((a.character_name, a.target_item), []).append(a)
 
     total_meso = 0
     expected = 0.0
@@ -344,7 +370,7 @@ def aggregate_starforce(
     unmatched: list[str] = []
     luck_items: list[tuple[int, int, int, int]] = []  # (level, 시작★, 최종★, 실제메소)
 
-    for item, item_attempts in by_item.items():
+    for (_char_name, item), item_attempts in by_group.items():
         if item in excluded_items:
             continue  # 명시적 제외 — 집계·분모·제보 모두 제외
         level = level_of(item)

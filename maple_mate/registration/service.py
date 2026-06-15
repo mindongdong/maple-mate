@@ -1,8 +1,14 @@
 """registration 비즈니스 로직 (전달-무관). discord/http 타입에 의존하지 않는다.
 
-`/등록` 흐름(handoff §5, ADR-0001): 닉 → ocid 검증 → (키 있으면) 개인 키 유효성 검증 +
-Fernet 암호화 → (guild_id, discord_user_id) 1레코드 upsert. 서버 내 닉 중복 허용.
-결과는 `RegistrationResult` 로 반환하고, 전달 계층(commands/views)이 렌더링한다.
+멀티 캐릭터 모델(작업지시서): 유저당 캐릭터 N개(`character`) + 계정 레벨 1레코드(`registration`,
+개인 키 + 대표 포인터). `/등록`(닉+키 한 방)은 `/캐릭터등록`·`/키등록`으로 분리됐다.
+
+- register_character: 닉 → ocid 검증 → 레벨 스냅샷 → 상한 검사 → character upsert(+부모 자동 생성).
+- register_key: 개인 키 검증/암호화 → registration upsert(키만, 부모 자동 생성).
+- 대표 해석(pick_representative): 지정 우선 → 레벨 최고(타이브레이크 created_at·ocid) → 없으면 None.
+- get_targets: 유저별 대표 1명을 비교용 Target(닉·ocid)으로 산출(스펙류·경험치의 단일 출처).
+
+결과는 dataclass 로 반환하고, 전달 계층(commands/views)이 렌더링한다.
 """
 
 from __future__ import annotations
@@ -10,7 +16,7 @@ from __future__ import annotations
 import logging
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
-from typing import Any
+from typing import Any, Protocol
 
 from sqlalchemy import func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
@@ -20,19 +26,47 @@ from ..error_log import service as error_log
 from ..nexon.client import NexonClient
 from ..nexon.errors import ErrorClass, NexonAPIError, to_error_log_type
 from ..security.crypto import KeyCipher
-from .models import Registration
+from .models import Character, Registration
 
 log = logging.getLogger(__name__)
 
+# 유저당 캐릭터 등록 상한(그릴링 9). 환경 무관 고정 규칙이라 모듈 상수로 둔다.
+MAX_CHARACTERS_PER_USER = 10
+
+
+# ── 결과 DTO ────────────────────────────────────────────────────────────────
+
 
 @dataclass(frozen=True)
-class RegistrationResult:
-    """등록 결과. ok=False 면 error(사용자 메시지)만 의미 있음."""
+class CharacterRegisterResult:
+    """`/캐릭터등록` 결과. ok=False 면 error(사용자 메시지)만 의미 있음."""
 
     ok: bool
     nickname: str | None = None
-    has_key: bool = False
+    level: int | None = None
+    character_count: int = 0  # 등록 후 이 유저의 총 캐릭터 수
     error: str | None = None
+
+
+@dataclass(frozen=True)
+class KeyRegisterResult:
+    """`/키등록` 결과. ok=False 면 error 만 의미 있음."""
+
+    ok: bool
+    error: str | None = None
+
+
+@dataclass(frozen=True)
+class CharacterInfo:
+    """캐릭터 1개 표시용 스냅샷(/캐릭터목록·/대표지정 자동완성)."""
+
+    ocid: str
+    nickname: str
+    level: int | None
+    is_representative: bool
+
+
+# ── ocid / 키 검증 (재사용) ──────────────────────────────────────────────────
 
 
 async def resolve_ocid(
@@ -67,89 +101,254 @@ async def verify_and_encrypt_key(
     if not valid:
         return (
             None,
-            "API 키가 무효입니다. 키 없이 등록하려면 키 인자를 빼고 다시 시도해 주세요.",
+            "API 키가 무효입니다. 키만 다시 확인해서 `/키등록`으로 등록해 주세요.",
         )
     return cipher.encrypt(api_key), None
 
 
-async def upsert_registration(
-    session_factory: async_sessionmaker[AsyncSession],
+async def _fetch_level(nexon: NexonClient, ocid: str) -> int | None:
+    """등록 시 레벨 스냅샷(best-effort). character/basic 실패·파싱오류는 None(등록 자체는 진행)."""
+    try:
+        basic = await nexon.character_basic(ocid)
+    except NexonAPIError as exc:
+        log.debug("레벨 스냅샷 실패(무시) ocid=%s: %s", ocid, exc)
+        return None
+    raw = basic.get("character_level")
+    if raw is None:
+        return None
+    try:
+        return int(raw)
+    except (TypeError, ValueError):
+        return None
+
+
+# ── 등록 (캐릭터 / 키) ────────────────────────────────────────────────────────
+
+
+async def register_character(
     *,
+    nexon: NexonClient,
+    session_factory: async_sessionmaker[AsyncSession],
     guild_id: int,
     discord_user_id: int,
     nickname: str,
-    ocid: str,
-    api_key_encrypted: str | None,
-) -> None:
-    """(guild_id, discord_user_id) 1레코드 upsert. 재등록 시 닉/ocid/키를 최신값으로 덮어쓴다."""
+) -> CharacterRegisterResult:
+    """캐릭터 등록. ocid 검증 → 레벨 스냅샷 → 상한 검사 → character upsert + 부모 자동 생성.
+
+    같은 ocid 재등록은 닉/레벨 갱신(upsert)이라 상한에 안 걸린다. 새 ocid 가 상한(10) 초과면 거부.
+    """
+    ocid, err = await resolve_ocid(nexon, nickname)
+    if ocid is None:
+        return CharacterRegisterResult(ok=False, error=err)
+    level = await _fetch_level(nexon, ocid)
+
     async with session_factory() as session:
-        stmt = (
+        existing = set(
+            (
+                await session.execute(
+                    select(Character.ocid).where(
+                        Character.guild_id == guild_id,
+                        Character.discord_user_id == discord_user_id,
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+        is_new = ocid not in existing
+        if is_new and len(existing) >= MAX_CHARACTERS_PER_USER:
+            return CharacterRegisterResult(
+                ok=False,
+                error=(
+                    f"캐릭터는 최대 {MAX_CHARACTERS_PER_USER}개까지 등록할 수 있어요."
+                    " 같은 캐릭터를 다시 등록하면 닉/레벨만 갱신돼요."
+                ),
+            )
+
+        # 부모 registration 자동 생성(키·대표는 건드리지 않음).
+        await session.execute(
             pg_insert(Registration)
+            .values(guild_id=guild_id, discord_user_id=discord_user_id)
+            .on_conflict_do_nothing(index_elements=["guild_id", "discord_user_id"])
+        )
+        # 캐릭터 upsert — 같은 ocid 면 닉/레벨 갱신.
+        await session.execute(
+            pg_insert(Character)
             .values(
                 guild_id=guild_id,
                 discord_user_id=discord_user_id,
-                maple_nickname=nickname,
                 ocid=ocid,
-                api_key_encrypted=api_key_encrypted,
+                maple_nickname=nickname,
+                level=level,
             )
             .on_conflict_do_update(
-                index_elements=["guild_id", "discord_user_id"],
+                index_elements=["guild_id", "discord_user_id", "ocid"],
                 set_={
                     "maple_nickname": nickname,
-                    "ocid": ocid,
-                    "api_key_encrypted": api_key_encrypted,
+                    "level": level,
                     "updated_at": func.now(),
                 },
             )
         )
-        await session.execute(stmt)
         await session.commit()
 
+    count = len(existing) + 1 if is_new else len(existing)
+    return CharacterRegisterResult(
+        ok=True, nickname=nickname, level=level, character_count=count
+    )
 
-async def register(
+
+async def register_key(
     *,
     nexon: NexonClient,
     cipher: KeyCipher,
     session_factory: async_sessionmaker[AsyncSession],
     guild_id: int,
     discord_user_id: int,
-    nickname: str,
-    api_key: str | None,
-) -> RegistrationResult:
-    """등록 오케스트레이션. ocid 검증 → (키) 유효성+암호화 → upsert."""
-    ocid, err = await resolve_ocid(nexon, nickname)
-    if ocid is None:
-        return RegistrationResult(ok=False, error=err)
+    api_key: str,
+) -> KeyRegisterResult:
+    """개인 키 등록. 유효성 검증 + Fernet 암호화 → registration upsert(키만, 부모 자동 생성)."""
+    api_key_encrypted, err = await verify_and_encrypt_key(nexon, cipher, api_key)
+    if api_key_encrypted is None:
+        return KeyRegisterResult(ok=False, error=err)
 
-    api_key_encrypted: str | None = None
-    if api_key:
-        api_key_encrypted, err = await verify_and_encrypt_key(nexon, cipher, api_key)
-        if api_key_encrypted is None:
-            return RegistrationResult(ok=False, error=err)
+    async with session_factory() as session:
+        await session.execute(
+            pg_insert(Registration)
+            .values(
+                guild_id=guild_id,
+                discord_user_id=discord_user_id,
+                api_key_encrypted=api_key_encrypted,
+            )
+            .on_conflict_do_update(
+                index_elements=["guild_id", "discord_user_id"],
+                set_={
+                    "api_key_encrypted": api_key_encrypted,
+                    "updated_at": func.now(),
+                },
+            )
+        )
+        await session.commit()
+    return KeyRegisterResult(ok=True)
 
-    await upsert_registration(
-        session_factory,
-        guild_id=guild_id,
-        discord_user_id=discord_user_id,
-        nickname=nickname,
-        ocid=ocid,
-        api_key_encrypted=api_key_encrypted,
-    )
-    return RegistrationResult(
-        ok=True, nickname=nickname, has_key=api_key_encrypted is not None
-    )
+
+# ── 대표 해석 ─────────────────────────────────────────────────────────────────
 
 
-# ── Phase 2: 대상(target) 해석 + ocid lazy 갱신 + 부분 성공 수집 (handoff §2·§4) ──
+class _CharacterLike(Protocol):
+    ocid: str
+    level: int | None
+    created_at: Any  # datetime (정렬 가능하면 무엇이든 — 순수 단위테스트 용이)
+
+
+def _auto_key(c: _CharacterLike) -> tuple:
+    """자동 대표 정렬 키: 레벨 내림차순 → created_at 오름차순 → ocid. 첫 원소가 대표."""
+    level = c.level if c.level is not None else -1
+    return (-level, c.created_at, c.ocid)
+
+
+def pick_representative(
+    characters: Sequence[_CharacterLike], representative_ocid: str | None
+) -> _CharacterLike | None:
+    """대표 해석 규칙(작업지시서). 순수함수 — 단위테스트 대상.
+
+    1. representative_ocid 가 set 이고 해당 character 존재 → 그 캐릭터(수동 지정).
+    2. NULL 이거나 가리키는 캐릭터 부재 → level 최고값(동률·NULL 은 created_at/ocid 타이브레이크).
+    3. character 0개 → None.
+    """
+    if not characters:
+        return None
+    if representative_ocid is not None:
+        match = next((c for c in characters if c.ocid == representative_ocid), None)
+        if match is not None:
+            return match
+    return sorted(characters, key=_auto_key)[0]
+
+
+async def _load_user_characters(
+    session: AsyncSession, guild_id: int, discord_user_id: int
+) -> list[Character]:
+    rows = (
+        await session.execute(
+            select(Character).where(
+                Character.guild_id == guild_id,
+                Character.discord_user_id == discord_user_id,
+            )
+        )
+    ).scalars()
+    return list(rows.all())
+
+
+async def get_characters(
+    session_factory: async_sessionmaker[AsyncSession],
+    guild_id: int,
+    discord_user_id: int,
+) -> list[CharacterInfo]:
+    """본인 캐릭터 목록(레벨 내림차순). 대표 1명은 is_representative=True (대표 해석 반영)."""
+    async with session_factory() as session:
+        chars = await _load_user_characters(session, guild_id, discord_user_id)
+        reg = await session.get(Registration, (guild_id, discord_user_id))
+    rep_ocid = reg.representative_ocid if reg is not None else None
+    rep = pick_representative(chars, rep_ocid)
+    rep_id = rep.ocid if rep is not None else None
+    return [
+        CharacterInfo(
+            ocid=c.ocid,
+            nickname=c.maple_nickname,
+            level=c.level,
+            is_representative=c.ocid == rep_id,
+        )
+        for c in sorted(chars, key=_auto_key)
+    ]
+
+
+async def set_representative(
+    session_factory: async_sessionmaker[AsyncSession],
+    guild_id: int,
+    discord_user_id: int,
+    ocid: str,
+) -> str | None:
+    """대표 캐릭터 수동 지정. ocid 가 본인 캐릭터면 그 닉네임 반환, 아니면 None(설정 안 함)."""
+    async with session_factory() as session:
+        char = await session.get(Character, (guild_id, discord_user_id, ocid))
+        if char is None:
+            return None
+        await session.execute(
+            pg_insert(Registration)
+            .values(
+                guild_id=guild_id,
+                discord_user_id=discord_user_id,
+                representative_ocid=ocid,
+            )
+            .on_conflict_do_update(
+                index_elements=["guild_id", "discord_user_id"],
+                set_={"representative_ocid": ocid, "updated_at": func.now()},
+            )
+        )
+        await session.commit()
+        return char.maple_nickname
+
+
+async def has_personal_key(
+    session_factory: async_sessionmaker[AsyncSession],
+    guild_id: int,
+    discord_user_id: int,
+) -> bool:
+    """이 유저가 개인 키를 등록했는지(/캐릭터목록 표시용)."""
+    async with session_factory() as session:
+        reg = await session.get(Registration, (guild_id, discord_user_id))
+    return reg is not None and reg.api_key_encrypted is not None
+
+
+# ── 비교 대상(target) 해석 + ocid lazy 갱신 + 부분 성공 수집 (handoff §2·§4) ──
 #
-# 스펙류 비교 명령(/유니온·/스펙·/아이템)이 공유하는 머신. registration 이 ocid 레코드를
-# 소유하므로 여기 둔다. fetch 는 도메인별 조회 함수(전달-무관)이고, 이 모듈은 대상 해석·
-# 캐싱 ocid 사용·실패 시 닉 재조회 1회·분류별 사용자 메시지·error_log 적재를 담당한다.
+# 스펙류 비교 명령(/유니온·/스펙·/아이템)이 공유하는 머신. registration 이 대표 포인터를
+# 소유하므로 여기 둔다. 유저별 대표 1명을 Target(닉·ocid)으로 산출한다.
 
 
 @dataclass(frozen=True)
 class Target:
-    """비교 대상 1명(등록 레코드의 비교용 스냅샷). ORM 분리 — 전달 계층이 자유롭게 쓴다."""
+    """비교 대상 1명(유저의 대표 캐릭터 스냅샷). ORM 분리 — 전달 계층이 자유롭게 쓴다."""
 
     guild_id: int
     discord_user_id: int
@@ -175,26 +374,41 @@ async def get_targets(
     guild_id: int,
     user_ids: Sequence[int] | None = None,
 ) -> list[Target]:
-    """비교 대상 해석 (CONTEXT.md 용어 '대상').
+    """비교 대상 해석 — 유저별 대표 1명(CONTEXT.md 용어 '대상').
 
-    user_ids 없으면 현재 서버 등록자 전원, 지정 시 그 유저들 중 등록된 레코드만.
-    user_ids 지정 시 입력 순서를 보존(비교 가독성). 미등록 유저는 제외(handoff §4).
+    user_ids 없으면 현재 서버 등록자 전원(각자 대표), 지정 시 그 유저들 중 캐릭터 보유자만.
+    캐릭터 0개 유저(키만 등록 등)는 제외. user_ids 지정 시 입력 순서를 보존(비교 가독성).
     """
     async with session_factory() as session:
-        stmt = select(Registration).where(Registration.guild_id == guild_id)
+        char_stmt = select(Character).where(Character.guild_id == guild_id)
+        reg_stmt = select(
+            Registration.discord_user_id, Registration.representative_ocid
+        ).where(Registration.guild_id == guild_id)
         if user_ids is not None:
-            stmt = stmt.where(Registration.discord_user_id.in_(list(user_ids)))
-        rows = (await session.execute(stmt)).scalars().all()
+            ids = list(user_ids)
+            char_stmt = char_stmt.where(Character.discord_user_id.in_(ids))
+            reg_stmt = reg_stmt.where(Registration.discord_user_id.in_(ids))
+        chars = (await session.execute(char_stmt)).scalars().all()
+        rep_rows = (await session.execute(reg_stmt)).all()
 
-    targets = [
-        Target(
-            guild_id=r.guild_id,
-            discord_user_id=r.discord_user_id,
-            nickname=r.maple_nickname,
-            ocid=r.ocid,
+    rep_by_user = {uid: rep_ocid for uid, rep_ocid in rep_rows}
+    by_user: dict[int, list[Character]] = {}
+    for c in chars:
+        by_user.setdefault(c.discord_user_id, []).append(c)
+
+    targets: list[Target] = []
+    for uid, clist in by_user.items():
+        rep = pick_representative(clist, rep_by_user.get(uid))
+        if rep is None:
+            continue
+        targets.append(
+            Target(
+                guild_id=guild_id,
+                discord_user_id=uid,
+                nickname=rep.maple_nickname,
+                ocid=rep.ocid,
+            )
         )
-        for r in rows
-    ]
     if user_ids is not None:
         order = {uid: i for i, uid in enumerate(user_ids)}
         targets.sort(key=lambda t: order.get(t.discord_user_id, len(order)))
@@ -208,6 +422,7 @@ async def refresh_ocid(
 ) -> str | None:
     """닉 → ocid 재조회 후 DB 갱신(handoff §4 lazy 갱신). 성공 시 새 ocid, 실패 시 None.
 
+    대표 캐릭터의 ocid(character PK) 를 갱신하고, 대표 포인터가 옛 ocid 를 가리켰다면 함께 정합한다.
     닉 자체가 사라졌으면(닉 변경) get_ocid 가 NexonAPIError → None 반환.
     """
     try:
@@ -217,12 +432,22 @@ async def refresh_ocid(
     if new_ocid and new_ocid != target.ocid:
         async with session_factory() as session:
             await session.execute(
+                update(Character)
+                .where(
+                    Character.guild_id == target.guild_id,
+                    Character.discord_user_id == target.discord_user_id,
+                    Character.ocid == target.ocid,
+                )
+                .values(ocid=new_ocid, updated_at=func.now())
+            )
+            await session.execute(
                 update(Registration)
                 .where(
                     Registration.guild_id == target.guild_id,
                     Registration.discord_user_id == target.discord_user_id,
+                    Registration.representative_ocid == target.ocid,
                 )
-                .values(ocid=new_ocid, updated_at=func.now())
+                .values(representative_ocid=new_ocid, updated_at=func.now())
             )
             await session.commit()
     return new_ocid
@@ -268,7 +493,7 @@ async def _fetch_one(
                     continue
                 return TargetOutcome(
                     target=target,
-                    error="닉 변경 가능성이 있어요. `/등록`으로 닉네임을 갱신해 주세요.",
+                    error="닉 변경 가능성이 있어요. `/캐릭터등록`으로 닉네임을 갱신해 주세요.",
                 )
             # 2) 하드 실패 → (적재 대상이면) error_log + 사용자 메시지
             log_type = to_error_log_type(exc.error_class)

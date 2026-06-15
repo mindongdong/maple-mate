@@ -1,7 +1,12 @@
-"""`/등록` 디스코드 어댑터 (빌드 단위 #8). 얇은 전달 계층 — 로직은 service 가 담당.
+"""등록/관리 디스코드 어댑터 (얇은 전달 계층). 로직은 service 가 담당.
 
-입력 파싱 → service.register 호출 → 결과를 ephemeral 임베드로 렌더. 용어는 CONTEXT.md
-("등록", "키 미등록") 사용. 개인 키 노출 최소화를 위해 응답은 항상 ephemeral.
+멀티 캐릭터 모델(작업지시서): `/등록`(닉+키 한 방)을 4개로 분리했다.
+- `/캐릭터등록 닉네임` — 메이플 캐릭터를 등록(유저당 N개, 상한 10).
+- `/키등록 api키` — 개인 API 키 등록(유저당 1개, 이력류 조회 개방).
+- `/대표지정 캐릭터` — 공개 명령(스펙·경험치 등)에 쓸 대표 캐릭터 지정(본인 캐릭터 자동완성).
+- `/캐릭터목록` — 등록 캐릭터·레벨·대표·키 등록 여부(ephemeral).
+
+개인 키 노출 최소화를 위해 응답은 항상 ephemeral.
 """
 
 from __future__ import annotations
@@ -14,66 +19,231 @@ from ..bot.embeds import defer, make_embed
 from ..dependencies import Deps
 from . import service
 
+_DM_ONLY = "서버(길드) 안에서만 쓸 수 있어요."
 
-async def handle_register(
-    deps: Deps,
-    interaction: discord.Interaction,
-    nickname: str,
-    api_key: str | None,
+
+def _level_label(nickname: str, level: int | None) -> str:
+    """`닉 (Lv.287)` 또는 레벨 미상 시 `닉`."""
+    return nickname if level is None else f"{nickname} (Lv.{level})"
+
+
+async def handle_character_register(
+    deps: Deps, interaction: discord.Interaction, nickname: str
 ) -> None:
     await defer(interaction, ephemeral=True)
-
     if interaction.guild_id is None:
         await interaction.followup.send(
-            embed=make_embed("등록 실패", "서버(길드) 안에서만 등록할 수 있어요."),
-            ephemeral=True,
+            embed=make_embed("캐릭터 등록 실패", _DM_ONLY), ephemeral=True
         )
         return
 
-    result = await service.register(
+    result = await service.register_character(
+        nexon=deps.nexon,
+        session_factory=deps.session_factory,
+        guild_id=interaction.guild_id,
+        discord_user_id=interaction.user.id,
+        nickname=nickname.strip(),
+    )
+    if not result.ok:
+        await interaction.followup.send(
+            embed=make_embed("캐릭터 등록 실패", result.error), ephemeral=True
+        )
+        return
+
+    has_key = await service.has_personal_key(
+        deps.session_factory, interaction.guild_id, interaction.user.id
+    )
+    lines = [
+        f"**{_level_label(result.nickname, result.level)}** 등록 완료 — 현재 {result.character_count}개.",
+    ]
+    if result.character_count == 1:
+        lines.append("이 캐릭터가 대표예요. `/대표지정`으로 바꿀 수 있어요.")
+    else:
+        lines.append(
+            "대표는 등록 캐릭터 중 최고 레벨이에요. `/대표지정`으로 바꿀 수 있어요."
+        )
+    if not has_key:
+        lines.append(
+            "스타포스·잠재 등 **이력류**를 보려면 `/키등록`으로 개인 키를 등록하세요."
+        )
+    await interaction.followup.send(
+        embed=make_embed("캐릭터 등록 완료", "\n".join(lines)), ephemeral=True
+    )
+
+
+async def handle_key_register(
+    deps: Deps, interaction: discord.Interaction, api_key: str
+) -> None:
+    await defer(interaction, ephemeral=True)
+    if interaction.guild_id is None:
+        await interaction.followup.send(
+            embed=make_embed("키 등록 실패", _DM_ONLY), ephemeral=True
+        )
+        return
+
+    result = await service.register_key(
         nexon=deps.nexon,
         cipher=deps.cipher,
         session_factory=deps.session_factory,
         guild_id=interaction.guild_id,
         discord_user_id=interaction.user.id,
-        nickname=nickname.strip(),
-        api_key=api_key.strip() if api_key else None,
+        api_key=api_key.strip(),
     )
-
     if not result.ok:
         await interaction.followup.send(
-            embed=make_embed("등록 실패", result.error), ephemeral=True
+            embed=make_embed("키 등록 실패", result.error), ephemeral=True
+        )
+        return
+    await interaction.followup.send(
+        embed=make_embed(
+            "키 등록 완료",
+            "개인 API 키를 등록했어요. 스타포스·잠재 등 **이력류**(계정 전체)를 조회할 수 있어요.",
+        ),
+        ephemeral=True,
+    )
+
+
+async def handle_set_representative(
+    deps: Deps, interaction: discord.Interaction, ocid: str
+) -> None:
+    await defer(interaction, ephemeral=True)
+    if interaction.guild_id is None:
+        await interaction.followup.send(
+            embed=make_embed("대표 지정 실패", _DM_ONLY), ephemeral=True
         )
         return
 
-    if result.has_key:
-        scope = "스타포스·잠재 등 **이력류**까지 조회 가능 (개인 키 등록됨)"
-    else:
-        scope = "**스펙류**만 조회 가능 (키 미등록)"
+    nickname = await service.set_representative(
+        deps.session_factory, interaction.guild_id, interaction.user.id, ocid
+    )
+    if nickname is None:
+        await interaction.followup.send(
+            embed=make_embed(
+                "대표 지정 실패",
+                "본인 등록 캐릭터가 아니에요. `/캐릭터목록`에서 확인해 주세요.",
+            ),
+            ephemeral=True,
+        )
+        return
     await interaction.followup.send(
         embed=make_embed(
-            "등록 완료", f"**{result.nickname}** 등록이 완료됐어요.\n{scope}"
+            "대표 지정 완료",
+            f"대표 캐릭터를 **{nickname}** 으로 지정했어요. 스펙·경험치 등 공개 명령에 반영돼요.",
+        ),
+        ephemeral=True,
+    )
+
+
+async def handle_character_list(deps: Deps, interaction: discord.Interaction) -> None:
+    await defer(interaction, ephemeral=True)
+    if interaction.guild_id is None:
+        await interaction.followup.send(
+            embed=make_embed("캐릭터 목록", _DM_ONLY), ephemeral=True
+        )
+        return
+
+    characters = await service.get_characters(
+        deps.session_factory, interaction.guild_id, interaction.user.id
+    )
+    if not characters:
+        await interaction.followup.send(
+            embed=make_embed(
+                "캐릭터 목록",
+                "등록된 캐릭터가 없어요. `/캐릭터등록`으로 먼저 등록해 주세요.",
+            ),
+            ephemeral=True,
+        )
+        return
+
+    has_key = await service.has_personal_key(
+        deps.session_factory, interaction.guild_id, interaction.user.id
+    )
+    lines = []
+    for c in characters:
+        mark = " 👑 대표" if c.is_representative else ""
+        lines.append(f"• {_level_label(c.nickname, c.level)}{mark}")
+    key_line = (
+        "개인 키: 등록됨 (이력류 조회 가능)"
+        if has_key
+        else "개인 키: 미등록 (`/키등록`으로 이력류 조회 개방)"
+    )
+    lines.append("")
+    lines.append(key_line)
+    await interaction.followup.send(
+        embed=make_embed(
+            f"캐릭터 목록 ({len(characters)}/{service.MAX_CHARACTERS_PER_USER})",
+            "\n".join(lines),
         ),
         ephemeral=True,
     )
 
 
 def setup(bot: discord.Client) -> None:
-    """봇 트리에 `/등록` 등록. bot.deps(Deps) 를 사용한다."""
+    """봇 트리에 등록/관리 명령 4개를 등록. bot.deps(Deps) 를 사용한다."""
     deps: Deps = bot.deps  # type: ignore[attr-defined]
 
-    @bot.tree.command(
-        name="등록", description="메이플 캐릭터를 이 서버에 등록합니다 (API 키는 선택)."
-    )  # type: ignore[attr-defined]
-    @app_commands.rename(nickname="닉네임", api_key="api키")
-    @app_commands.describe(
-        nickname="메이플 캐릭터 닉네임",
-        api_key="넥슨 개인 API 키 (선택). 입력하면 스타포스·잠재 등 이력류 조회가 열립니다.",
+    @bot.tree.command(  # type: ignore[attr-defined]
+        name="캐릭터등록",
+        description="메이플 캐릭터를 이 서버에 등록합니다 (유저당 여러 개 가능).",
     )
+    @app_commands.rename(nickname="닉네임")
+    @app_commands.describe(nickname="메이플 캐릭터 닉네임")
     @cooldowns.settings_cooldown()
-    async def register_command(
-        interaction: discord.Interaction,
-        nickname: str,
-        api_key: str | None = None,
+    async def character_register_command(
+        interaction: discord.Interaction, nickname: str
     ) -> None:
-        await handle_register(deps, interaction, nickname, api_key)
+        await handle_character_register(deps, interaction, nickname)
+
+    @bot.tree.command(  # type: ignore[attr-defined]
+        name="키등록",
+        description="넥슨 개인 API 키를 등록합니다 (스타포스·잠재 등 이력류 조회 개방).",
+    )
+    @app_commands.rename(api_key="api키")
+    @app_commands.describe(api_key="넥슨 개인 API 키")
+    @cooldowns.settings_cooldown()
+    async def key_register_command(
+        interaction: discord.Interaction, api_key: str
+    ) -> None:
+        await handle_key_register(deps, interaction, api_key)
+
+    @bot.tree.command(  # type: ignore[attr-defined]
+        name="대표지정",
+        description="공개 명령(스펙·경험치 등)에 쓸 대표 캐릭터를 지정합니다.",
+    )
+    @app_commands.rename(ocid="캐릭터")
+    @app_commands.describe(ocid="대표로 지정할 본인 등록 캐릭터")
+    @cooldowns.settings_cooldown()
+    async def set_representative_command(
+        interaction: discord.Interaction, ocid: str
+    ) -> None:
+        await handle_set_representative(deps, interaction, ocid)
+
+    @set_representative_command.autocomplete("ocid")
+    async def _representative_autocomplete(
+        interaction: discord.Interaction, current: str
+    ) -> list[app_commands.Choice[str]]:
+        if interaction.guild_id is None:
+            return []
+        characters = await service.get_characters(
+            deps.session_factory, interaction.guild_id, interaction.user.id
+        )
+        needle = current.strip().lower()
+        choices: list[app_commands.Choice[str]] = []
+        for c in characters:
+            if needle and needle not in c.nickname.lower():
+                continue
+            label = _level_label(c.nickname, c.level)
+            if c.is_representative:
+                label = f"{label} 👑"
+            choices.append(app_commands.Choice(name=label[:100], value=c.ocid))
+            if len(choices) >= 25:  # Discord 자동완성 옵션 상한
+                break
+        return choices
+
+    @bot.tree.command(  # type: ignore[attr-defined]
+        name="캐릭터목록",
+        description="등록한 캐릭터·레벨·대표·키 등록 여부를 봅니다 (본인만 보임).",
+    )
+    @cooldowns.spec_cooldown()
+    async def character_list_command(interaction: discord.Interaction) -> None:
+        await handle_character_list(deps, interaction)

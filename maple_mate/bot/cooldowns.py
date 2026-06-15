@@ -18,7 +18,7 @@ from discord import app_commands
 # 명령군별 간격(초): 1회 / N초 (그릴링 D3).
 HISTORY_PER = 30.0  # 이력류 /스타포스 /잠재 — cold 1건이 개인 키 수십~수백 콜
 SPEC_PER = 10.0  # 스펙류 /스펙 /아이템 /유니온
-SETTINGS_PER = 5.0  # 등록·설정류 /등록 /썬데이 /공지알림
+SETTINGS_PER = 5.0  # 등록·설정류 /캐릭터등록 /키등록 /대표지정 /썬데이 /공지알림
 
 
 def _per_user(interaction: discord.Interaction) -> Hashable:

@@ -143,7 +143,7 @@ async def resolve_targets(
                 nickname=m.display_name,
                 ocid="",
             ),
-            error="이 서버에 등록되지 않았어요. `/등록` 먼저 해주세요.",
+            error="이 서버에 등록되지 않았어요. `/캐릭터등록` 먼저 해주세요.",
         )
         for m in members
         if m.id not in registered
