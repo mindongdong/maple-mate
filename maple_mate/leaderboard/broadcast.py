@@ -95,13 +95,13 @@ async def build_payload(
     if len(rows) < MIN_RANKED:  # 등재 2명 미만 → 발송/표시 생략(Q10)
         return None
 
-    series = await service.history_deltas(
+    series = await service.history_progress(
         deps.session_factory, guild_id, nicknames, ref_date
     )
 
     table_buf = await asyncio.to_thread(leaderboard_image.render_table, rows, ref_date)
     graph_buf = await asyncio.to_thread(
-        leaderboard_image.render_delta_graph, series, ref_date
+        leaderboard_image.render_progress_graph, series, ref_date
     )
     return LeaderboardPayload(
         table_png=table_buf.getvalue(),

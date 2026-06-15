@@ -3,7 +3,7 @@
 - fetch_and_store: 대상별 ranking_overall(ocid, D-1) → 스냅샷 upsert(미등재/미준비는 스킵).
 - backfill: 첫 실행 시 과거 ~8일 선적재(이미 있으면 건너뜀).
 - build_rows: 순수 — total_exp 내림차순 정렬·순위 부여·어제 Δ 계산·미등재 제외 카운트.
-- history_deltas: 그래프용 유저별 7일 Δ 시계열(전달-무관).
+- history_progress: 그래프용 유저별 7일 진행도(레벨+exp%) 시계열(전달-무관).
 - prune_old_snapshots: snapshot_date 가 90일 경과한 행 삭제(09:00 운영 잡 편승).
 
 스냅샷 키 = (guild_id, discord_user_id, snapshot_date). Δ = 어제(D-1) − 그제(D-2) = 어제 하루 획득:
@@ -33,7 +33,7 @@ KST = timezone(timedelta(hours=9))
 
 # 백필 일수(작업지시서 Q11) — 첫 실행 1회 과거 ~8일 선적재.
 BACKFILL_DAYS = 8
-# 그래프 시계열 일수(작업지시서 Q5·Q12) — 최근 7일 일일 Δ.
+# 그래프 시계열 일수 — 최근 7일 진행도(레벨+exp%), 7일 전 대비 정규화.
 HISTORY_DAYS = 7
 # 스냅샷 보존 일수(작업지시서 Q12) — 09:00 운영 잡에 편승해 prune.
 RETENTION_DAYS = 90
@@ -137,15 +137,12 @@ async def _fetch_one_day(
     deps: Deps,
     target: Target,
     snapshot_date: date,
-    *,
-    with_exp_rate: bool = True,
 ) -> bool:
     """대상 1명의 1일치 조회→upsert. 미등재/미준비는 False(스킵), 적재 성공은 True.
 
-    with_exp_rate=False 이면 character/basic 보강 호출을 건너뛰고 exp_rate=None 으로 저장한다.
-    백필 시 사용 — 과거 일자는 Δ 계산용 total_exp 만 필요하고 표시일(D-1)은 fetch_and_store 가
-    with_exp_rate=True 로 따로 호출하므로 앱키 버킷 부하가 절반으로 줄어든다.
-    넥슨 장애(타임아웃·429·5xx)·앱키 실패만 error_log.record(작업지시서 readiness 가드).
+    ranking/overall(누적·레벨·전체순위) + character/basic best-effort(exp_rate) 를 함께 적재한다.
+    fetch_and_store(표시일 D-1)와 backfill(과거일) 모두 일별 (레벨, exp%) 진행도 그래프를 위해
+    exp_rate 까지 채운다. 넥슨 장애(타임아웃·429·5xx)·앱키 실패만 error_log.record(readiness 가드).
     """
     date_iso = snapshot_date.isoformat()
     try:
@@ -167,9 +164,7 @@ async def _fetch_one_day(
         return False
     if entry is None:  # 빈 ranking = 미등재/미준비 → 그날 그 캐릭 제외(에러 아님)
         return False
-    exp_rate = (
-        await _fetch_exp_rate(deps, target.ocid, date_iso) if with_exp_rate else None
-    )
+    exp_rate = await _fetch_exp_rate(deps, target.ocid, date_iso)
     await _upsert_snapshot(
         deps.session_factory,
         guild_id=target.guild_id,
@@ -222,7 +217,10 @@ async def backfill(
 ) -> None:
     """첫 실행 1회: 과거 D-1~D-`days` 를 대상별로 선적재(이미 있으면 건너뜀, 작업지시서 Q11).
 
-    그래프 첫날부터 데이터가 채워지도록 한다. 미등재/미준비·넥슨 장애는 _fetch_one_day 가 처리.
+    그래프 첫날부터 일별 (레벨, exp%) 진행도가 채워지도록 과거일도 character/basic 까지 수집한다
+    (_fetch_one_day 기본 경로). 넥슨 콜은 N명×days×2(ranking+basic)로 늘지만 defer·길드당 1회성이라
+    허용 — 진행량 그래프는 baseline(보통 D-7)부터 exp_rate 가 있어야 정규화된다. 미등재/미준비·넥슨
+    장애는 _fetch_one_day 가 처리.
     """
     today = datetime.now(KST).date()
     dates = [today - timedelta(days=d) for d in range(1, days + 1)]
@@ -233,7 +231,7 @@ async def backfill(
         for snapshot_date in dates:
             if snapshot_date in existing:
                 continue
-            await _fetch_one_day(deps, target, snapshot_date, with_exp_rate=False)
+            await _fetch_one_day(deps, target, snapshot_date)
 
 
 # ── 조회 + 순수 집계 ────────────────────────────────────────────────────────
@@ -317,52 +315,47 @@ def build_rows(
     return rows, excluded
 
 
-async def history_deltas(
+async def history_progress(
     session_factory: async_sessionmaker[AsyncSession],
     guild_id: int,
     nicknames: dict[int, str],
     today: date,
     *,
     days: int = HISTORY_DAYS,
-) -> dict[str, list[tuple[date, int | None]]]:
-    """그래프용 유저별 최근 `days`일 일일 Δ 시계열(닉 → [(날짜, Δ|None), ...]).
+) -> dict[str, list[tuple[date, float | None]]]:
+    """그래프용 유저별 최근 `days`일 연속 진행도 시계열(닉 → [(날짜, progress|None), ...]).
 
     `today` = 기준일(D-1, '어제')이고 그래프 오른쪽 끝. 표시 구간은 `today-(days-1)..today`
-    (어제를 포함한 최근 7일). 각 표시일 d 의 Δ = total_exp(d) − total_exp(d-1)(이전일 스냅샷
-    없으면 None). Δ 계산을 위해 가장 이른 표시일의 직전일까지 한 칸 더 읽는다. 등록자(nicknames)
-    전원을 키로 내며, 스냅샷이 없는 날은 None(빈 데이터·첫날 그래프 가드).
+    (어제를 포함한 최근 7일, baseline 은 보통 D-7). 각 표시일 d 의 progress =
+    character_level + exp_rate/100(예: Lv.287 45.2% → 287.452) — 레벨업을 넘어 연속이라 렌더러가
+    이를 7일 전 대비로 정규화한다. exp_rate 가 없거나 그날 스냅샷이 없으면 None(선 끊김). Δ 와 달리
+    직전일을 더 읽지 않는다(절대 progress 만 반환 — 정규화·일평균은 render_progress_graph 가 한다).
+    등록자(nicknames) 전원을 키로 낸다.
     """
     display_dates = [today - timedelta(days=d) for d in range(days - 1, -1, -1)]
-    first = display_dates[0] - timedelta(days=1)  # Δ 계산용 직전일
     async with session_factory() as session:
         stmt = select(
             ExpSnapshot.discord_user_id,
             ExpSnapshot.snapshot_date,
-            ExpSnapshot.total_exp,
+            ExpSnapshot.character_level,
+            ExpSnapshot.exp_rate,
         ).where(
             ExpSnapshot.guild_id == guild_id,
-            ExpSnapshot.snapshot_date >= first,
+            ExpSnapshot.snapshot_date >= display_dates[0],
             ExpSnapshot.snapshot_date <= display_dates[-1],
         )
         rows = (await session.execute(stmt)).all()
 
-    by_user: dict[int, dict[date, int]] = {}
-    for uid, snap_date, total in rows:
-        by_user.setdefault(uid, {})[snap_date] = total
+    by_user: dict[int, dict[date, float]] = {}
+    for uid, snap_date, level, exp_rate in rows:
+        if exp_rate is None:  # exp_rate 결손이면 진행도 미산출(그날 선 끊김)
+            continue
+        by_user.setdefault(uid, {})[snap_date] = level + exp_rate / 100
 
-    series: dict[str, list[tuple[date, int | None]]] = {}
+    series: dict[str, list[tuple[date, float | None]]] = {}
     for uid, nickname in nicknames.items():
-        exp_by_date = by_user.get(uid, {})
-        points: list[tuple[date, int | None]] = []
-        for d in display_dates:
-            today_exp = exp_by_date.get(d)
-            prev_exp = exp_by_date.get(d - timedelta(days=1))
-            if today_exp is None or prev_exp is None:
-                points.append((d, None))
-            else:
-                diff = today_exp - prev_exp
-                points.append((d, diff if diff > 0 else 0))
-        series[nickname] = points
+        progress_by_date = by_user.get(uid, {})
+        series[nickname] = [(d, progress_by_date.get(d)) for d in display_dates]
     return series
 
 

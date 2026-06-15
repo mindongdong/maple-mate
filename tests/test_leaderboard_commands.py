@@ -14,7 +14,6 @@ import pytest
 from maple_mate.bot.leaderboard_image import (
     _delta_text,
     _level_text,
-    _world_rank_text,
 )
 from maple_mate.leaderboard import broadcast, commands
 from maple_mate.leaderboard.broadcast import LeaderboardPayload, _footer_text
@@ -40,11 +39,6 @@ def test_delta_text_positive_uses_eok():
 def test_delta_text_none_and_zero_are_dash():
     assert _delta_text(None) == "—"
     assert _delta_text(0) == "—"
-
-
-def test_world_rank_text_formats_with_commas():
-    assert _world_rank_text(129978) == "#129,978"
-    assert _world_rank_text(None) == "—"
 
 
 def test_footer_label_says_yesterday_kst():

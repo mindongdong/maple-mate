@@ -1,14 +1,15 @@
 """경험치 리더보드 PNG 렌더(순수, `asyncio.to_thread` 전제, 작업지시서 빌드 단위 #4).
 
-- render_table: 길드 누적 순위표(table_image 재사용). 컬럼 순위·닉·Lv.·어제Δ·전체순위(#).
-- render_delta_graph: 최근 7일 일일 Δ 라인 그래프(PIL 직접 — 코드베이스 최초의 선그래프).
-  축·격자·범례·유저별 색 순환. 빈/단일 유저 데이터 가드.
-둘 다 입력은 service 의 LeaderRow / history_deltas 시계열, 출력은 PNG BytesIO.
+- render_table: 길드 누적 순위표(table_image 재사용). 컬럼 순위·닉·Lv.(exp%)·하루 경험치.
+- render_progress_graph: 최근 7일 진행도(레벨+exp%)를 7일 전 대비로 정규화한 %p 라인 그래프
+  (PIL 직접). 각 라인은 창 내 첫 가용일=0 출발(부채꼴), 범례에 유저별 일평균 %/일.
+둘 다 입력은 service 의 LeaderRow / history_progress 시계열, 출력은 PNG BytesIO.
 """
 
 from __future__ import annotations
 
 import io
+import math
 from datetime import date
 
 from PIL import Image, ImageDraw, ImageFont
@@ -34,32 +35,28 @@ def _delta_text(delta: int | None) -> str:
     return f"+{format_eok(delta)}"
 
 
-def _world_rank_text(world_rank: int | None) -> str:
-    """전체 서버 순위 `#129,978` — 미상이면 '—'."""
-    if world_rank is None:
-        return "—"
-    return f"#{world_rank:,}"
+# 순위표 컬럼(작업지시서 F1·F2) — 전체 순위 제거, '어제 획득'→'하루 경험치'.
+# world_rank 는 스냅샷엔 계속 저장하되 표엔 미표시.
+_TABLE_HEADERS = ["순위", "닉네임", "레벨", "하루 경험치"]
+_TABLE_ALIGNS = ["center", "left", "left", "right"]
 
 
 def render_table(rows: list, ref_date: date) -> io.BytesIO:
     """순위표 PNG(table_image 재사용). rows=service.LeaderRow 목록(이미 정렬·순위 부여됨)."""
-    headers = ["순위", "닉네임", "레벨", "어제 획득", "전체 순위"]
-    aligns = ["center", "left", "left", "right", "right"]
     table_rows = [
         [
             str(r.rank),
             r.nickname,
             _level_text(r.level, r.exp_rate),
             _delta_text(r.delta),
-            _world_rank_text(r.world_rank),
         ]
         for r in rows
     ]
-    png = _render_table_image(headers, table_rows, aligns=aligns)
+    png = _render_table_image(_TABLE_HEADERS, table_rows, aligns=_TABLE_ALIGNS)
     return io.BytesIO(png)
 
 
-# ── 7일 Δ 라인 그래프(PIL 직접) ──────────────────────────────────────────────
+# ── 7일 진행도 라인 그래프(PIL 직접) ─────────────────────────────────────────
 
 # 라인 색 고정 팔레트(순환) — 다크 배경 위 대비 좋은 톤(작업지시서 그래프 라벨).
 _LINE_COLORS: tuple[_RGB, ...] = (
@@ -95,13 +92,42 @@ def _nice_max(value: int) -> int:
     return 10 * magnitude
 
 
-def render_delta_graph(
-    series: dict[str, list[tuple[date, int | None]]], ref_date: date
-) -> io.BytesIO:
-    """유저별 최근 7일 일일 Δ 라인 그래프 PNG. series=닉 → [(날짜, Δ|None), ...].
+def _normalize_progress(
+    points: list[tuple[date, float | None]],
+) -> list[tuple[date, float | None]]:
+    """창 내 첫 가용 progress 를 baseline(0)으로 빼서 %p 로 변환 → [(날짜, %p|None), ...].
 
-    빈 데이터(첫날·전원 None)·단일 유저도 안전하게 그린다(빈 그래프엔 안내 문구). None 구간은
-    선이 끊기고, 활동 없는 날(Δ=0)은 0 바닥선에 그린다. 누적 라인 금지(일일 Δ 만).
+    progress = 레벨+exp%/100(연속). baseline 이전·결손 구간은 None(선 끊김). 데이터가 하나도
+    없으면 전부 None. %p = (progress-baseline)*100 (100%p = 1레벨). 전원 0 출발이라 부채꼴이 된다.
+    """
+    baseline = next((p for _, p in points if p is not None), None)
+    if baseline is None:
+        return [(d, None) for d, _ in points]
+    return [(d, (p - baseline) * 100 if p is not None else None) for d, p in points]
+
+
+def _daily_average(norm_points: list[tuple[date, float | None]]) -> float:
+    """정규화된 %p 시계열의 일평균 %/일 = 끝점 %p ÷ (첫~끝 데이터일 간격). 데이터 0/1개면 0.
+
+    progress 가 연속이라 구간 내 레벨업도 자연 합산된다(끝점 %p 가 곧 총 진행량).
+    """
+    data = [(d, v) for d, v in norm_points if v is not None]
+    if len(data) < 2:
+        return 0.0
+    first_date, _ = data[0]
+    last_date, last_value = data[-1]
+    gaps = (last_date - first_date).days
+    return last_value / gaps if gaps > 0 else 0.0
+
+
+def render_progress_graph(
+    series: dict[str, list[tuple[date, float | None]]], ref_date: date
+) -> io.BytesIO:
+    """유저별 최근 7일 진행량(%p) 라인 그래프 PNG. series=닉 → [(날짜, progress|None), ...].
+
+    각 라인은 창 내 첫 가용일을 0 으로 정규화해(부채꼴) 7일 전 대비 레벨 진행량(%p, 100%p=1레벨)을
+    그린다. 범례엔 유저별 일평균 %/일. 데이터 0개 유저는 자연히 제외(전부 None)되고, 전원 데이터가
+    없으면 안내 문구만. None 구간은 선이 끊긴다. 레벨업 마커 없음(연속값이라 톱니/리셋 없음).
     """
     regular, bold = _load_fonts(28)
     small, _ = _load_fonts(20)
@@ -112,20 +138,27 @@ def render_delta_graph(
     plot_t, plot_b = _MARGIN_T, _GRAPH_H - _MARGIN_B
     plot_w, plot_h = plot_r - plot_l, plot_b - plot_t
 
-    title = f"최근 7일 일일 경험치 획득 (기준: 어제 {ref_date:%m/%d} KST)"
+    title = "최근 7일 경험치 진행량 (7일 전 대비)"
     draw.text((plot_l, 12), title, font=bold, fill=_HEADER_TEXT)
 
     # x축 날짜: 어떤 시리즈든 동일 날짜축이라 첫 시리즈에서 뽑는다(없으면 가드).
     dates = [d for d, _ in next(iter(series.values()), [])]
-    all_values = [
-        v for points in series.values() for _, v in points if v is not None and v > 0
-    ]
 
-    # 빈 데이터 가드: 점이 하나도 없으면 안내만.
+    # 유저별 정규화(0 출발) %p 라인. 데이터 0개 유저는 라인·범례 모두에서 제외(작업지시서 파생결정).
+    normalized = {nick: _normalize_progress(pts) for nick, pts in series.items()}
+    normalized = {
+        nick: pts
+        for nick, pts in normalized.items()
+        if any(v is not None for _, v in pts)
+    }
+    averages = {nick: _daily_average(pts) for nick, pts in normalized.items()}
+    all_values = [v for pts in normalized.values() for _, v in pts if v is not None]
+
+    # 빈 데이터 가드: 가용 progress 가 하나도 없으면 안내만.
     if not dates or not all_values:
         draw.line([(plot_l, plot_b), (plot_r, plot_b)], fill=_GRID, width=1)
         draw.line([(plot_l, plot_t), (plot_l, plot_b)], fill=_GRID, width=1)
-        msg = "표시할 획득 데이터가 아직 없어요."
+        msg = "표시할 진행량 데이터가 아직 없어요."
         tw = draw.textlength(msg, font=regular)
         draw.text(
             ((_GRAPH_W - tw) / 2, plot_t + plot_h / 2 - 14),
@@ -138,15 +171,17 @@ def render_delta_graph(
         buffer.seek(0)
         return buffer
 
-    y_max = _nice_max(max(all_values))
+    # 전원 0 출발이라 max %p>=0. ceil 로 라인이 축 상단을 넘지 않게(0 이면 _nice_max=1).
+    y_max = _nice_max(math.ceil(max(all_values)))
 
-    # y축 격자 + 라벨(0..y_max 5등분).
+    # y축 격자 + 라벨(0..y_max 5등분, +N%).
     steps = 5
     for i in range(steps + 1):
         frac = i / steps
         y = plot_b - frac * plot_h
         draw.line([(plot_l, y), (plot_r, y)], fill=_GRID_SUB, width=1)
-        label = format_eok(int(round(y_max * frac)))
+        val = int(round(y_max * frac))
+        label = f"+{val}%" if val > 0 else "0%"
         lw = draw.textlength(label, font=small)
         draw.text((plot_l - 10 - lw, y - 10), label, font=small, fill=_TEXT)
 
@@ -163,11 +198,11 @@ def render_delta_graph(
         lw = draw.textlength(label, font=small)
         draw.text((x - lw / 2, plot_b + 10), label, font=small, fill=_TEXT)
 
-    def y_of(value: int) -> float:
+    def y_of(value: float) -> float:
         return plot_b - (value / y_max) * plot_h
 
-    # 유저별 라인 + 점(None 구간은 선 끊김). 단일 유저(점 1개)는 점만 찍힘.
-    for idx, (nickname, points) in enumerate(series.items()):
+    # 유저별 라인 + 점(None 구간은 선 끊김). 단일 점은 점만 찍힘.
+    for idx, (nickname, points) in enumerate(normalized.items()):
         color = _LINE_COLORS[idx % len(_LINE_COLORS)]
         prev_xy: tuple[float, float] | None = None
         for x, (_, value) in zip(xs, points):
@@ -183,7 +218,7 @@ def render_delta_graph(
             )
             prev_xy = xy
 
-    _draw_legend(draw, series, small, _GRAPH_H - _MARGIN_B + 44)
+    _draw_legend(draw, normalized, averages, small, _GRAPH_H - _MARGIN_B + 44)
 
     buffer = io.BytesIO()
     img.save(buffer, "PNG")
@@ -193,11 +228,12 @@ def render_delta_graph(
 
 def _draw_legend(
     draw: ImageDraw.ImageDraw,
-    series: dict[str, list[tuple[date, int | None]]],
+    series: dict[str, list[tuple[date, float | None]]],
+    averages: dict[str, float],
     font: ImageFont.FreeTypeFont,
     y: float,
 ) -> None:
-    """범례(닉별 색 칩 + 닉) 가로 나열, 폭 초과 시 다음 줄로 줄바꿈."""
+    """범례(닉별 색 칩 + '닉 · 평균 N%/일') 가로 나열, 폭 초과 시 다음 줄로 줄바꿈."""
     chip = 16
     gap = 10
     item_gap = 26
@@ -205,11 +241,12 @@ def _draw_legend(
     line_h = 26
     for idx, nickname in enumerate(series):
         color = _LINE_COLORS[idx % len(_LINE_COLORS)]
-        label_w = draw.textlength(nickname, font=font)
+        label = f"{nickname} · 평균 {averages.get(nickname, 0.0):.1f}%/일"
+        label_w = draw.textlength(label, font=font)
         item_w = chip + gap + label_w
         if x + item_w > _GRAPH_W - _MARGIN_R and x > _MARGIN_L:
             x = _MARGIN_L
             y += line_h
         draw.rectangle([x, y, x + chip, y + chip], fill=color)
-        draw.text((x + chip + gap, y - 4), nickname, font=font, fill=_TEXT)
+        draw.text((x + chip + gap, y - 4), label, font=font, fill=_TEXT)
         x += item_w + item_gap

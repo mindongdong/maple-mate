@@ -1,6 +1,6 @@
-"""leaderboard service 단위테스트 — build_rows·history_deltas·prune·fetch_and_store.
+"""leaderboard service 단위테스트 — build_rows·history_progress·prune·fetch_and_store.
 
-순수 로직(정렬·순위·Δ·미등재 제외·시계열 변환·prune 경계)은 픽스처로 검증하고, DB/넥슨은
+순수 로직(정렬·순위·Δ·미등재 제외·진행도 시계열·prune 경계)은 픽스처로 검증하고, DB/넥슨은
 가짜 세션·페이크 nexon 으로 막는다(기존 history prune·bitik command 테스트와 동일 방침).
 픽스처는 스파이크 실측치 재현(72.295조 − 71.360조 = 935,107,160,853 = "9351억 716만").
 """
@@ -14,7 +14,7 @@ from maple_mate.leaderboard import service
 from maple_mate.leaderboard.service import (
     KST,
     build_rows,
-    history_deltas,
+    history_progress,
     prune_old_snapshots,
     snapshot_cutoff,
     yesterday_kst,
@@ -117,7 +117,7 @@ def test_build_rows_passes_exp_rate_through():
     assert by_nick["라딘라면"] is None  # 보강 실패 행은 None 유지
 
 
-# ── history_deltas: 유저별 7일 Δ 시계열 변환 ─────────────────────────────────
+# ── history_progress: 유저별 7일 진행도(레벨+exp%) 시계열 ─────────────────────
 
 
 def _factory_for_rows(rows):
@@ -134,25 +134,43 @@ def _factory_for_rows(rows):
     return lambda: _Session()
 
 
-async def test_history_deltas_computes_daily_diffs_per_user():
+async def test_history_progress_computes_level_plus_exp_rate():
     nicknames = {10: "손바"}
-    today = date(2026, 6, 13)  # 기준일(어제) = 그래프 오른쪽 끝
-    # 표시 구간 today-6..today = 06/07..06/13. Δ 계산 위해 06/06 도 읽음.
+    today = date(2026, 6, 13)  # 기준일(어제) = 그래프 오른쪽 끝, 표시 구간 06/07..06/13
+    # rows = (uid, date, character_level, exp_rate). 스파이크 Lv287 재현, exp% 는 float-정확값.
     rows = [
-        (10, date(2026, 6, 11), 100),
-        (10, date(2026, 6, 12), 130),  # Δ(6/12) = 30
-        (10, date(2026, 6, 13), 130),  # Δ(6/13) = 0 (비활동)
+        (10, date(2026, 6, 11), 287, 50.0),  # progress = 287.5
+        (10, date(2026, 6, 12), 287, 75.0),  # progress = 287.75
+        (10, date(2026, 6, 13), 288, 25.0),  # progress = 288.25 (레벨업 후)
     ]
-    series = await history_deltas(_factory_for_rows(rows), 1, nicknames, today, days=7)
+    series = await history_progress(
+        _factory_for_rows(rows), 1, nicknames, today, days=7
+    )
     points = dict(series["손바"])
-    assert points[date(2026, 6, 12)] == 30
-    assert points[date(2026, 6, 13)] == 0  # 비활동일 Δ=0(0 바닥선)
-    assert points[date(2026, 6, 11)] is None  # 직전(6/10) 없음 → None
+    assert points[date(2026, 6, 11)] == 287.5
+    assert points[date(2026, 6, 12)] == 287.75
+    assert points[date(2026, 6, 13)] == 288.25
+    assert points[date(2026, 6, 7)] is None  # 스냅샷 없는 날 → None(선 끊김)
 
 
-async def test_history_deltas_includes_all_registrants_even_without_data():
+async def test_history_progress_none_when_exp_rate_missing():
+    # exp_rate 결손이면 그날 progress 미산출(None) — 백필 결손·basic 실패 케이스.
+    nicknames = {10: "손바"}
+    rows = [
+        (10, date(2026, 6, 12), 287, None),  # exp_rate 없음 → None
+        (10, date(2026, 6, 13), 287, 50.0),  # 정상 → 287.5
+    ]
+    series = await history_progress(
+        _factory_for_rows(rows), 1, nicknames, date(2026, 6, 13), days=7
+    )
+    points = dict(series["손바"])
+    assert points[date(2026, 6, 12)] is None
+    assert points[date(2026, 6, 13)] == 287.5
+
+
+async def test_history_progress_includes_all_registrants_even_without_data():
     nicknames = {10: "손바", 20: "라딘라면"}
-    series = await history_deltas(
+    series = await history_progress(
         _factory_for_rows([]), 1, nicknames, date(2026, 6, 13), days=7
     )
     assert set(series.keys()) == {"손바", "라딘라면"}
@@ -366,7 +384,7 @@ async def test_fetch_and_store_basic_timeout_still_stores_with_none(monkeypatch)
     assert recorded == []
 
 
-# ── backfill: 과거일은 ranking-only(character/basic 생략, 지연 최적화) ──────────
+# ── backfill: 과거일도 ranking+basic 수집(일별 진행도 그래프용) ───────────────
 
 
 class _RecordingNexon:
@@ -415,9 +433,9 @@ def _backfill_factory(upserts: list[dict] | None = None):
     return lambda: _Session()
 
 
-async def test_backfill_fetches_ranking_only_skips_basic():
-    # 과거 8일 백필은 ranking_overall 만 호출하고 character/basic(exp_rate)은 생략(앱키 부하 절반).
-    # 적재 행은 전부 exp_rate=None — 표시일 D-1 의 exp_rate 는 이후 fetch_and_store 가 채운다(ordering 불변식).
+async def test_backfill_fetches_ranking_and_basic():
+    # 과거 8일 백필은 ranking_overall + character/basic 둘 다 호출해 일별 exp_rate 를 채운다
+    # (진행도 그래프는 baseline 부터 exp_rate 가 있어야 정규화됨 — #19 지연 최적화의 의도적 되돌림).
     upserts: list[dict] = []
     nexon = _RecordingNexon(
         {"character_level": 287, "character_exp": _EXP_D1, "ranking": 1}
@@ -425,9 +443,9 @@ async def test_backfill_fetches_ranking_only_skips_basic():
     deps = SimpleNamespace(session_factory=_backfill_factory(upserts), nexon=nexon)
     await service.backfill(deps, 1, [_target(10, "oc1")], days=8)
     assert len(nexon.ranking_calls) == 8  # D-1~D-8
-    assert nexon.basic_calls == []  # 과거일은 ranking-only
+    assert len(nexon.basic_calls) == 8  # 과거일도 character/basic 수집
     assert len(upserts) == 8
-    assert all(p["exp_rate"] is None for p in upserts)  # 백필 적재는 전부 exp_rate=None
+    assert all(p["exp_rate"] == 10.0 for p in upserts)  # basic 의 exp_rate 적재됨
 
 
 # ── has_snapshot_on: 온디맨드 부트스트랩 no-op 게이트 ─────────────────────────
