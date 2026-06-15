@@ -6,8 +6,7 @@ select 인터랙션·공개 발송은 라이브 확인 대상(작업지시서 �
 
 from __future__ import annotations
 
-from types import SimpleNamespace
-
+import maple_mate.bitik.commands as bitik_commands
 from maple_mate.bitik.commands import (
     PICKUP_PHRASES,
     _self_target,
@@ -19,6 +18,8 @@ from maple_mate.bitik.commands import (
     starforce_label,
 )
 from maple_mate.bitik.service import ExcludedItems, PotentialBitik, StarforceBitik
+from maple_mate.history.service import HistoryTarget
+from maple_mate.registration.service import Target
 
 
 def _starforce(**kw) -> StarforceBitik:
@@ -130,50 +131,51 @@ def test_pickup_text_random_from_pool() -> None:
 
 
 # ── 본인 대상 해석 (Q1: 본인만, 미등록/키 미등록 ephemeral 안내) ─────────────
+#
+# 멀티 캐릭터: _self_target 은 get_history_targets(계정 단위 대상) + get_targets(대표 ocid)에
+# 위임하므로, 그 두 함수를 monkeypatch 해 게이팅 분기만 검증한다(DB 통합은 라이브 확인).
 
 
-class _FakeSession:
-    def __init__(self, rows: list) -> None:
-        self._rows = rows
-
-    async def __aenter__(self):
-        return self
-
-    async def __aexit__(self, *exc):
-        return False
-
-    async def execute(self, stmt):
-        rows = self._rows
-        return SimpleNamespace(scalars=lambda: SimpleNamespace(all=lambda: rows))
-
-
-def _registration(api_key: str | None) -> SimpleNamespace:
-    return SimpleNamespace(
+def _htarget(api_key: str | None) -> HistoryTarget:
+    return HistoryTarget(
         guild_id=1,
         discord_user_id=2,
-        maple_nickname="손바",
-        ocid="oc1",
+        nickname="손바",
+        ocid="anchor_ocid",  # 캐시 앵커(대표 ocid 와 다를 수 있음)
         api_key_encrypted=api_key,
     )
 
 
-async def test_self_target_unregistered() -> None:
-    target, error = await _self_target(lambda: _FakeSession([]), 1, 2)
-    assert target is None
-    assert error is not None and "/등록" in error
+async def test_self_target_unregistered(monkeypatch) -> None:
+    async def _none(*a, **k):
+        return []
+
+    monkeypatch.setattr(bitik_commands, "get_history_targets", _none)
+    target, rep_ocid, error = await _self_target(lambda: None, 1, 2)
+    assert target is None and rep_ocid is None
+    assert error is not None and "/캐릭터등록" in error
 
 
-async def test_self_target_without_key() -> None:
-    target, error = await _self_target(
-        lambda: _FakeSession([_registration(None)]), 1, 2
-    )
-    assert target is None
+async def test_self_target_without_key(monkeypatch) -> None:
+    async def _targets(*a, **k):
+        return [_htarget(None)]
+
+    monkeypatch.setattr(bitik_commands, "get_history_targets", _targets)
+    target, rep_ocid, error = await _self_target(lambda: None, 1, 2)
+    assert target is None and rep_ocid is None
     assert error is not None and "개인 키" in error
 
 
-async def test_self_target_success() -> None:
-    target, error = await _self_target(
-        lambda: _FakeSession([_registration("enc")]), 1, 2
-    )
+async def test_self_target_success(monkeypatch) -> None:
+    async def _targets(*a, **k):
+        return [_htarget("enc")]
+
+    async def _reps(*a, **k):
+        return [Target(guild_id=1, discord_user_id=2, nickname="손바", ocid="rep_ocid")]
+
+    monkeypatch.setattr(bitik_commands, "get_history_targets", _targets)
+    monkeypatch.setattr(bitik_commands, "get_targets", _reps)
+    target, rep_ocid, error = await _self_target(lambda: None, 1, 2)
     assert error is None
     assert target is not None and target.nickname == "손바"
+    assert rep_ocid == "rep_ocid"  # 아이콘·장착레벨용 대표 ocid

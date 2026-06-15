@@ -65,7 +65,7 @@ def _reset(
     )
 
 
-# ── 파싱: 캐릭터 필터 + 등급 추출 ──────────────────────────────────────────
+# ── 파싱: 계정 전체(닉 필터 없음) + 등급 추출 ──────────────────────────────
 
 
 def _raw(name: str, result: str = "실패", grades=("레전드리", "유니크")) -> dict:
@@ -87,18 +87,21 @@ def _raw(name: str, result: str = "실패", grades=("레전드리", "유니크")
     }
 
 
-def test_parse_cube_filters_by_character_name() -> None:
+def test_parse_cube_returns_all_with_character_name() -> None:
+    # 계정 전체화 — 닉 필터 없이 전 캐릭터 반환, character_name 보존(/비틱 필터용).
     records = [_raw("손바"), _raw("부캐")]
-    parsed = parse_cube_records(records, "손바")
-    assert len(parsed) == 1
+    parsed = parse_cube_records(records)
+    assert len(parsed) == 2
+    assert {p.character_name for p in parsed} == {"손바", "부캐"}
     assert parsed[0].before_pot == ("레전드리", "유니크")
 
 
-def test_parse_reset_filters_and_extracts_grades() -> None:
-    parsed = parse_reset_records([_raw("손바", grades=("유니크", "레어"))], "손바")
+def test_parse_reset_extracts_grades_and_character_name() -> None:
+    parsed = parse_reset_records([_raw("손바", grades=("유니크", "레어"))])
     assert len(parsed) == 1
     assert parsed[0].before_pot == ("유니크", "레어")
     assert parsed[0].potential_type == "잠재능력"
+    assert parsed[0].character_name == "손바"
 
 
 # ── 집계: 총 큐브/재설정 ───────────────────────────────────────────────────

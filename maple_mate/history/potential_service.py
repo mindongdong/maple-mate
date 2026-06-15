@@ -71,6 +71,7 @@ class CubeRecord:
     # 사용 후 옵션 텍스트(예: "보스 몬스터 공격 시 데미지 : +40%"). /비틱 끝 옵션 풀표시용.
     after_pot_values: tuple[str, ...] = ()
     after_add_values: tuple[str, ...] = ()
+    character_name: str = ""  # 계정 전체화 — /비틱만 대표 닉으로 필터
 
 
 @dataclass(frozen=True)
@@ -92,6 +93,7 @@ class ResetRecord:
     # 사용 후 옵션 텍스트. /비틱 끝 옵션 풀표시용(CubeRecord 와 동일).
     after_pot_values: tuple[str, ...] = ()
     after_add_values: tuple[str, ...] = ()
+    character_name: str = ""  # 계정 전체화 — /비틱만 대표 닉으로 필터
 
 
 def _grades(options: object) -> tuple[str, ...]:
@@ -115,12 +117,10 @@ def _int(value: object) -> int:
         return 0
 
 
-def parse_cube_records(records: Sequence[dict], nickname: str) -> list[CubeRecord]:
-    """넥슨 cube 레코드 → CubeRecord 목록. character_name==nickname 만(집계 단위=등록 캐릭터)."""
+def parse_cube_records(records: Sequence[dict]) -> list[CubeRecord]:
+    """넥슨 cube 레코드 → CubeRecord 목록(계정 전체, 순수). character_name 보존(/비틱 필터용)."""
     out: list[CubeRecord] = []
     for r in records:
-        if r.get("character_name") != nickname:
-            continue
         out.append(
             CubeRecord(
                 cube_type=r.get("cube_type", ""),
@@ -137,17 +137,16 @@ def parse_cube_records(records: Sequence[dict], nickname: str) -> list[CubeRecor
                 date_create=r.get("date_create", ""),
                 after_pot_values=_values(r.get("after_potential_option")),
                 after_add_values=_values(r.get("after_additional_potential_option")),
+                character_name=r.get("character_name", ""),
             )
         )
     return out
 
 
-def parse_reset_records(records: Sequence[dict], nickname: str) -> list[ResetRecord]:
-    """넥슨 potential 레코드 → ResetRecord 목록. character_name==nickname 만."""
+def parse_reset_records(records: Sequence[dict]) -> list[ResetRecord]:
+    """넥슨 potential 레코드 → ResetRecord 목록(계정 전체, 순수). character_name 보존(/비틱 필터용)."""
     out: list[ResetRecord] = []
     for r in records:
-        if r.get("character_name") != nickname:
-            continue
         out.append(
             ResetRecord(
                 potential_type=r.get("potential_type", ""),
@@ -164,6 +163,7 @@ def parse_reset_records(records: Sequence[dict], nickname: str) -> list[ResetRec
                 date_create=r.get("date_create", ""),
                 after_pot_values=_values(r.get("after_potential_option")),
                 after_add_values=_values(r.get("after_additional_potential_option")),
+                character_name=r.get("character_name", ""),
             )
         )
     return out
@@ -269,8 +269,8 @@ async def fetch_potential_records(
         reset_raw.extend(cached_reset)
 
     return (
-        parse_cube_records(cube_raw, target.nickname),
-        parse_reset_records(reset_raw, target.nickname),
+        parse_cube_records(cube_raw),  # 계정 전체(닉 필터 없음)
+        parse_reset_records(reset_raw),
     )
 
 

@@ -112,9 +112,19 @@ async def test_success_returns_target_and_summary() -> None:
     assert summary.luck_score is not None
 
 
-async def test_no_record_when_only_other_characters() -> None:
-    # 키는 있으나 등록 캐릭터의 기록이 없음 = 기록 없음(키 미등록과 구분).
+async def test_other_character_records_counted_account_wide() -> None:
+    # 계정 전체화: 대표와 다른 캐릭터(부캐) 기록도 계정 전체라 함께 집계된다(닉 필터 제거).
     nexon = _FakeNexon(records=[_record("부캐", 0, 1)])
+    deps, _ = _make_deps(nexon)
+    result = await _process_target(deps, _target(), DATES, {})
+    assert isinstance(result, tuple)
+    _, summary = result
+    assert summary.total_count == 1
+
+
+async def test_no_record_when_empty() -> None:
+    # 키는 있으나 기간 내 강화 기록이 전혀 없음 = 기록 없음(키 미등록과 구분).
+    nexon = _FakeNexon(records=[])
     deps, _ = _make_deps(nexon)
     result = await _process_target(deps, _target(), DATES, {})
     assert isinstance(result, TargetOutcome)

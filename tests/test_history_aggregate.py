@@ -23,18 +23,18 @@ def _record(name: str, before: int, after: int, result: str, when: str) -> dict:
     }
 
 
-# ── parse_attempts: 캐릭터 필터 + 결과 파싱 ────────────────────────────────
+# ── parse_attempts: 계정 전체(닉 필터 없음) + 결과 파싱 ─────────────────────
 
 
-def test_parse_attempts_filters_by_character_name() -> None:
+def test_parse_attempts_returns_all_with_character_name() -> None:
+    # 계정 전체화 — 닉 필터 없이 전 캐릭터 반환, character_name 보존(집계 그룹 키).
     records = [
         _record("손바", 19, 19, "실패(유지)", "2026-05-31T17:46:44+09:00"),
         _record("부캐", 10, 11, "성공", "2026-05-31T18:00:00+09:00"),
     ]
-    attempts = parse_attempts(records, "손바")
-    assert len(attempts) == 1
-    assert attempts[0].before_star == 19
-    assert attempts[0].result == "실패(유지)"
+    attempts = parse_attempts(records)
+    assert len(attempts) == 2
+    assert {a.character_name for a in attempts} == {"손바", "부캐"}
 
 
 def test_parse_attempts_keeps_result_suffix_variants() -> None:
@@ -44,13 +44,15 @@ def test_parse_attempts_keeps_result_suffix_variants() -> None:
         _record("손바", 12, 11, "실패(하락)", "2026-05-31T17:02:00+09:00"),
         _record("손바", 11, 12, "성공", "2026-05-31T17:03:00+09:00"),
     ]
-    results = [a.result for a in parse_attempts(records, "손바")]
+    results = [a.result for a in parse_attempts(records)]
     assert results == ["실패(유지)", "파괴", "실패(하락)", "성공"]
 
 
-def test_parse_attempts_empty_when_no_match() -> None:
+def test_parse_attempts_preserves_all_characters() -> None:
     records = [_record("다른캐릭", 0, 1, "성공", "2026-05-31T17:00:00+09:00")]
-    assert parse_attempts(records, "손바") == []
+    attempts = parse_attempts(records)
+    assert len(attempts) == 1
+    assert attempts[0].character_name == "다른캐릭"
 
 
 # ── aggregate_starforce: 시작/최종★ · matched/total · 운지수 ────────────────
@@ -66,6 +68,34 @@ def _attempt(
         result="성공" if success else "실패(유지)",
         date_create=when,
     )
+
+
+def test_aggregate_groups_same_item_by_character() -> None:
+    # 계정 전체화: 동명 장비라도 캐릭터가 다르면 별도 그룹 — 시작/최종★ 병합 안 됨(버그 차단).
+    attempts = [
+        StarforceAttempt(
+            target_item="재사용장비",
+            before_star=0,
+            after_star=1,
+            result="성공",
+            date_create="2026-05-01T10:00:00+09:00",
+            character_name="본캐",
+        ),
+        StarforceAttempt(
+            target_item="재사용장비",
+            before_star=10,
+            after_star=11,
+            result="성공",
+            date_create="2026-05-01T11:00:00+09:00",
+            character_name="부캐",
+        ),
+    ]
+    summary = aggregate_starforce(attempts, lambda item: 200)
+    # 그룹이 합쳐지면 시작0→최종11(과대). 캐릭터별 분리면 (0→1)+(10→11).
+    assert summary.expected == pytest.approx(
+        expected_meso(200, 0, 1) + expected_meso(200, 10, 11)
+    )
+    assert summary.matched_count == 2
 
 
 def test_aggregate_start_and_final_star() -> None:

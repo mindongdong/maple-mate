@@ -17,7 +17,7 @@ from ..notification import service as channel_service
 from ..registration.service import get_targets
 from .broadcast import build_payload, ensure_guild_data
 
-_MSG_NOT_ENOUGH = "경험치 리더보드는 **2명 이상 등록**해야 추이가 떠요. 친구들도 `/등록` 하면 같이 나와요."
+_MSG_NOT_ENOUGH = "경험치 리더보드는 **2명 이상 등록**해야 추이가 떠요. 친구들도 `/캐릭터등록` 하면 같이 나와요."
 _MSG_NOT_READY = (
     "아직 종합 랭킹 데이터를 못 받았어요(전일 데이터 준비 전이거나 랭킹 미등재)."
     " 잠시 후 다시 시도해 주세요."

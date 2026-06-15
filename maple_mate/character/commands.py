@@ -271,7 +271,7 @@ async def handle_item(
         else:
             await interaction.followup.send(
                 embed=make_embed(
-                    "아이템", "이 서버에 등록자가 없어요. `/등록` 먼저 해주세요."
+                    "아이템", "이 서버에 등록자가 없어요. `/캐릭터등록` 먼저 해주세요."
                 )
             )
         return

@@ -39,7 +39,7 @@ from ..history.service import (
     resolve_period,
 )
 from ..nexon.errors import NexonAPIError, to_error_log_type
-from ..registration.service import classify_target_error
+from ..registration.service import classify_target_error, get_targets
 from .service import (
     ExcludedItems,
     PotentialBitik,
@@ -161,18 +161,25 @@ async def _self_target(
     session_factory: async_sessionmaker[AsyncSession],
     guild_id: int,
     user_id: int,
-) -> tuple[HistoryTarget | None, str | None]:
-    """실행자 본인 대상 해석(Q1). 실패 시 (None, ephemeral 안내문)."""
+) -> tuple[HistoryTarget | None, str | None, str | None]:
+    """실행자 본인 대상 해석(Q1). 성공 시 (HistoryTarget, 대표ocid, None), 실패 시 (None, None, 안내문).
+
+    /비틱은 계정 전체화가 아니라 **대표 기준**(작업지시서 12·Phase 4). target.ocid 는 이력 캐시
+    앵커(최초 등록)이고, 대표ocid 는 아이콘·장착레벨 조회용(대표 캐릭터)이라 둘이 다를 수 있다.
+    """
     targets = await get_history_targets(session_factory, guild_id, [user_id])
     if not targets:
-        return None, "이 서버에 등록되지 않았어요. `/등록` 먼저 해주세요."
+        return None, None, "이 서버에 등록되지 않았어요. `/캐릭터등록` 먼저 해주세요."
     target = targets[0]
     if target.api_key_encrypted is None:
         return (
             None,
-            "개인 키 미등록이라 이력을 볼 수 없어요. `/등록`에 키를 추가해 주세요.",
+            None,
+            "개인 키 미등록이라 이력을 볼 수 없어요. `/키등록`으로 키를 추가해 주세요.",
         )
-    return target, None
+    spec_targets = await get_targets(session_factory, guild_id, [user_id])
+    rep_ocid = spec_targets[0].ocid if spec_targets else target.ocid
+    return target, rep_ocid, None
 
 
 async def _fetch_item_icon(deps: Deps, ocid: str, item_name: str) -> bytes | None:
@@ -286,8 +293,8 @@ async def _resolve_common(
     start_raw: str | None,
     end_raw: str | None,
     preset: str,
-) -> tuple[HistoryTarget, list[date]] | None:
-    """defer(ephemeral) → 길드/날짜/본인 대상 검증. 실패 시 ephemeral 안내 후 None."""
+) -> tuple[HistoryTarget, str, list[date]] | None:
+    """defer(ephemeral) → 길드/날짜/본인 대상 검증. 성공 시 (target, 대표ocid, dates), 실패 시 None."""
     await defer(interaction, ephemeral=True)
     if interaction.guild_id is None:
         await interaction.followup.send(
@@ -304,7 +311,7 @@ async def _resolve_common(
         )
         return None
 
-    target, error = await _self_target(
+    target, rep_ocid, error = await _self_target(
         deps.session_factory, interaction.guild_id, interaction.user.id
     )
     if target is None:
@@ -312,7 +319,7 @@ async def _resolve_common(
         return None
 
     today_kst = datetime.now(KST).date()
-    return target, resolve_period(preset, start, end, today_kst)
+    return target, rep_ocid, resolve_period(preset, start, end, today_kst)
 
 
 def _card_embed(target: HistoryTarget, title: str, footer: str) -> discord.Embed:
@@ -335,7 +342,7 @@ async def handle_bitik_starforce(
     )
     if resolved is None:
         return
-    target, dates = resolved
+    target, rep_ocid, dates = resolved
 
     try:
         attempts = await fetch_starforce_records(deps, target, dates)
@@ -346,6 +353,9 @@ async def handle_bitik_starforce(
         )
         return
 
+    # /비틱은 대표 기준(계정 전체화 아님) — 계정 전체 결과에서 대표 캐릭터 것만 추린다.
+    attempts = [a for a in attempts if a.character_name == target.nickname]
+
     if not attempts:
         await interaction.followup.send(
             embed=make_embed(title, _NO_RECORD), ephemeral=True
@@ -355,7 +365,7 @@ async def handle_bitik_starforce(
     # 레벨 매칭 소스: (B)학습 위에 (A)현재 장착(이력류 _process_target 패턴).
     learned = await load_learned_levels(deps.session_factory)
     try:
-        equipped = await fetch_equipped_levels(deps.nexon, target.ocid)
+        equipped = await fetch_equipped_levels(deps.nexon, rep_ocid)
     except NexonAPIError as exc:
         log.debug("장착 레벨 조회 실패(학습/시드로 폴백): %s", exc)
         equipped = {}
@@ -389,7 +399,7 @@ async def handle_bitik_starforce(
     async def send_card(pick: discord.Interaction, index: int) -> None:
         await pick.response.defer(thinking=True)  # 공개(Q4)
         bitik = top[index]
-        icon = await _fetch_item_icon(deps, target.ocid, bitik.item)
+        icon = await _fetch_item_icon(deps, rep_ocid, bitik.item)
         png = await asyncio.to_thread(
             bitik_card.render_starforce_card, bitik, icon, period
         )
@@ -423,7 +433,7 @@ async def handle_bitik_potential(
     )
     if resolved is None:
         return
-    target, dates = resolved
+    target, rep_ocid, dates = resolved
 
     try:
         cubes, resets = await fetch_potential_records(deps, target, dates)
@@ -433,6 +443,10 @@ async def handle_bitik_potential(
             embed=make_embed(title, classify_target_error(exc)), ephemeral=True
         )
         return
+
+    # /비틱은 대표 기준(계정 전체화 아님) — 대표 캐릭터 기록만 추린다.
+    cubes = [c for c in cubes if c.character_name == target.nickname]
+    resets = [r for r in resets if r.character_name == target.nickname]
 
     bitiks = await asyncio.to_thread(
         group_potential, cubes, resets, cost=potential_cost
@@ -449,7 +463,7 @@ async def handle_bitik_potential(
     async def send_card(pick: discord.Interaction, index: int) -> None:
         await pick.response.defer(thinking=True)  # 공개(Q4)
         bitik = top[index]
-        icon = await _fetch_item_icon(deps, target.ocid, bitik.item)
+        icon = await _fetch_item_icon(deps, rep_ocid, bitik.item)
         png = await asyncio.to_thread(
             bitik_card.render_potential_card, bitik, icon, period
         )

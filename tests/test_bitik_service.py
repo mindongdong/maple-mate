@@ -189,7 +189,7 @@ def test_parse_attempts_extracts_superior_flag() -> None:
             "superior_item_flag": "슈페리얼 장비 미해당",
         },
     ]
-    attempts = parse_attempts(records, "손바")
+    attempts = parse_attempts(records)
     assert [a.superior for a in attempts] == [True, False]
 
 
@@ -208,7 +208,7 @@ def test_parse_attempts_superior_unknown_format_falls_back_to_regular() -> None:
         {**base, "superior_item_flag": ""},
         {**base},  # 필드 자체 부재
     ]
-    assert [a.superior for a in parse_attempts(records, "손바")] == [False] * 3
+    assert [a.superior for a in parse_attempts(records)] == [False] * 3
 
 
 # ── 잠재 픽스처 ──────────────────────────────────────────────────────────────
@@ -402,7 +402,7 @@ def test_parse_cube_records_extracts_after_option_values() -> None:
             "date_create": "2026-06-01T10:00:00+09:00",
         }
     ]
-    parsed = parse_cube_records(records, "손바")
+    parsed = parse_cube_records(records)
     assert parsed[0].after_pot_values == ("보공 +30%", "공격력 +9%")
     assert parsed[0].after_add_values == ()
 

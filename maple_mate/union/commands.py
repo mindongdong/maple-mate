@@ -47,7 +47,7 @@ async def handle_union(
         else:
             await interaction.followup.send(
                 embed=make_embed(
-                    "유니온", "이 서버에 등록자가 없어요. `/등록` 먼저 해주세요."
+                    "유니온", "이 서버에 등록자가 없어요. `/캐릭터등록` 먼저 해주세요."
                 )
             )
         return
