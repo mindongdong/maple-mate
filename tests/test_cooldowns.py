@@ -71,10 +71,10 @@ async def test_command_group_cooldown_attached(bot, name, per):
     assert await check(_interaction(at=per + 0.1)) is True
 
 
-async def test_ping_has_no_cooldown(bot):
-    ping = bot.tree.get_command("핑")
-    assert ping is not None
-    assert not ping.checks
+async def test_guide_has_no_cooldown(bot):
+    guide = bot.tree.get_command("가이드")
+    assert guide is not None
+    assert not guide.checks
 
 
 async def test_cooldown_is_per_user_and_per_guild(bot):
