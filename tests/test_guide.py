@@ -43,6 +43,13 @@ async def test_guide_responds_ephemeral_embed(bot):
     assert sent["embed"].title == "메이트 가이드"
 
 
+def test_guide_mentions_challengers_mode():
+    """챌린저스 모드 안내가 가이드에 등장해야 한다(ADR-0009 — 모드 한 줄 설명)."""
+    embed = build_guide_embed()
+    text = embed.description + "".join(f.name + f.value for f in embed.fields)
+    assert "챌린저스" in text and "모드" in text
+
+
 def test_guide_covers_all_top_level_commands(bot):
     """드리프트 가드: '가이드' 외 모든 최상위 명령명이 임베드 본문에 등장해야 한다.
 
