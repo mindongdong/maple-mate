@@ -27,6 +27,7 @@ from ..nexon.client import NexonClient
 from ..nexon.errors import ErrorClass, NexonAPIError, to_error_log_type
 from ..security.crypto import KeyCipher
 from .models import Character, Registration
+from .realm import Realm, in_realm
 
 log = logging.getLogger(__name__)
 
@@ -250,6 +251,7 @@ class _CharacterLike(Protocol):
     ocid: str
     level: int | None
     created_at: Any  # datetime (정렬 가능하면 무엇이든 — 순수 단위테스트 용이)
+    world: str | None  # realm 신호(ADR-0009). realm 인자 지정 시에만 접근.
 
 
 def _auto_key(c: _CharacterLike) -> tuple:
@@ -259,21 +261,31 @@ def _auto_key(c: _CharacterLike) -> tuple:
 
 
 def pick_representative(
-    characters: Sequence[_CharacterLike], representative_ocid: str | None
+    characters: Sequence[_CharacterLike],
+    representative_ocid: str | None,
+    realm: Realm | None = None,
 ) -> _CharacterLike | None:
     """대표 해석 규칙(작업지시서). 순수함수 — 단위테스트 대상.
 
-    1. representative_ocid 가 set 이고 해당 character 존재 → 그 캐릭터(수동 지정).
-    2. NULL 이거나 가리키는 캐릭터 부재 → level 최고값(동률·NULL 은 created_at/ocid 타이브레이크).
-    3. character 0개 → None.
+    realm 지정 시 그 realm 캐릭터만 후보로 본다(결정 4 — realm 인지 해석). 수동 핀은 가리키는
+    캐릭터가 그 realm 에 있을 때만 효력, 반대 realm 핀은 무시되고 그 realm 내 자동 대표가 된다.
+
+    1. representative_ocid 가 set 이고 (realm) 후보에 존재 → 그 캐릭터(수동 지정).
+    2. NULL 이거나 가리키는 캐릭터가 후보에 없음 → level 최고값(동률·NULL 은 created_at/ocid).
+    3. (realm) 후보 0개 → None.
     """
-    if not characters:
+    pool = (
+        list(characters)
+        if realm is None
+        else [c for c in characters if in_realm(c.world, realm)]
+    )
+    if not pool:
         return None
     if representative_ocid is not None:
-        match = next((c for c in characters if c.ocid == representative_ocid), None)
+        match = next((c for c in pool if c.ocid == representative_ocid), None)
         if match is not None:
             return match
-    return sorted(characters, key=_auto_key)[0]
+    return sorted(pool, key=_auto_key)[0]
 
 
 async def _load_user_characters(
@@ -366,6 +378,7 @@ class Target:
     discord_user_id: int
     nickname: str
     ocid: str
+    world: str | None = None  # 대표의 realm 신호(ADR-0009) — 리더보드 적재·라벨용
 
 
 @dataclass(frozen=True)
@@ -385,11 +398,15 @@ async def get_targets(
     session_factory: async_sessionmaker[AsyncSession],
     guild_id: int,
     user_ids: Sequence[int] | None = None,
+    realm: Realm | None = None,
 ) -> list[Target]:
     """비교 대상 해석 — 유저별 대표 1명(CONTEXT.md 용어 '대상').
 
     user_ids 없으면 현재 서버 등록자 전원(각자 대표), 지정 시 그 유저들 중 캐릭터 보유자만.
     캐릭터 0개 유저(키만 등록 등)는 제외. user_ids 지정 시 입력 순서를 보존(비교 가독성).
+
+    realm 지정 시 그 realm 캐릭터만으로 대표를 해석한다(결정 5 — 본서버 모드는 챌린저스 제외,
+    챌린저스 모드는 챌린저스만). 그 realm 캐릭터가 없는 유저는 대상에서 빠진다(누수 0).
     """
     async with session_factory() as session:
         char_stmt = select(Character).where(Character.guild_id == guild_id)
@@ -410,7 +427,7 @@ async def get_targets(
 
     targets: list[Target] = []
     for uid, clist in by_user.items():
-        rep = pick_representative(clist, rep_by_user.get(uid))
+        rep = pick_representative(clist, rep_by_user.get(uid), realm)
         if rep is None:
             continue
         targets.append(
@@ -419,6 +436,7 @@ async def get_targets(
                 discord_user_id=uid,
                 nickname=rep.maple_nickname,
                 ocid=rep.ocid,
+                world=rep.world,
             )
         )
     if user_ids is not None:

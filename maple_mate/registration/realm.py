@@ -47,3 +47,15 @@ def realm_prefix(realm: Realm) -> str:
 def realm_title(base: str, realm: Realm) -> str:
     """임베드/표 제목에 realm 라벨 적용. 본서버는 base 그대로(무라벨)."""
     return f"{realm_prefix(realm)}{base}"
+
+
+# ── 자격/안내 메시지 (챌린저스만 분기 — 본서버는 명령별 기존 문구 유지로 회귀 0) ──
+#
+# 챌린저스 모드는 슬래시 파라미터로 전원에게 보이므로(결정 7), 미보유 유저에겐 런타임 안내로
+# 처리한다. 본서버 모드 문구는 각 명령의 기존 리터럴을 그대로 쓴다(시각적 회귀 0).
+
+CHALLENGERS_NO_TARGET = "챌린저스 캐릭터를 등록하지 않았어요. `/캐릭터등록` 으로 챌린저스 캐릭터를 추가해 주세요."
+CHALLENGERS_NO_REGISTRANTS = (
+    "이 서버에 챌린저스 캐릭터 등록자가 없어요."
+    " 챌린저스 캐릭터를 `/캐릭터등록` 하면 챌린저스 모드로 같이 보여요."
+)
