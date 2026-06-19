@@ -9,7 +9,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from sqlalchemy import BigInteger, Date, DateTime, Float, Integer, func
+from sqlalchemy import BigInteger, Date, DateTime, Float, Integer, String, func
 from sqlalchemy.orm import Mapped, mapped_column
 
 from ..database.core import Base
@@ -18,10 +18,14 @@ from ..database.core import Base
 class ExpSnapshot(Base):
     __tablename__ = "exp_snapshot"
 
-    # PK = (guild_id, discord_user_id, snapshot_date). Discord snowflake = 64bit → BigInteger.
+    # PK = (guild_id, discord_user_id, snapshot_date, realm). Discord snowflake = 64bit → BigInteger.
+    # realm(본서버/챌린저스)은 리더보드 2개 완전 분리를 위해 PK 에 포함(ADR-0009 — ADR-0006 PK
+    # 불변을 의도적으로 되돌림). 같은 유저의 두 realm 대표가 같은 날 공존할 수 있어 필요하다.
     guild_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     discord_user_id: Mapped[int] = mapped_column(BigInteger, primary_key=True)
     snapshot_date: Mapped[date] = mapped_column(Date, primary_key=True)
+    # Realm.value("본서버"/"챌린저스") 디스크리미넌트. 레거시 행은 마이그레이션이 '본서버'로 백필.
+    realm: Mapped[str] = mapped_column(String(16), primary_key=True)
 
     character_level: Mapped[int] = mapped_column(Integer, nullable=False)
     # 누적 총 경험치(스파이크 실측 72조@Lv287) → BigInteger. 정렬키, 표 비노출.

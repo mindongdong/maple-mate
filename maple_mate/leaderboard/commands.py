@@ -12,8 +12,10 @@ from discord import app_commands
 
 from ..bot import cooldowns
 from ..bot.embeds import defer, make_embed
+from ..bot.modes import MODE_CHOICES, MODE_DESCRIBE, parse_mode
 from ..dependencies import Deps
 from ..notification import service as channel_service
+from ..registration.realm import Realm, realm_title
 from ..registration.service import get_targets
 from .broadcast import build_payload, ensure_guild_data
 
@@ -22,32 +24,47 @@ _MSG_NOT_READY = (
     "아직 종합 랭킹 데이터를 못 받았어요(전일 데이터 준비 전이거나 랭킹 미등재)."
     " 잠시 후 다시 시도해 주세요."
 )
+_MSG_CHAL_NOT_ENOUGH = (
+    "챌린저스 경험치 리더보드는 **챌린저스 캐릭터 2명 이상**이 등록해야 떠요."
+    " 챌린저스 캐릭터를 `/캐릭터등록` 하면 같이 나와요."
+)
+_MSG_CHAL_NOT_READY = (
+    "아직 챌린저스 랭킹을 집계하기 전이에요(새 서버라 누적 랭킹 생성 대기 중)."
+    " 넥슨이 생성하면 자동으로 표시돼요."
+)
 
 
-async def handle_leaderboard(deps: Deps, interaction: discord.Interaction) -> None:
-    """`/경험치` 본체: defer → 온디맨드 부트스트랩 → build_payload → 7일 레벨 추이 그래프 공개 발송.
+async def handle_leaderboard(
+    deps: Deps, interaction: discord.Interaction, realm: Realm = Realm.MAIN
+) -> None:
+    """`/경험치` 본체: defer → 온디맨드 부트스트랩 → build_payload(realm) → 7일 추이 공개 발송.
 
-    payload 가 None 이면 등록자 수를 확인해 <2명 vs 데이터 미준비를 구분해 안내한다.
+    payload 가 None 이면 그 realm 등록자 수를 확인해 <2명 vs 데이터 미준비(챌린저스는 랭킹
+    집계 전)를 구분해 안내한다.
     """
     await defer(interaction)
+    title = realm_title("경험치 리더보드", realm)
     if interaction.guild_id is None:
         await interaction.followup.send(
-            embed=make_embed("경험치 리더보드", "서버(길드) 안에서만 쓸 수 있어요."),
+            embed=make_embed(title, "서버(길드) 안에서만 쓸 수 있어요."),
             ephemeral=True,
         )
         return
 
-    # D-1 스냅샷이 없으면 즉시 백필+적재(첫 호출 온디맨드 부트스트랩).
+    # D-1 스냅샷이 없으면 즉시 백필+적재(첫 호출 온디맨드 부트스트랩, 두 realm 모두).
     await ensure_guild_data(deps, interaction.guild_id)
 
-    payload = await build_payload(interaction.client, deps, interaction.guild_id)
+    payload = await build_payload(interaction.client, deps, interaction.guild_id, realm)
     if payload is None:
-        # 등록자가 2명 미만인지, 데이터가 아직 미준비인지 구분해 안내한다.
-        targets = await get_targets(deps.session_factory, interaction.guild_id)
-        msg = _MSG_NOT_ENOUGH if len(targets) < 2 else _MSG_NOT_READY
-        await interaction.followup.send(
-            embed=make_embed("경험치 리더보드", msg), ephemeral=True
+        # 그 realm 등록자가 2명 미만인지, 데이터가 아직 미준비인지 구분해 안내한다.
+        targets = await get_targets(
+            deps.session_factory, interaction.guild_id, realm=realm
         )
+        if realm is Realm.CHALLENGERS:
+            msg = _MSG_CHAL_NOT_ENOUGH if len(targets) < 2 else _MSG_CHAL_NOT_READY
+        else:
+            msg = _MSG_NOT_ENOUGH if len(targets) < 2 else _MSG_NOT_READY
+        await interaction.followup.send(embed=make_embed(title, msg), ephemeral=True)
         return
 
     await interaction.followup.send(
@@ -101,9 +118,15 @@ def setup_leaderboard(bot: discord.Client) -> None:
         name="경험치",
         description="등록 캐릭터들의 최근 7일 레벨 추이 그래프를 보여줍니다.",
     )
+    @app_commands.rename(mode="모드")
+    @app_commands.describe(mode=MODE_DESCRIBE)
+    @app_commands.choices(mode=MODE_CHOICES)
     @cooldowns.spec_cooldown()  # 10초 — 첫 호출은 넥슨 온디맨드 백필 가능; 이후는 DB 조회만
-    async def leaderboard_command(interaction: discord.Interaction) -> None:
-        await handle_leaderboard(deps, interaction)
+    async def leaderboard_command(
+        interaction: discord.Interaction,
+        mode: app_commands.Choice[str] | None = None,
+    ) -> None:
+        await handle_leaderboard(deps, interaction, parse_mode(mode))
 
     @bot.tree.command(  # type: ignore[attr-defined]
         name="경험치알림",

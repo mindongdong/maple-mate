@@ -13,6 +13,7 @@ import pytest
 
 from maple_mate.leaderboard import broadcast, commands
 from maple_mate.leaderboard.broadcast import LeaderboardPayload, _footer_text
+from maple_mate.registration.realm import Realm
 
 # ── 푸터 라벨 ────────────────────────────────────────────────────────────────
 
@@ -64,7 +65,7 @@ async def test_leaderboard_command_sends_public_payload(monkeypatch):
         ref_date=date(2026, 6, 13),
     )
 
-    async def fake_build(bot, deps, guild_id):
+    async def fake_build(bot, deps, guild_id, realm=Realm.MAIN):
         return payload
 
     monkeypatch.setattr(commands, "ensure_guild_data", _noop_ensure)
@@ -80,10 +81,10 @@ async def test_leaderboard_command_sends_public_payload(monkeypatch):
 async def test_leaderboard_command_no_data_below_two_registrants(monkeypatch):
     """등록자 < 2명이면 '2명 이상 등록' 안내."""
 
-    async def fake_build(bot, deps, guild_id):
+    async def fake_build(bot, deps, guild_id, realm=Realm.MAIN):
         return None
 
-    async def fake_get_targets(sf, guild_id):
+    async def fake_get_targets(sf, guild_id, realm=None):
         return [SimpleNamespace(discord_user_id=10, nickname="손바", ocid="o1")]
 
     monkeypatch.setattr(commands, "ensure_guild_data", _noop_ensure)
@@ -100,10 +101,10 @@ async def test_leaderboard_command_no_data_below_two_registrants(monkeypatch):
 async def test_leaderboard_command_no_data_data_not_ready(monkeypatch):
     """등록자 ≥ 2명인데 payload None이면 '데이터 미준비' 안내."""
 
-    async def fake_build(bot, deps, guild_id):
+    async def fake_build(bot, deps, guild_id, realm=Realm.MAIN):
         return None
 
-    async def fake_get_targets(sf, guild_id):
+    async def fake_get_targets(sf, guild_id, realm=None):
         return [
             SimpleNamespace(discord_user_id=10, nickname="손바", ocid="o1"),
             SimpleNamespace(discord_user_id=20, nickname="라딘라면", ocid="o2"),
@@ -123,7 +124,7 @@ async def test_leaderboard_command_no_data_data_not_ready(monkeypatch):
 async def test_leaderboard_command_dm_guard(monkeypatch):
     called = {"build": False}
 
-    async def fake_build(bot, deps, guild_id):
+    async def fake_build(bot, deps, guild_id, realm=Realm.MAIN):
         called["build"] = True
         return None
 
@@ -148,7 +149,7 @@ async def test_leaderboard_command_bootstrap_fetches_when_no_snapshot(monkeypatc
         ref_date=date(2026, 6, 13),
     )
 
-    async def fake_build(bot, deps, guild_id):
+    async def fake_build(bot, deps, guild_id, realm=Realm.MAIN):
         return payload
 
     monkeypatch.setattr(commands, "ensure_guild_data", fake_ensure)
@@ -235,12 +236,12 @@ async def test_exp_alert_dm_guard(monkeypatch):
 
 
 async def test_build_payload_returns_none_below_min_ranked(monkeypatch):
-    async def fake_get_targets(sf, guild_id):
+    async def fake_get_targets(sf, guild_id, realm=None):
         return [
             SimpleNamespace(discord_user_id=10, nickname="손바", ocid="o1"),
         ]
 
-    async def fake_snapshots_on(sf, guild_id, snap_date):
+    async def fake_snapshots_on(sf, guild_id, snap_date, realm=None):
         return [
             SimpleNamespace(
                 discord_user_id=10,
