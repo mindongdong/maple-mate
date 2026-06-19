@@ -64,6 +64,9 @@ class CharacterInfo:
     nickname: str
     level: int | None
     is_representative: bool
+    world: str | None = (
+        None  # realm 신호(ADR-0009). NULL=본서버. 목록에 챌린저스만 표기.
+    )
 
 
 # ── ocid / 키 검증 (재사용) ──────────────────────────────────────────────────
@@ -106,20 +109,26 @@ async def verify_and_encrypt_key(
     return cipher.encrypt(api_key), None
 
 
-async def _fetch_level(nexon: NexonClient, ocid: str) -> int | None:
-    """등록 시 레벨 스냅샷(best-effort). character/basic 실패·파싱오류는 None(등록 자체는 진행)."""
+async def _fetch_level_and_world(
+    nexon: NexonClient, ocid: str
+) -> tuple[int | None, str | None]:
+    """등록 시 레벨·월드 스냅샷(best-effort, 한 콜). 실패·파싱오류는 (None, None)(등록은 진행).
+
+    world_name 은 realm 신호(ADR-0009) — `챌린저스N` 이면 챌린저스 캐릭터로 자동 판별된다.
+    """
     try:
         basic = await nexon.character_basic(ocid)
     except NexonAPIError as exc:
-        log.debug("레벨 스냅샷 실패(무시) ocid=%s: %s", ocid, exc)
-        return None
+        log.debug("레벨/월드 스냅샷 실패(무시) ocid=%s: %s", ocid, exc)
+        return None, None
+    world = basic.get("world_name")
     raw = basic.get("character_level")
     if raw is None:
-        return None
+        return None, world
     try:
-        return int(raw)
+        return int(raw), world
     except (TypeError, ValueError):
-        return None
+        return None, world
 
 
 # ── 등록 (캐릭터 / 키) ────────────────────────────────────────────────────────
@@ -140,7 +149,7 @@ async def register_character(
     ocid, err = await resolve_ocid(nexon, nickname)
     if ocid is None:
         return CharacterRegisterResult(ok=False, error=err)
-    level = await _fetch_level(nexon, ocid)
+    level, world = await _fetch_level_and_world(nexon, ocid)
 
     async with session_factory() as session:
         existing = set(
@@ -180,12 +189,14 @@ async def register_character(
                 ocid=ocid,
                 maple_nickname=nickname,
                 level=level,
+                world=world,
             )
             .on_conflict_do_update(
                 index_elements=["guild_id", "discord_user_id", "ocid"],
                 set_={
                     "maple_nickname": nickname,
                     "level": level,
+                    "world": world,  # 재등록 시 realm 신호 lazy 갱신(레거시 NULL 백필)
                     "updated_at": func.now(),
                 },
             )
@@ -297,6 +308,7 @@ async def get_characters(
             nickname=c.maple_nickname,
             level=c.level,
             is_representative=c.ocid == rep_id,
+            world=c.world,
         )
         for c in sorted(chars, key=_auto_key)
     ]

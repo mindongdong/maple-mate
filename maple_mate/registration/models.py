@@ -49,6 +49,9 @@ class Character(Base):
     maple_nickname: Mapped[str] = mapped_column(String(64), nullable=False)
     # 등록 시 레벨 스냅샷(그릴링 5). 자동 대표 = 저장 레벨 최고값. 미상 시 NULL(타이브레이크로 처리).
     level: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    # 등록 시 world_name 스냅샷(realm 신호, ADR-0009). NULL=본서버(레거시). `챌린저스N`=챌린저스.
+    # realm 판정은 registration.realm.is_challengers(world). 미상 시 NULL → 본서버로 해석.
+    world: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False

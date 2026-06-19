@@ -32,6 +32,42 @@ class FakeNexon:
 CIPHER = KeyCipher(Fernet.generate_key())
 
 
+# ── 등록 시 레벨·월드 스냅샷 (realm 자동 판별, ADR-0009) ─────────────────────
+
+
+async def test_fetch_level_and_world_extracts_both():
+    nexon = FakeNexon()
+
+    async def basic(ocid):
+        return {"character_level": 260, "world_name": "챌린저스3"}
+
+    nexon.character_basic = basic  # type: ignore[attr-defined]
+    level, world = await service._fetch_level_and_world(nexon, "o1")
+    assert level == 260 and world == "챌린저스3"
+
+
+async def test_fetch_level_and_world_main_realm():
+    nexon = FakeNexon()
+
+    async def basic(ocid):
+        return {"character_level": 287, "world_name": "스카니아"}
+
+    nexon.character_basic = basic  # type: ignore[attr-defined]
+    level, world = await service._fetch_level_and_world(nexon, "o1")
+    assert level == 287 and world == "스카니아"
+
+
+async def test_fetch_level_and_world_api_error_returns_none_none():
+    nexon = FakeNexon()
+
+    async def boom(ocid):
+        raise NexonAPIError("OPENAPI00001", "internal", http_status=500)
+
+    nexon.character_basic = boom  # type: ignore[attr-defined]
+    level, world = await service._fetch_level_and_world(nexon, "o1")
+    assert level is None and world is None
+
+
 async def test_resolve_ocid_success():
     nexon = FakeNexon(ocids={"손가락": "ocid_son"})
     ocid, err = await service.resolve_ocid(nexon, "손가락")
