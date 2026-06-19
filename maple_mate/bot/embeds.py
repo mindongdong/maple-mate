@@ -1,7 +1,7 @@
 """출력 헬퍼 (빌드 단위 #6, design §7).
 
 - 임베드 통일(`make_embed`)
-- 데이터 기준 시점 푸터(`format_footer`) — 지난날짜=YYYY-MM-DD / 오늘(KST)=HH:MM 기준
+- 데이터 기준 시점 푸터(`format_footer`) — 지난날짜=YYYY-MM-DD 기준 / 오늘(KST)=HH:MM 기준
 - 버튼 페이지네이션(`EmbedPaginator`)
 - defer 헬퍼(`defer`)
 
@@ -32,18 +32,18 @@ def format_footer(reference: date | datetime, now: datetime) -> str:
     """데이터 기준 시점 푸터 문자열.
 
     - reference 가 (KST) 오늘이면 'HH:MM 기준' (datetime 이면 그 시각, date 면 now 의 시각).
-    - 그 외(지난 날짜)면 'YYYY-MM-DD'.
+    - 그 외(지난 날짜)면 'YYYY-MM-DD 기준' (어느 날짜 스냅샷인지 명시 — 유니온 등 D-1 명시 조회).
     """
     now_kst = now.astimezone(KST)
     if isinstance(reference, datetime):
         ref_kst = reference.astimezone(KST)
         if ref_kst.date() == now_kst.date():
             return f"{ref_kst:%H:%M} 기준"
-        return ref_kst.date().isoformat()
+        return f"{ref_kst.date().isoformat()} 기준"
     # date
     if reference == now_kst.date():
         return f"{now_kst:%H:%M} 기준"
-    return reference.isoformat()
+    return f"{reference.isoformat()} 기준"
 
 
 def make_embed(
