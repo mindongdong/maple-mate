@@ -125,15 +125,17 @@ async def resolve_targets(
     session_factory: async_sessionmaker[AsyncSession],
     guild_id: int,
     members: list[discord.Member],
-    realm: Realm = Realm.MAIN,
+    realm: Realm | None = None,
 ) -> tuple[list[Target], list[TargetOutcome]]:
     """지정 멤버 → 등록 Target 목록 + 미등록 멤버의 실패 outcome.
 
     members 비어 있으면 서버 전체 등록자(미등록 outcome 없음). 지정했지만 미등록인 멤버는
     부분 성공 행("미등록")으로 돌려준다(handoff §4: 미등록 유저는 대상에서 제외하되 안내).
 
-    realm 으로 대상을 스코핑한다(기본 본서버). 챌린저스 모드에선 그 realm 캐릭터 미보유 멤버를
-    '챌린저스 캐릭터 미등록' 부분성공 행으로 돌려준다(결정 5). 본서버 모드 문구는 기존 유지(회귀 0).
+    realm=None 은 realm 무필터(전 realm) — `/유니온`(realm 거름 '—', 코드 무변경)의 기존 동작.
+    `/스펙`·`/아이템` 은 명시적 realm(본서버/챌린저스)을 넘긴다. 챌린저스 모드에선 그 realm
+    캐릭터 미보유 멤버를 '챌린저스 캐릭터 미등록' 부분성공 행으로(결정 5). 본서버/무필터 문구는
+    기존 유지(시각 회귀 0).
     """
     user_ids = [m.id for m in members] or None
     targets = await get_targets(session_factory, guild_id, user_ids, realm)

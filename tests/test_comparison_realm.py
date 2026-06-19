@@ -17,7 +17,7 @@ def _member(uid: int):
     return SimpleNamespace(id=uid, display_name=f"유저{uid}")
 
 
-async def test_resolve_targets_passes_realm_and_main_message(monkeypatch):
+async def test_resolve_targets_passes_main_realm_and_message(monkeypatch):
     captured: dict = {}
 
     async def fake_get_targets(sf, guild_id, user_ids, realm):
@@ -29,15 +29,28 @@ async def test_resolve_targets_passes_realm_and_main_message(monkeypatch):
 
     monkeypatch.setattr(comparison, "get_targets", fake_get_targets)
     targets, missing = await comparison.resolve_targets(
-        object(), 1, [_member(10), _member(20)]
+        object(), 1, [_member(10), _member(20)], Realm.MAIN
     )
-    assert captured["realm"] is Realm.MAIN  # 기본 본서버
+    assert captured["realm"] is Realm.MAIN  # 본서버 모드 명시(스펙/아이템)
     assert [t.discord_user_id for t in targets] == [10]
     assert len(missing) == 1
     assert missing[0].target.discord_user_id == 20
     assert (
         missing[0].error == "이 서버에 등록되지 않았어요. `/캐릭터등록` 먼저 해주세요."
     )
+
+
+async def test_resolve_targets_default_realm_is_none_for_union(monkeypatch):
+    # 무인자 기본 = None(realm 무필터) — /유니온 의 기존 동작 보존(realm 거름 '—', 코드 무변경).
+    captured: dict = {}
+
+    async def fake_get_targets(sf, guild_id, user_ids, realm):
+        captured["realm"] = realm
+        return []
+
+    monkeypatch.setattr(comparison, "get_targets", fake_get_targets)
+    await comparison.resolve_targets(object(), 1, [])
+    assert captured["realm"] is None
 
 
 async def test_resolve_targets_challengers_missing_message(monkeypatch):
