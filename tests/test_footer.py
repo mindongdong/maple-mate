@@ -1,6 +1,6 @@
 """푸터 포맷 순수함수 단위테스트 (handoff §6, design §7).
 
-지난 날짜 = 'YYYY-MM-DD' / 오늘(KST) = 'HH:MM 기준'.
+지난 날짜 = 'YYYY-MM-DD 기준' / 오늘(KST) = 'HH:MM 기준'.
 """
 
 from __future__ import annotations
@@ -13,7 +13,7 @@ NOW = datetime(2026, 6, 4, 14, 30, tzinfo=KST)
 
 
 def test_past_date_shows_iso_date():
-    assert format_footer(date(2026, 6, 1), NOW) == "2026-06-01"
+    assert format_footer(date(2026, 6, 1), NOW) == "2026-06-01 기준"
 
 
 def test_today_date_shows_hhmm():
@@ -27,7 +27,7 @@ def test_today_datetime_uses_its_own_time():
 
 def test_past_datetime_shows_its_date():
     ref = datetime(2026, 6, 2, 23, 0, tzinfo=KST)
-    assert format_footer(ref, NOW) == "2026-06-02"
+    assert format_footer(ref, NOW) == "2026-06-02 기준"
 
 
 def test_datetime_converted_to_kst_before_compare():

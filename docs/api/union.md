@@ -51,6 +51,8 @@
 
 **봇 활용:** `/유니온` 명령에서 `union_level`과 `union_grade`를 표시하는 핵심 엔드포인트. `union_artifact_level`도 아티팩트 요약에 사용.
 
+> ⚠️ **넥슨 회귀(2026-06 실측):** 이 엔드포인트만 `date` **무지정** 호출 시 일부 캐릭터에게 200 + 전 필드 null 을 반환한다(손바·라딘라면 재현, 솝상은 정상 — 캐릭터별 편차). 반드시 **명시적 D-1(KST)** 로 호출한다. 오늘/미래 date 는 `OPENAPI00004`(거부), 새벽 0~2시 D-1 미생성 시 D-2 폴백. 동일 회귀가 `union-artifact`·`union-champion`·`character/*` 엔드포인트엔 없음(date 무지정 정상). 봇 구현: `union.service._union_latest`.
+
 ---
 
 ## GET `maplestory/v1/user/union-raider` — 유니온 공격대
