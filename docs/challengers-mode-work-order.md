@@ -1,5 +1,18 @@
 # 작업 지시서 — 챌린저스 서버 모드 (본서버/챌린저스 realm 분리)
 
+> ✅ **구현 완료** (2026-06-19, 브랜치 `feat/challengers-mode`). 6단계 수직 슬라이스 + 단계별 테스트,
+> ADR-0009·CONTEXT.md 반영. 검증 게이트 통과: `pytest` 563 통과 · `ruff` 클린 · `alembic check`
+> 무드리프트 · 마이그레이션 2건(`character.world`·`exp_snapshot.realm`) 실DB up/down 가역성 실증.
+>
+> **as-built 보강(설계 대비 변경점):**
+> - **`exp_snapshot.realm` PK 확장** — 데이터 모델에 `Character.world` 만 명시했으나, dual-realm
+>   유저의 두 realm 대표가 같은 날 공존해야 리더보드 2개를 누수 없이 만들 수 있어 `exp_snapshot`
+>   PK 에 realm 을 추가했다(ADR-0006 PK 불변을 ADR-0009 가 의도적으로 되돌림 — 사용자 승인).
+> - **`resolve_targets` 기본 realm=None** — `/유니온`(공유 호출, realm 미전달)의 기존 동작 보존을
+>   위해 기본은 무필터(None)이고 `/스펙`·`/아이템` 만 명시적 realm 을 넘긴다.
+> - 마이그레이션 리비전: `a7f3e1c92b04`(character.world) → `c3d4e5f6a7b8`(exp_snapshot.realm).
+> - 신규 모듈: `registration/realm.py`(순수 술어·Realm enum)·`bot/modes.py`(모드 파라미터).
+
 > 여름 이벤트로 열린 **챌린저스 서버**(시즌 한정)를 지원한다. 유저는 본서버 캐릭터와
 > 챌린저스 캐릭터를 **동시에 등록**해두고, 캐릭터 관련 명령마다 `모드`(본서버/챌린저스)를 골라
 > 실행한다. 본서버 캐릭터와 챌린저스 캐릭터는 **절대 같이 비교되지 않는다**.
