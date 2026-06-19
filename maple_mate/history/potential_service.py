@@ -21,12 +21,13 @@ from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
-from typing import Protocol
+from typing import Protocol, TypeVar
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..dependencies import Deps
+from ..registration.realm import Realm
 from .cache import is_cache_fresh
 from .models import HistoryCache
 
@@ -167,6 +168,26 @@ def parse_reset_records(records: Sequence[dict]) -> list[ResetRecord]:
             )
         )
     return out
+
+
+# ── realm 필터 (등록 닉맵 — cube/potential 엔 world_name 부재, 결정 6 비대칭) ──
+
+_HasCharacterName = TypeVar("_HasCharacterName", CubeRecord, ResetRecord)
+
+
+def records_in_realm(
+    records: Sequence[_HasCharacterName],
+    realm_by_nick: dict[str, Realm],
+    realm: Realm,
+) -> list[_HasCharacterName]:
+    """character_name 을 등록 닉맵으로 realm 해석해 필터(순수, ADR-0009).
+
+    미상 닉(미등록 챌린저스 부캐·닉 변경 잔류)은 본서버로 폴백 → 챌린저스 모드에서 누락(수용된
+    한계: '미등록 챌린저스 부캐의 잠재 공백', 결정 6). 본서버 모드는 등록된 챌린저스 닉만 배제.
+    """
+    return [
+        r for r in records if realm_by_nick.get(r.character_name, Realm.MAIN) is realm
+    ]
 
 
 # ── 페치 + 캐시 (type 둘: cube / potential_reset) ──────────────────────────

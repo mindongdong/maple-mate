@@ -12,6 +12,7 @@ import io
 import logging
 import random
 from collections.abc import Awaitable, Callable
+from dataclasses import replace
 from datetime import date, datetime
 
 import discord
@@ -20,6 +21,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..bot import bitik_card, comparison, cooldowns
 from ..bot.embeds import KST, append_source, defer, make_embed
+from ..bot.modes import MODE_CHOICES, MODE_DESCRIBE, parse_mode
 from ..character.service import format_eok
 from ..dependencies import Deps
 from ..error_log import service as error_log
@@ -39,6 +41,7 @@ from ..history.service import (
     resolve_period,
 )
 from ..nexon.errors import NexonAPIError, to_error_log_type
+from ..registration.realm import CHALLENGERS_NO_TARGET, Realm, realm_title
 from ..registration.service import classify_target_error, get_targets
 from .service import (
     ExcludedItems,
@@ -161,11 +164,14 @@ async def _self_target(
     session_factory: async_sessionmaker[AsyncSession],
     guild_id: int,
     user_id: int,
+    realm: Realm = Realm.MAIN,
 ) -> tuple[HistoryTarget | None, str | None, str | None]:
     """실행자 본인 대상 해석(Q1). 성공 시 (HistoryTarget, 대표ocid, None), 실패 시 (None, None, 안내문).
 
-    /비틱은 계정 전체화가 아니라 **대표 기준**(작업지시서 12·Phase 4). target.ocid 는 이력 캐시
-    앵커(최초 등록)이고, 대표ocid 는 아이콘·장착레벨 조회용(대표 캐릭터)이라 둘이 다를 수 있다.
+    /비틱은 계정 전체화가 아니라 **대표 기준**(작업지시서 12·Phase 4). 챌린저스 모드면 챌린저스
+    대표로 교체한다(결정 6 — 닉 필터 + ocid 아이콘 모두 챌린저스 대표). target.ocid 는 이력 캐시
+    앵커(최초 등록, realm 무관 — 캐시는 계정 전체)이고, 대표ocid·target.nickname(닉 필터)은
+    그 realm 대표라 둘이 다를 수 있다.
     """
     targets = await get_history_targets(session_factory, guild_id, [user_id])
     if not targets:
@@ -177,9 +183,19 @@ async def _self_target(
             None,
             "개인 키 미등록이라 이력을 볼 수 없어요. `/키등록`으로 키를 추가해 주세요.",
         )
-    spec_targets = await get_targets(session_factory, guild_id, [user_id])
-    rep_ocid = spec_targets[0].ocid if spec_targets else target.ocid
-    return target, rep_ocid, None
+    # realm 대표 해석 — 챌린저스 모드는 챌린저스 대표, 본서버 모드는 본서버 대표(챌린저스 배제).
+    spec_targets = await get_targets(session_factory, guild_id, [user_id], realm)
+    if not spec_targets:
+        msg = (
+            CHALLENGERS_NO_TARGET
+            if realm is Realm.CHALLENGERS
+            else "등록된 본서버 캐릭터가 없어요. `/캐릭터등록` 먼저 해주세요."
+        )
+        return None, None, msg
+    rep = spec_targets[0]
+    # 닉 필터·라벨은 realm 대표 닉으로, 캐시 앵커 ocid 는 그대로 둔다(계정 전체 캐시 안정).
+    target = replace(target, nickname=rep.nickname)
+    return target, rep.ocid, None
 
 
 async def _fetch_item_icon(deps: Deps, ocid: str, item_name: str) -> bytes | None:
@@ -293,8 +309,12 @@ async def _resolve_common(
     start_raw: str | None,
     end_raw: str | None,
     preset: str,
+    realm: Realm = Realm.MAIN,
 ) -> tuple[HistoryTarget, str, list[date]] | None:
-    """defer(ephemeral) → 길드/날짜/본인 대상 검증. 성공 시 (target, 대표ocid, dates), 실패 시 None."""
+    """defer(ephemeral) → 길드/날짜/본인 대상 검증. 성공 시 (target, 대표ocid, dates), 실패 시 None.
+
+    realm 으로 본인 대표를 해석한다(챌린저스 모드면 챌린저스 대표, 미보유 시 안내).
+    """
     await defer(interaction, ephemeral=True)
     if interaction.guild_id is None:
         await interaction.followup.send(
@@ -312,7 +332,7 @@ async def _resolve_common(
         return None
 
     target, rep_ocid, error = await _self_target(
-        deps.session_factory, interaction.guild_id, interaction.user.id
+        deps.session_factory, interaction.guild_id, interaction.user.id, realm
     )
     if target is None:
         await interaction.followup.send(embed=make_embed(title, error), ephemeral=True)
@@ -335,10 +355,11 @@ async def handle_bitik_starforce(
     preset: str,
     start_raw: str | None,
     end_raw: str | None,
+    realm: Realm = Realm.MAIN,
 ) -> None:
-    title = "비틱 — 스타포스"
+    title = realm_title("비틱 — 스타포스", realm)
     resolved = await _resolve_common(
-        deps, interaction, title, start_raw, end_raw, preset
+        deps, interaction, title, start_raw, end_raw, preset, realm
     )
     if resolved is None:
         return
@@ -353,7 +374,8 @@ async def handle_bitik_starforce(
         )
         return
 
-    # /비틱은 대표 기준(계정 전체화 아님) — 계정 전체 결과에서 대표 캐릭터 것만 추린다.
+    # /비틱은 대표 기준(계정 전체화 아님) — 계정 전체 결과에서 (realm) 대표 캐릭터 것만 추린다.
+    # target.nickname 은 _self_target 이 realm 대표 닉으로 교체했다(챌린저스 모드 = 챌린저스 대표).
     attempts = [a for a in attempts if a.character_name == target.nickname]
 
     if not attempts:
@@ -405,7 +427,9 @@ async def handle_bitik_starforce(
         )
         await pick.followup.send(
             embed=_card_embed(
-                target, f"⭐ {target.nickname} 의 스타포스 비틱", append_source(period)
+                target,
+                realm_title(f"⭐ {target.nickname} 의 스타포스 비틱", realm),
+                append_source(period),
             ),
             file=discord.File(io.BytesIO(png), filename="bitik.png"),
         )
@@ -426,10 +450,11 @@ async def handle_bitik_potential(
     preset: str,
     start_raw: str | None,
     end_raw: str | None,
+    realm: Realm = Realm.MAIN,
 ) -> None:
-    title = "비틱 — 잠재"
+    title = realm_title("비틱 — 잠재", realm)
     resolved = await _resolve_common(
-        deps, interaction, title, start_raw, end_raw, preset
+        deps, interaction, title, start_raw, end_raw, preset, realm
     )
     if resolved is None:
         return
@@ -444,7 +469,8 @@ async def handle_bitik_potential(
         )
         return
 
-    # /비틱은 대표 기준(계정 전체화 아님) — 대표 캐릭터 기록만 추린다.
+    # /비틱은 대표 기준(계정 전체화 아님) — (realm) 대표 캐릭터 기록만 추린다.
+    # target.nickname 은 _self_target 이 realm 대표 닉으로 교체(챌린저스 모드 = 챌린저스 대표).
     cubes = [c for c in cubes if c.character_name == target.nickname]
     resets = [r for r in resets if r.character_name == target.nickname]
 
@@ -469,7 +495,9 @@ async def handle_bitik_potential(
         )
         await pick.followup.send(
             embed=_card_embed(
-                target, f"🎲 {target.nickname} 의 잠재 비틱", append_source(period)
+                target,
+                realm_title(f"🎲 {target.nickname} 의 잠재 비틱", realm),
+                append_source(period),
             ),
             file=discord.File(io.BytesIO(png), filename="bitik.png"),
         )
@@ -520,12 +548,13 @@ def setup(bot: discord.Client) -> None:
         name="스타포스",
         description="기간 내 스타포스 자랑 카드를 만듭니다 (본인 개인 키 필요).",
     )
-    @app_commands.choices(period=_PERIOD_CHOICES)
-    @app_commands.rename(period="기간", start="시작일", end="종료일")
+    @app_commands.choices(period=_PERIOD_CHOICES, mode=MODE_CHOICES)
+    @app_commands.rename(period="기간", start="시작일", end="종료일", mode="모드")
     @app_commands.describe(
         period="조회 기간 프리셋 (기본 최근7일, 시작/종료일 지정 시 무시)",
         start="시작일 YYYY-MM-DD (선택)",
         end="종료일 YYYY-MM-DD (선택)",
+        mode=MODE_DESCRIBE,
     )
     @cooldowns.history_cooldown()  # 이력류 동일 30초(파생 결정)
     async def bitik_starforce(
@@ -533,20 +562,24 @@ def setup(bot: discord.Client) -> None:
         period: app_commands.Choice[str] | None = None,
         start: str | None = None,
         end: str | None = None,
+        mode: app_commands.Choice[str] | None = None,
     ) -> None:
         preset = period.value if period is not None else DEFAULT_PRESET
-        await handle_bitik_starforce(deps, interaction, preset, start, end)
+        await handle_bitik_starforce(
+            deps, interaction, preset, start, end, parse_mode(mode)
+        )
 
     @group.command(
         name="잠재",
         description="기간 내 잠재(큐브·재설정) 자랑 카드를 만듭니다 (본인 개인 키 필요).",
     )
-    @app_commands.choices(period=_PERIOD_CHOICES)
-    @app_commands.rename(period="기간", start="시작일", end="종료일")
+    @app_commands.choices(period=_PERIOD_CHOICES, mode=MODE_CHOICES)
+    @app_commands.rename(period="기간", start="시작일", end="종료일", mode="모드")
     @app_commands.describe(
         period="조회 기간 프리셋 (기본 최근7일, 시작/종료일 지정 시 무시)",
         start="시작일 YYYY-MM-DD (선택)",
         end="종료일 YYYY-MM-DD (선택)",
+        mode=MODE_DESCRIBE,
     )
     @cooldowns.history_cooldown()
     async def bitik_potential(
@@ -554,9 +587,12 @@ def setup(bot: discord.Client) -> None:
         period: app_commands.Choice[str] | None = None,
         start: str | None = None,
         end: str | None = None,
+        mode: app_commands.Choice[str] | None = None,
     ) -> None:
         preset = period.value if period is not None else DEFAULT_PRESET
-        await handle_bitik_potential(deps, interaction, preset, start, end)
+        await handle_bitik_potential(
+            deps, interaction, preset, start, end, parse_mode(mode)
+        )
 
     @group.command(
         name="득템", description="득템 이미지를 자랑 문구와 함께 채널에 올립니다."

@@ -17,11 +17,18 @@ from discord import app_commands
 
 from ..bot import comparison, cooldowns, table_image
 from ..bot.embeds import KST, append_source, defer, make_embed
+from ..bot.modes import MODE_CHOICES, MODE_DESCRIBE, parse_mode
 from ..character.service import format_eok
 from ..dependencies import Deps
 from ..error_log import service as error_log
 from ..nexon.errors import NexonAPIError, to_error_log_type
-from ..registration.service import Target, TargetOutcome, classify_target_error
+from ..registration.realm import Realm, realm_title
+from ..registration.service import (
+    Target,
+    TargetOutcome,
+    classify_target_error,
+    get_realm_by_nickname,
+)
 from . import potential_cost
 from .potential_service import (
     DEFAULT_PRESET,
@@ -30,6 +37,7 @@ from .potential_service import (
     aggregate_potential,
     fetch_potential_records,
     get_history_targets,
+    records_in_realm,
     resolve_period,
 )
 
@@ -79,9 +87,17 @@ def _period_footer(dates: list[date]) -> str:
 
 
 async def _process_target(
-    deps: Deps, target: HistoryTarget, dates: list[date]
+    deps: Deps,
+    target: HistoryTarget,
+    dates: list[date],
+    realm_by_nick: dict[str, Realm],
+    realm: Realm = Realm.MAIN,
 ) -> tuple[Target, PotentialSummary] | TargetOutcome:
-    """대상 1명 처리. 성공 시 (Target, summary), 실패 시 TargetOutcome(error)."""
+    """대상 1명 처리. 성공 시 (Target, summary), 실패 시 TargetOutcome(error).
+
+    realm 으로 레코드를 등록 닉맵 필터한다(결정 6 — cube/potential 엔 world_name 부재라 닉맵 사용).
+    필터 후 비면 '기록 없음'(realm 별).
+    """
     spec_target = _to_spec_target(target)
     try:
         cubes, resets = await fetch_potential_records(deps, target, dates)
@@ -99,9 +115,12 @@ async def _process_target(
             )
         return TargetOutcome(target=spec_target, error=classify_target_error(exc))
 
+    # 등록 닉맵으로 realm 필터(결정 6 — /잠재 닉맵 분리). 미상 닉은 본서버로 폴백.
+    cubes = records_in_realm(cubes, realm_by_nick, realm)
+    resets = records_in_realm(resets, realm_by_nick, realm)
     if (
         not cubes and not resets
-    ):  # 키는 있으나 기간 내 기록 없음 = 기록 없음(키 미등록과 구분)
+    ):  # 키는 있으나 (이 realm) 기간 내 기록 없음 = 기록 없음(키 미등록과 구분)
         return TargetOutcome(
             target=spec_target, error="기간 내 잠재(큐브·재설정) 기록이 없어요."
         )
@@ -126,8 +145,9 @@ def _build_table(
     results: list[tuple[Target, PotentialSummary]],
     outcomes: list[TargetOutcome],
     footer: str,
+    realm: Realm = Realm.MAIN,
 ) -> tuple[discord.Embed, discord.File]:
-    """사용 메소 내림차순(동률 시 사용 큐브) 표. 최상위 사용 메소 셀 강조. 등업 뱃지 병기."""
+    """사용 메소 내림차순(동률 시 사용 큐브) 표. 최상위 사용 메소 셀 강조. 챌린저스는 🏆 제목."""
     ranked = sorted(
         results, key=lambda rs: (-(rs[1].total_meso or 0), -rs[1].cube_count)
     )
@@ -153,7 +173,7 @@ def _build_table(
             ]
         )
     embed, file = comparison.table_image_message(
-        "잠재 메소·큐브 비교",
+        realm_title("잠재 메소·큐브 비교", realm),
         headers,
         rows,
         [t for t, _ in ranked],
@@ -212,6 +232,7 @@ async def handle_potential(
     preset: str,
     start_raw: str | None,
     end_raw: str | None,
+    realm: Realm = Realm.MAIN,
 ) -> None:
     await defer(interaction)
     if interaction.guild_id is None:
@@ -280,10 +301,14 @@ async def handle_potential(
     today_kst = datetime.now(KST).date()
     dates = resolve_period(preset, start, end, today_kst)
 
+    # realm 필터용 등록 닉맵 1회 로드(결정 6 — cube/potential 엔 world_name 부재).
+    realm_by_nick = await get_realm_by_nickname(
+        deps.session_factory, interaction.guild_id
+    )
     results: list[tuple[Target, PotentialSummary]] = []
     failures: list[TargetOutcome] = []
     for target in keyed:
-        processed = await _process_target(deps, target, dates)
+        processed = await _process_target(deps, target, dates, realm_by_nick, realm)
         if isinstance(processed, TargetOutcome):
             failures.append(processed)
         else:
@@ -295,7 +320,7 @@ async def handle_potential(
     if not results:
         await interaction.followup.send(
             embed=comparison.all_failed_embed(
-                "잠재 큐브·등업 비교", outcomes, footer=footer
+                realm_title("잠재 큐브·등업 비교", realm), outcomes, footer=footer
             )
         )
         return
@@ -303,7 +328,7 @@ async def handle_potential(
     # 데이터 임베드(성공 표)에만 넥슨 출처표시 — 전체실패 에러 임베드(위)는 결과데이터 아님.
     # 표 PNG 렌더(CPU)는 워커 스레드로 — 이벤트루프 비차단(D6).
     embed, file = await asyncio.to_thread(
-        _build_table, results, outcomes, append_source(footer)
+        _build_table, results, outcomes, append_source(footer), realm
     )
     # 단일 대상(키 등록자가 1명만 조회됨) → 큐브종류·등급 분포 보조 노출(D5). 다인 비교 시 생략.
     if len(keyed) == 1 and len(results) == 1:
@@ -318,7 +343,7 @@ def setup(bot: discord.Client) -> None:
         name="잠재",
         description="잠재 재설정·사용 큐브·사용 메소·등업을 비교합니다 (개인 키 등록자 대상, 대상 미지정 시 서버 전체).",
     )
-    @app_commands.choices(period=_PERIOD_CHOICES)
+    @app_commands.choices(period=_PERIOD_CHOICES, mode=MODE_CHOICES)
     @app_commands.rename(
         period="기간",
         start="시작일",
@@ -328,6 +353,7 @@ def setup(bot: discord.Client) -> None:
         member3="대상3",
         member4="대상4",
         member5="대상5",
+        mode="모드",
     )
     @app_commands.describe(
         period="조회 기간 프리셋 (기본 최근7일, 시작/종료일 지정 시 무시)",
@@ -338,6 +364,7 @@ def setup(bot: discord.Client) -> None:
         member3="추가 비교 대상",
         member4="추가 비교 대상",
         member5="추가 비교 대상",
+        mode=MODE_DESCRIBE,
     )
     @cooldowns.history_cooldown()
     async def potential_command(
@@ -350,9 +377,12 @@ def setup(bot: discord.Client) -> None:
         member3: discord.Member | None = None,
         member4: discord.Member | None = None,
         member5: discord.Member | None = None,
+        mode: app_commands.Choice[str] | None = None,
     ) -> None:
         members = [
             m for m in (member1, member2, member3, member4, member5) if m is not None
         ]
         preset = period.value if period is not None else DEFAULT_PRESET
-        await handle_potential(deps, interaction, members, preset, start, end)
+        await handle_potential(
+            deps, interaction, members, preset, start, end, parse_mode(mode)
+        )

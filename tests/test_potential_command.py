@@ -111,7 +111,7 @@ def _target(nickname: str = "손바") -> HistoryTarget:
 async def test_success_returns_target_and_summary() -> None:
     nexon = _FakeNexon(cubes=[_raw("손바", result="성공", grades=("에픽",))])
     deps, _ = _make_deps(nexon)
-    result = await _process_target(deps, _target(), DATES)
+    result = await _process_target(deps, _target(), DATES, {})
     assert isinstance(result, tuple)
     target, summary = result
     assert isinstance(target, Target)
@@ -126,7 +126,7 @@ async def test_other_character_records_counted_account_wide() -> None:
     # 계정 전체화: 대표와 다른 캐릭터(부캐) 기록도 계정 전체라 함께 집계된다(닉 필터 제거).
     nexon = _FakeNexon(cubes=[_raw("부캐")], resets=[_raw("부캐", cube=False)])
     deps, _ = _make_deps(nexon)
-    result = await _process_target(deps, _target(), DATES)
+    result = await _process_target(deps, _target(), DATES, {})
     assert isinstance(result, tuple)
     _, summary = result
     assert summary.cube_count == 1 and summary.reset_count == 1
@@ -136,7 +136,7 @@ async def test_no_record_when_empty() -> None:
     # 키는 있으나 기간 내 기록이 전혀 없음 = 기록 없음(키 미등록과 구분).
     nexon = _FakeNexon(cubes=[], resets=[])
     deps, _ = _make_deps(nexon)
-    result = await _process_target(deps, _target(), DATES)
+    result = await _process_target(deps, _target(), DATES, {})
     assert isinstance(result, TargetOutcome)
     assert "기록이 없어요" in result.error
 
@@ -144,7 +144,7 @@ async def test_no_record_when_empty() -> None:
 async def test_fetch_failure_returns_outcome_and_logs_error() -> None:
     nexon = _FakeNexon(raise_exc=NexonAPIError("OPENAPI00001", "boom", http_status=500))
     deps, added = _make_deps(nexon)
-    result = await _process_target(deps, _target(), DATES)
+    result = await _process_target(deps, _target(), DATES, {})
     assert isinstance(result, TargetOutcome)
     assert not result.ok
     logs = [o for o in added if isinstance(o, ErrorLog)]

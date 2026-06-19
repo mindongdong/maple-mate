@@ -15,10 +15,12 @@ from discord import app_commands
 
 from ..bot import comparison, cooldowns, table_image
 from ..bot.embeds import KST, append_source, defer, make_embed
+from ..bot.modes import MODE_CHOICES, MODE_DESCRIBE, parse_mode
 from ..character.service import format_eok
 from ..dependencies import Deps
 from ..error_log import service as error_log
 from ..nexon.errors import NexonAPIError, to_error_log_type
+from ..registration.realm import Realm, realm_title
 from ..registration.service import Target, TargetOutcome, classify_target_error
 from .equipment_level import (
     fetch_equipped_levels,
@@ -31,6 +33,7 @@ from .service import (
     HistoryTarget,
     StarforceSummary,
     aggregate_starforce,
+    attempts_in_realm,
     fetch_starforce_records,
     get_history_targets,
     resolve_period,
@@ -110,9 +113,17 @@ def _format_profit(net_meso: int) -> str:
 
 
 async def _process_target(
-    deps: Deps, target: HistoryTarget, dates: list[date], learned: dict[str, int]
+    deps: Deps,
+    target: HistoryTarget,
+    dates: list[date],
+    learned: dict[str, int],
+    realm: Realm = Realm.MAIN,
 ) -> tuple[Target, StarforceSummary] | TargetOutcome:
-    """대상 1명 처리. 성공 시 (Target, summary), 실패 시 TargetOutcome(error)."""
+    """대상 1명 처리. 성공 시 (Target, summary), 실패 시 TargetOutcome(error).
+
+    realm 으로 레코드 world_name 을 필터한다(결정 6 — 정밀 분리). 본서버 모드는 챌린저스 강화
+    제외, 챌린저스 모드는 챌린저스 강화만. 필터 후 비면 '기록 없음'(realm 별 기록 없음).
+    """
     spec_target = _to_spec_target(target)
     try:
         attempts = await fetch_starforce_records(deps, target, dates)
@@ -130,7 +141,12 @@ async def _process_target(
             )
         return TargetOutcome(target=spec_target, error=classify_target_error(exc))
 
-    if not attempts:  # 키는 있으나 기간 내 강화 없음 = 기록 없음(키 미등록과 구분)
+    attempts = attempts_in_realm(
+        attempts, realm
+    )  # 레코드 world_name realm 필터(결정 6)
+    if (
+        not attempts
+    ):  # 키는 있으나 (이 realm) 기간 내 강화 없음 = 기록 없음(키 미등록과 구분)
         return TargetOutcome(target=spec_target, error="기간 내 강화 기록이 없어요.")
 
     # (A) 현재 장착 레벨 — best effort. 실패해도 학습/시드로 매칭 시도.
@@ -173,8 +189,9 @@ def _build_table(
     results: list[tuple[Target, StarforceSummary]],
     outcomes: list[TargetOutcome],
     footer: str,
+    realm: Realm = Realm.MAIN,
 ) -> tuple[discord.Embed, discord.File]:
-    """운빨수치 내림차순(높을수록 운 좋음) 표. 최상위 운빨 행 강조."""
+    """운빨수치 내림차순(높을수록 운 좋음) 표. 최상위 운빨 행 강조. 챌린저스는 🏆 제목."""
     ranked = sorted(
         results, key=lambda rs: (rs[1].luck_score is None, -(rs[1].luck_score or 0.0))
     )
@@ -203,7 +220,7 @@ def _build_table(
             ]
         )
     embed, file = comparison.table_image_message(
-        "스타포스 운빨 비교",
+        realm_title("스타포스 운빨 비교", realm),
         headers,
         rows,
         [t for t, _ in ranked],
@@ -233,6 +250,7 @@ async def handle_starforce(
     preset: str,
     start_raw: str | None,
     end_raw: str | None,
+    realm: Realm = Realm.MAIN,
 ) -> None:
     await defer(interaction)
     if interaction.guild_id is None:
@@ -307,7 +325,7 @@ async def handle_starforce(
     results: list[tuple[Target, StarforceSummary]] = []
     failures: list[TargetOutcome] = []
     for target in keyed:
-        processed = await _process_target(deps, target, dates, learned)
+        processed = await _process_target(deps, target, dates, learned, realm)
         if isinstance(processed, TargetOutcome):
             failures.append(processed)
         else:
@@ -319,7 +337,7 @@ async def handle_starforce(
     if not results:
         await interaction.followup.send(
             embed=comparison.all_failed_embed(
-                "스타포스 운지수 비교", outcomes, footer=footer
+                realm_title("스타포스 운지수 비교", realm), outcomes, footer=footer
             )
         )
         return
@@ -327,7 +345,7 @@ async def handle_starforce(
     # 데이터 임베드(성공 표)에만 넥슨 출처표시 — 전체실패 에러 임베드(위)는 결과데이터 아님.
     # 표 PNG 렌더(CPU)는 워커 스레드로 — 이벤트루프 비차단(D6).
     embed, file = await asyncio.to_thread(
-        _build_table, results, outcomes, append_source(footer)
+        _build_table, results, outcomes, append_source(footer), realm
     )
     await interaction.followup.send(embed=embed, file=file)
 
@@ -339,7 +357,7 @@ def setup(bot: discord.Client) -> None:
         name="스타포스",
         description="스타포스 운지수·손익메소를 비교합니다 (개인 키 등록자 대상, 대상 미지정 시 서버 전체).",
     )
-    @app_commands.choices(period=_PERIOD_CHOICES)
+    @app_commands.choices(period=_PERIOD_CHOICES, mode=MODE_CHOICES)
     @app_commands.rename(
         period="기간",
         start="시작일",
@@ -349,6 +367,7 @@ def setup(bot: discord.Client) -> None:
         member3="대상3",
         member4="대상4",
         member5="대상5",
+        mode="모드",
     )
     @app_commands.describe(
         period="조회 기간 프리셋 (기본 최근7일, 시작/종료일 지정 시 무시)",
@@ -359,6 +378,7 @@ def setup(bot: discord.Client) -> None:
         member3="추가 비교 대상",
         member4="추가 비교 대상",
         member5="추가 비교 대상",
+        mode=MODE_DESCRIBE,
     )
     @cooldowns.history_cooldown()
     async def starforce_command(
@@ -371,9 +391,12 @@ def setup(bot: discord.Client) -> None:
         member3: discord.Member | None = None,
         member4: discord.Member | None = None,
         member5: discord.Member | None = None,
+        mode: app_commands.Choice[str] | None = None,
     ) -> None:
         members = [
             m for m in (member1, member2, member3, member4, member5) if m is not None
         ]
         preset = period.value if period is not None else DEFAULT_PRESET
-        await handle_starforce(deps, interaction, members, preset, start, end)
+        await handle_starforce(
+            deps, interaction, members, preset, start, end, parse_mode(mode)
+        )
