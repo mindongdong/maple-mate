@@ -15,10 +15,12 @@ from discord import app_commands
 
 from ..bot import comparison, cooldowns, item_card, table_image
 from ..bot.embeds import append_source, defer, make_embed
+from ..bot.modes import MODE_CHOICES, MODE_DESCRIBE, parse_mode
 from ..dependencies import Deps
 from ..nexon.client import KST, NexonClient
 from ..nexon.errors import NexonAPIError
 from ..registration import service as reg
+from ..registration.realm import CHALLENGERS_NO_REGISTRANTS, Realm, realm_title
 from . import item, service
 from .equipment_slots import SLOT_CHOICES
 from .item import ItemResult
@@ -54,10 +56,14 @@ def _render_spec_section(section: str, info: SpecInfo) -> str:
     return "—"
 
 
-def _single_detail_embed(target, info: SpecInfo, footer: str) -> discord.Embed:
+def _single_detail_embed(
+    target, info: SpecInfo, footer: str, realm: Realm = Realm.MAIN
+) -> discord.Embed:
     # 설명에 유저 태그(누구 캐릭인지). 단일이라 표 대신 항목별 상세 필드.
     embed = make_embed(
-        f"{target.nickname} 스펙", description=comparison.mention(target), footer=footer
+        realm_title(f"{target.nickname} 스펙", realm),
+        description=comparison.mention(target),
+        footer=footer,
     )
     for section in _SPEC_SECTIONS:
         embed.add_field(
@@ -67,7 +73,10 @@ def _single_detail_embed(target, info: SpecInfo, footer: str) -> discord.Embed:
 
 
 async def handle_spec(
-    deps: Deps, interaction: discord.Interaction, members: list[discord.Member]
+    deps: Deps,
+    interaction: discord.Interaction,
+    members: list[discord.Member],
+    realm: Realm = Realm.MAIN,
 ) -> None:
     await defer(interaction)
     if interaction.guild_id is None:
@@ -82,11 +91,11 @@ async def handle_spec(
         return
 
     targets, missing = await comparison.resolve_targets(
-        deps.session_factory, interaction.guild_id, members
+        deps.session_factory, interaction.guild_id, members, realm
     )
     if not targets:
         await interaction.followup.send(
-            embed=comparison.all_failed_embed("스펙 비교", missing)
+            embed=comparison.all_failed_embed(realm_title("스펙 비교", realm), missing)
         )
         return
 
@@ -111,7 +120,9 @@ async def handle_spec(
     # 단일 대상(실패/미등록 없이 1명) = 상세 전체 1임베드 + 유저 태그.
     if len(outcomes) == 1:
         await interaction.followup.send(
-            embed=_single_detail_embed(successes[0].target, successes[0].data, footer)
+            embed=_single_detail_embed(
+                successes[0].target, successes[0].data, footer, realm
+            )
         )
         return
 
@@ -196,7 +207,7 @@ async def handle_spec(
     # 표 PNG 렌더(CPU)는 워커 스레드로 — 이벤트루프 비차단(D6).
     embed, file = await asyncio.to_thread(
         comparison.table_image_message,
-        "스펙 비교",
+        realm_title("스펙 비교", realm),
         headers,
         rows,
         [o.target for o in ranked],
@@ -252,6 +263,7 @@ async def handle_item(
     interaction: discord.Interaction,
     slot: str,
     members: list[discord.Member],
+    realm: Realm = Realm.MAIN,
 ) -> None:
     await defer(interaction)
     if interaction.guild_id is None:
@@ -260,20 +272,22 @@ async def handle_item(
         )
         return
 
+    title = realm_title(f"아이템 — {slot}", realm)
     targets, missing = await comparison.resolve_targets(
-        deps.session_factory, interaction.guild_id, members
+        deps.session_factory, interaction.guild_id, members, realm
     )
     if not targets:
         if missing:
             await interaction.followup.send(
-                embed=comparison.all_failed_embed(f"아이템 — {slot}", missing)
+                embed=comparison.all_failed_embed(title, missing)
             )
         else:
-            await interaction.followup.send(
-                embed=make_embed(
-                    "아이템", "이 서버에 등록자가 없어요. `/캐릭터등록` 먼저 해주세요."
-                )
+            empty = (
+                CHALLENGERS_NO_REGISTRANTS
+                if realm is Realm.CHALLENGERS
+                else "이 서버에 등록자가 없어요. `/캐릭터등록` 먼저 해주세요."
             )
+            await interaction.followup.send(embed=make_embed("아이템", empty))
         return
 
     outcomes = await reg.fetch_each(
@@ -288,7 +302,7 @@ async def handle_item(
     successes = [o for o in outcomes if o.ok]
     if not successes:
         await interaction.followup.send(
-            embed=comparison.all_failed_embed(f"아이템 — {slot}", outcomes)
+            embed=comparison.all_failed_embed(title, outcomes)
         )
         return
 
@@ -306,7 +320,7 @@ async def handle_item(
     # 카드 PNG 렌더(CPU)는 워커 스레드로 — 이벤트루프 비차단(D6).
     png = await asyncio.to_thread(item_card.render_item_cards, cards)
     embed, file = comparison.image_message(
-        f"아이템 — {slot}",
+        title,
         png,
         [o.target for o in successes],
         footer=footer,
@@ -329,6 +343,7 @@ def setup(bot: discord.Client) -> None:
         member3="유저3",
         member4="유저4",
         member5="유저5",
+        mode="모드",
     )
     @app_commands.describe(
         member1="조회할 유저 (1명이면 단일 상세)",
@@ -336,7 +351,9 @@ def setup(bot: discord.Client) -> None:
         member3="비교 대상",
         member4="비교 대상",
         member5="비교 대상",
+        mode=MODE_DESCRIBE,
     )
+    @app_commands.choices(mode=MODE_CHOICES)
     @cooldowns.spec_cooldown()
     async def spec_command(
         interaction: discord.Interaction,
@@ -345,11 +362,12 @@ def setup(bot: discord.Client) -> None:
         member3: discord.Member | None = None,
         member4: discord.Member | None = None,
         member5: discord.Member | None = None,
+        mode: app_commands.Choice[str] | None = None,
     ) -> None:
         members = [
             m for m in (member1, member2, member3, member4, member5) if m is not None
         ]
-        await handle_spec(deps, interaction, members)
+        await handle_spec(deps, interaction, members, parse_mode(mode))
 
     @bot.tree.command(  # type: ignore[attr-defined]
         name="아이템",
@@ -362,6 +380,7 @@ def setup(bot: discord.Client) -> None:
         member3="대상3",
         member4="대상4",
         member5="대상5",
+        mode="모드",
     )
     @app_commands.describe(
         part="조회할 장비 부위",
@@ -370,9 +389,11 @@ def setup(bot: discord.Client) -> None:
         member3="추가 비교 대상",
         member4="추가 비교 대상",
         member5="추가 비교 대상",
+        mode=MODE_DESCRIBE,
     )
     @app_commands.choices(
-        part=[app_commands.Choice(name=slot, value=slot) for slot in SLOT_CHOICES]
+        part=[app_commands.Choice(name=slot, value=slot) for slot in SLOT_CHOICES],
+        mode=MODE_CHOICES,
     )
     @cooldowns.spec_cooldown()
     async def item_command(
@@ -383,8 +404,9 @@ def setup(bot: discord.Client) -> None:
         member3: discord.Member | None = None,
         member4: discord.Member | None = None,
         member5: discord.Member | None = None,
+        mode: app_commands.Choice[str] | None = None,
     ) -> None:
         members = [
             m for m in (member1, member2, member3, member4, member5) if m is not None
         ]
-        await handle_item(deps, interaction, part.value, members)
+        await handle_item(deps, interaction, part.value, members, parse_mode(mode))

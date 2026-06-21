@@ -18,13 +18,19 @@ from ..bot import cooldowns
 from ..bot.embeds import defer, make_embed
 from ..dependencies import Deps
 from . import service
+from .realm import is_challengers
 
 _DM_ONLY = "서버(길드) 안에서만 쓸 수 있어요."
 
 
-def _level_label(nickname: str, level: int | None) -> str:
-    """`닉 (Lv.287)` 또는 레벨 미상 시 `닉`."""
-    return nickname if level is None else f"{nickname} (Lv.{level})"
+def _char_label(nickname: str, level: int | None, world: str | None = None) -> str:
+    """`닉 (Lv.260, 챌린저스3)`. 챌린저스만 realm 표기(본서버는 무표기 — 시각 회귀 0)."""
+    parts: list[str] = []
+    if level is not None:
+        parts.append(f"Lv.{level}")
+    if is_challengers(world):
+        parts.append(world)  # 예: 챌린저스3
+    return f"{nickname} ({', '.join(parts)})" if parts else nickname
 
 
 async def handle_character_register(
@@ -54,7 +60,7 @@ async def handle_character_register(
         deps.session_factory, interaction.guild_id, interaction.user.id
     )
     lines = [
-        f"**{_level_label(result.nickname, result.level)}** 등록 완료 — 현재 {result.character_count}개.",
+        f"**{_char_label(result.nickname, result.level)}** 등록 완료 — 현재 {result.character_count}개.",
     ]
     if result.character_count == 1:
         lines.append("이 캐릭터가 대표예요. `/대표지정`으로 바꿀 수 있어요.")
@@ -161,7 +167,7 @@ async def handle_character_list(deps: Deps, interaction: discord.Interaction) ->
     lines = []
     for c in characters:
         mark = " 👑 대표" if c.is_representative else ""
-        lines.append(f"• {_level_label(c.nickname, c.level)}{mark}")
+        lines.append(f"• {_char_label(c.nickname, c.level, c.world)}{mark}")
     key_line = (
         "개인 키: 등록됨 (이력류 조회 가능)"
         if has_key
@@ -232,7 +238,7 @@ def setup(bot: discord.Client) -> None:
         for c in characters:
             if needle and needle not in c.nickname.lower():
                 continue
-            label = _level_label(c.nickname, c.level)
+            label = _char_label(c.nickname, c.level, c.world)
             if c.is_representative:
                 label = f"{label} 👑"
             choices.append(app_commands.Choice(name=label[:100], value=c.ocid))

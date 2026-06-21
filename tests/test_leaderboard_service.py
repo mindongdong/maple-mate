@@ -252,9 +252,9 @@ class _FakeNexon:
         return result
 
 
-def _target(uid: int, ocid: str):
+def _target(uid: int, ocid: str, world: str | None = None):
     return SimpleNamespace(
-        guild_id=1, discord_user_id=uid, nickname=f"u{uid}", ocid=ocid
+        guild_id=1, discord_user_id=uid, nickname=f"u{uid}", ocid=ocid, world=world
     )
 
 
@@ -293,6 +293,26 @@ def _capturing_insert_factory(params: list[dict]):
             return None
 
     return lambda: _Session()
+
+
+async def test_fetch_and_store_records_realm_from_world(monkeypatch):
+    # 대표 world → realm 디스크리미넌트로 적재(본서버/챌린저스 분리, ADR-0009).
+    nexon = _FakeNexon(
+        {
+            "ocM": {"character_level": 287, "character_exp": _EXP_D1, "ranking": 1},
+            "ocC": {"character_level": 260, "character_exp": _EXP_D2, "ranking": 2},
+        }
+    )
+    params: list[dict] = []
+    deps = SimpleNamespace(
+        session_factory=_capturing_insert_factory(params), nexon=nexon
+    )
+    targets = [
+        _target(10, "ocM", world="스카니아"),
+        _target(20, "ocC", world="챌린저스3"),
+    ]
+    await service.fetch_and_store(deps, 1, targets, "2026-06-13")
+    assert [p["realm"] for p in params] == ["본서버", "챌린저스"]
 
 
 async def test_fetch_and_store_counts_unranked_skips(monkeypatch):

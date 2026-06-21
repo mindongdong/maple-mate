@@ -19,6 +19,7 @@ from maple_mate.bitik.commands import (
 )
 from maple_mate.bitik.service import ExcludedItems, PotentialBitik, StarforceBitik
 from maple_mate.history.service import HistoryTarget
+from maple_mate.registration.realm import Realm
 from maple_mate.registration.service import Target
 
 
@@ -179,3 +180,43 @@ async def test_self_target_success(monkeypatch) -> None:
     assert error is None
     assert target is not None and target.nickname == "손바"
     assert rep_ocid == "rep_ocid"  # 아이콘·장착레벨용 대표 ocid
+
+
+async def test_self_target_challengers_uses_realm_rep(monkeypatch) -> None:
+    # 챌린저스 모드 → 닉 필터·아이콘 모두 챌린저스 대표로 교체(결정 6, ADR-0009).
+    async def _targets(*a, **k):
+        return [_htarget("enc")]  # 계정 대표(realm 무관) 닉=손바
+
+    async def _reps(sf, guild_id, user_ids, realm):
+        assert realm is Realm.CHALLENGERS
+        return [
+            Target(
+                guild_id=1,
+                discord_user_id=2,
+                nickname="챌캐",
+                ocid="chal_ocid",
+                world="챌린저스3",
+            )
+        ]
+
+    monkeypatch.setattr(bitik_commands, "get_history_targets", _targets)
+    monkeypatch.setattr(bitik_commands, "get_targets", _reps)
+    target, rep_ocid, error = await _self_target(lambda: None, 1, 2, Realm.CHALLENGERS)
+    assert error is None
+    assert target.nickname == "챌캐"  # 닉 필터가 챌린저스 대표로 교체됨
+    assert rep_ocid == "chal_ocid"  # 챌린저스 대표 ocid(아이콘)
+    assert target.ocid == "anchor_ocid"  # 캐시 앵커는 그대로(계정 전체 캐시 안정)
+
+
+async def test_self_target_challengers_no_char_guides(monkeypatch) -> None:
+    async def _targets(*a, **k):
+        return [_htarget("enc")]
+
+    async def _reps(*a, **k):
+        return []  # 챌린저스 캐릭터 없음
+
+    monkeypatch.setattr(bitik_commands, "get_history_targets", _targets)
+    monkeypatch.setattr(bitik_commands, "get_targets", _reps)
+    target, rep_ocid, error = await _self_target(lambda: None, 1, 2, Realm.CHALLENGERS)
+    assert target is None and rep_ocid is None
+    assert error is not None and "챌린저스" in error

@@ -27,6 +27,7 @@ from ..nexon.client import NexonClient
 from ..nexon.errors import ErrorClass, NexonAPIError, to_error_log_type
 from ..security.crypto import KeyCipher
 from .models import Character, Registration
+from .realm import Realm, in_realm, realm_of
 
 log = logging.getLogger(__name__)
 
@@ -64,6 +65,9 @@ class CharacterInfo:
     nickname: str
     level: int | None
     is_representative: bool
+    world: str | None = (
+        None  # realm 신호(ADR-0009). NULL=본서버. 목록에 챌린저스만 표기.
+    )
 
 
 # ── ocid / 키 검증 (재사용) ──────────────────────────────────────────────────
@@ -106,20 +110,26 @@ async def verify_and_encrypt_key(
     return cipher.encrypt(api_key), None
 
 
-async def _fetch_level(nexon: NexonClient, ocid: str) -> int | None:
-    """등록 시 레벨 스냅샷(best-effort). character/basic 실패·파싱오류는 None(등록 자체는 진행)."""
+async def _fetch_level_and_world(
+    nexon: NexonClient, ocid: str
+) -> tuple[int | None, str | None]:
+    """등록 시 레벨·월드 스냅샷(best-effort, 한 콜). 실패·파싱오류는 (None, None)(등록은 진행).
+
+    world_name 은 realm 신호(ADR-0009) — `챌린저스N` 이면 챌린저스 캐릭터로 자동 판별된다.
+    """
     try:
         basic = await nexon.character_basic(ocid)
     except NexonAPIError as exc:
-        log.debug("레벨 스냅샷 실패(무시) ocid=%s: %s", ocid, exc)
-        return None
+        log.debug("레벨/월드 스냅샷 실패(무시) ocid=%s: %s", ocid, exc)
+        return None, None
+    world = basic.get("world_name")
     raw = basic.get("character_level")
     if raw is None:
-        return None
+        return None, world
     try:
-        return int(raw)
+        return int(raw), world
     except (TypeError, ValueError):
-        return None
+        return None, world
 
 
 # ── 등록 (캐릭터 / 키) ────────────────────────────────────────────────────────
@@ -140,7 +150,7 @@ async def register_character(
     ocid, err = await resolve_ocid(nexon, nickname)
     if ocid is None:
         return CharacterRegisterResult(ok=False, error=err)
-    level = await _fetch_level(nexon, ocid)
+    level, world = await _fetch_level_and_world(nexon, ocid)
 
     async with session_factory() as session:
         existing = set(
@@ -180,12 +190,14 @@ async def register_character(
                 ocid=ocid,
                 maple_nickname=nickname,
                 level=level,
+                world=world,
             )
             .on_conflict_do_update(
                 index_elements=["guild_id", "discord_user_id", "ocid"],
                 set_={
                     "maple_nickname": nickname,
                     "level": level,
+                    "world": world,  # 재등록 시 realm 신호 lazy 갱신(레거시 NULL 백필)
                     "updated_at": func.now(),
                 },
             )
@@ -239,6 +251,7 @@ class _CharacterLike(Protocol):
     ocid: str
     level: int | None
     created_at: Any  # datetime (정렬 가능하면 무엇이든 — 순수 단위테스트 용이)
+    world: str | None  # realm 신호(ADR-0009). realm 인자 지정 시에만 접근.
 
 
 def _auto_key(c: _CharacterLike) -> tuple:
@@ -248,21 +261,31 @@ def _auto_key(c: _CharacterLike) -> tuple:
 
 
 def pick_representative(
-    characters: Sequence[_CharacterLike], representative_ocid: str | None
+    characters: Sequence[_CharacterLike],
+    representative_ocid: str | None,
+    realm: Realm | None = None,
 ) -> _CharacterLike | None:
     """대표 해석 규칙(작업지시서). 순수함수 — 단위테스트 대상.
 
-    1. representative_ocid 가 set 이고 해당 character 존재 → 그 캐릭터(수동 지정).
-    2. NULL 이거나 가리키는 캐릭터 부재 → level 최고값(동률·NULL 은 created_at/ocid 타이브레이크).
-    3. character 0개 → None.
+    realm 지정 시 그 realm 캐릭터만 후보로 본다(결정 4 — realm 인지 해석). 수동 핀은 가리키는
+    캐릭터가 그 realm 에 있을 때만 효력, 반대 realm 핀은 무시되고 그 realm 내 자동 대표가 된다.
+
+    1. representative_ocid 가 set 이고 (realm) 후보에 존재 → 그 캐릭터(수동 지정).
+    2. NULL 이거나 가리키는 캐릭터가 후보에 없음 → level 최고값(동률·NULL 은 created_at/ocid).
+    3. (realm) 후보 0개 → None.
     """
-    if not characters:
+    pool = (
+        list(characters)
+        if realm is None
+        else [c for c in characters if in_realm(c.world, realm)]
+    )
+    if not pool:
         return None
     if representative_ocid is not None:
-        match = next((c for c in characters if c.ocid == representative_ocid), None)
+        match = next((c for c in pool if c.ocid == representative_ocid), None)
         if match is not None:
             return match
-    return sorted(characters, key=_auto_key)[0]
+    return sorted(pool, key=_auto_key)[0]
 
 
 async def _load_user_characters(
@@ -297,6 +320,7 @@ async def get_characters(
             nickname=c.maple_nickname,
             level=c.level,
             is_representative=c.ocid == rep_id,
+            world=c.world,
         )
         for c in sorted(chars, key=_auto_key)
     ]
@@ -354,6 +378,7 @@ class Target:
     discord_user_id: int
     nickname: str
     ocid: str
+    world: str | None = None  # 대표의 realm 신호(ADR-0009) — 리더보드 적재·라벨용
 
 
 @dataclass(frozen=True)
@@ -373,11 +398,15 @@ async def get_targets(
     session_factory: async_sessionmaker[AsyncSession],
     guild_id: int,
     user_ids: Sequence[int] | None = None,
+    realm: Realm | None = None,
 ) -> list[Target]:
     """비교 대상 해석 — 유저별 대표 1명(CONTEXT.md 용어 '대상').
 
     user_ids 없으면 현재 서버 등록자 전원(각자 대표), 지정 시 그 유저들 중 캐릭터 보유자만.
     캐릭터 0개 유저(키만 등록 등)는 제외. user_ids 지정 시 입력 순서를 보존(비교 가독성).
+
+    realm 지정 시 그 realm 캐릭터만으로 대표를 해석한다(결정 5 — 본서버 모드는 챌린저스 제외,
+    챌린저스 모드는 챌린저스만). 그 realm 캐릭터가 없는 유저는 대상에서 빠진다(누수 0).
     """
     async with session_factory() as session:
         char_stmt = select(Character).where(Character.guild_id == guild_id)
@@ -398,7 +427,7 @@ async def get_targets(
 
     targets: list[Target] = []
     for uid, clist in by_user.items():
-        rep = pick_representative(clist, rep_by_user.get(uid))
+        rep = pick_representative(clist, rep_by_user.get(uid), realm)
         if rep is None:
             continue
         targets.append(
@@ -407,12 +436,34 @@ async def get_targets(
                 discord_user_id=uid,
                 nickname=rep.maple_nickname,
                 ocid=rep.ocid,
+                world=rep.world,
             )
         )
     if user_ids is not None:
         order = {uid: i for i, uid in enumerate(user_ids)}
         targets.sort(key=lambda t: order.get(t.discord_user_id, len(order)))
     return targets
+
+
+async def get_realm_by_nickname(
+    session_factory: async_sessionmaker[AsyncSession],
+    guild_id: int,
+) -> dict[str, Realm]:
+    """길드 등록 캐릭터의 {maple_nickname → Realm} 맵 (/잠재 realm 필터용, ADR-0009).
+
+    cube/potential 레코드엔 world_name 이 없어(결정 6 비대칭) character_name 을 등록 닉맵으로
+    realm 해석한다. 미상 닉(미등록 캐릭터·닉 변경 잔류)은 호출자가 본서버로 폴백한다. 서버 내
+    닉 중복(ADR-0006 허용)은 마지막 행 우선 — 실수요 드묾(realm 간 동명은 거의 없음).
+    """
+    async with session_factory() as session:
+        rows = (
+            await session.execute(
+                select(Character.maple_nickname, Character.world).where(
+                    Character.guild_id == guild_id
+                )
+            )
+        ).all()
+    return {nickname: realm_of(world) for nickname, world in rows}
 
 
 async def refresh_ocid(

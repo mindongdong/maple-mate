@@ -24,6 +24,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ..dependencies import Deps
 from ..error_log import service as error_log
 from ..nexon.errors import NexonAPIError, to_error_log_type
+from ..registration.realm import Realm, realm_of
 from ..registration.service import Target
 from .models import ExpSnapshot
 
@@ -75,12 +76,14 @@ async def _upsert_snapshot(
     guild_id: int,
     discord_user_id: int,
     snapshot_date: date,
+    realm: str,
     entry: dict,
     exp_rate: float | None,
 ) -> None:
-    """ranking_overall 응답 1건 → (guild, user, date) 스냅샷 upsert(재실행 시 최신값 덮어씀).
+    """ranking_overall 응답 1건 → (guild, user, date, realm) 스냅샷 upsert(재실행 시 최신값 덮어씀).
 
-    exp_rate 는 character/basic best-effort 보강값(실패 시 None) — 함께 저장한다.
+    realm 은 대표의 world 에서 파생된 디스크리미넌트(본서버/챌린저스) — 두 realm 대표가 같은 날
+    공존할 수 있어 PK 에 포함된다(ADR-0009). exp_rate 는 character/basic best-effort 보강값.
     """
     async with session_factory() as session:
         stmt = (
@@ -89,13 +92,19 @@ async def _upsert_snapshot(
                 guild_id=guild_id,
                 discord_user_id=discord_user_id,
                 snapshot_date=snapshot_date,
+                realm=realm,
                 character_level=int(entry.get("character_level") or 0),
                 total_exp=int(entry.get("character_exp") or 0),
                 world_rank=entry.get("ranking"),
                 exp_rate=exp_rate,
             )
             .on_conflict_do_update(
-                index_elements=["guild_id", "discord_user_id", "snapshot_date"],
+                index_elements=[
+                    "guild_id",
+                    "discord_user_id",
+                    "snapshot_date",
+                    "realm",
+                ],
                 set_={
                     "character_level": int(entry.get("character_level") or 0),
                     "total_exp": int(entry.get("character_exp") or 0),
@@ -170,6 +179,9 @@ async def _fetch_one_day(
         guild_id=target.guild_id,
         discord_user_id=target.discord_user_id,
         snapshot_date=snapshot_date,
+        realm=realm_of(
+            target.world
+        ).value,  # 대표 world → realm 디스크리미넌트(ADR-0009)
         entry=entry,
         exp_rate=exp_rate,
     )
@@ -268,13 +280,16 @@ async def snapshots_on(
     session_factory: async_sessionmaker[AsyncSession],
     guild_id: int,
     snapshot_date: date,
+    realm: Realm | None = None,
 ) -> list[ExpSnapshot]:
-    """길드의 특정 일자 스냅샷 전부(순서 무관 — build_rows 가 정렬)."""
+    """길드의 특정 일자 스냅샷(순서 무관 — build_rows 가 정렬). realm 지정 시 그 realm 만(누수 0)."""
     async with session_factory() as session:
         stmt = select(ExpSnapshot).where(
             ExpSnapshot.guild_id == guild_id,
             ExpSnapshot.snapshot_date == snapshot_date,
         )
+        if realm is not None:
+            stmt = stmt.where(ExpSnapshot.realm == realm.value)
         return list((await session.execute(stmt)).scalars().all())
 
 
@@ -322,6 +337,7 @@ async def history_progress(
     today: date,
     *,
     days: int = HISTORY_DAYS,
+    realm: Realm | None = None,
 ) -> dict[str, list[tuple[date, float | None]]]:
     """그래프용 유저별 최근 `days`일 연속 진행도 시계열(닉 → [(날짜, progress|None), ...]).
 
@@ -344,6 +360,8 @@ async def history_progress(
             ExpSnapshot.snapshot_date >= display_dates[0],
             ExpSnapshot.snapshot_date <= display_dates[-1],
         )
+        if realm is not None:
+            stmt = stmt.where(ExpSnapshot.realm == realm.value)
         rows = (await session.execute(stmt)).all()
 
     by_user: dict[int, dict[date, float]] = {}

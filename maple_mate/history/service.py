@@ -18,6 +18,7 @@ from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..dependencies import Deps
+from ..registration.realm import Realm, in_realm
 from .cache import is_cache_fresh
 from .equipment_level import EXCLUDED_ITEMS, MIN_AGGREGATE_LEVEL
 from .expected_cost import actual_meso, expected_meso, meso_luck_percentile, net_meso
@@ -183,6 +184,9 @@ class StarforceAttempt:
     date_create: str  # ISO8601(KST)
     character_name: str = ""  # 계정 전체화 — 동명 장비를 캐릭터별로 분리(집계 그룹 키)
     superior: bool = False  # 슈페리얼 장비 여부(확률·비용공식 상이 → /비틱 집계 제외)
+    world_name: str = (
+        ""  # realm 신호(ADR-0009) — /스타포스 realm 필터는 world_name 정밀(결정 6)
+    )
 
 
 def parse_attempts(records: Sequence[dict]) -> list[StarforceAttempt]:
@@ -206,9 +210,21 @@ def parse_attempts(records: Sequence[dict]) -> list[StarforceAttempt]:
                 date_create=r.get("date_create", ""),
                 character_name=r.get("character_name", ""),
                 superior="슈페리얼" in flag and "미해당" not in flag,
+                world_name=r.get("world_name", ""),
             )
         )
     return attempts
+
+
+def attempts_in_realm(
+    attempts: Sequence[StarforceAttempt], realm: Realm
+) -> list[StarforceAttempt]:
+    """레코드 world_name 으로 realm 필터(순수, 결정 6 — /스타포스 정밀 분리, ADR-0009).
+
+    본서버 모드는 챌린저스 강화를 배제, 챌린저스 모드는 챌린저스 강화만. world_name 부재(레거시
+    레코드)는 본서버로 흡수(챌린저스는 6/18 신설이라 과거 레코드는 전부 본서버).
+    """
+    return [a for a in attempts if in_realm(a.world_name, realm)]
 
 
 async def _cached_records(
