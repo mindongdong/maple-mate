@@ -91,6 +91,7 @@ class NexonClient:
 | 16 | [guild.md](./guild.md) | `guild/id` · `guild/basic` |
 | 55 | [battle-practice.md](./battle-practice.md) | `battle-practice/*` (연무장/전투분석) |
 | 17 | [history.md](./history.md) | `history/cube` · `history/potential` · `history/starforce` **(이력류, 개인 키)** |
+| 57 | [scheduler.md](./scheduler.md) | `scheduler/character-state` (스케줄러 수행 현황) **(계정 스코프, 개인 키 + ocid)** |
 | 18 | [ranking.md](./ranking.md) | `ranking/overall·union·guild·dojang·theseed·achievement` |
 | 24 | [notice.md](./notice.md) | `notice` · `notice-update` · `notice-event` · `notice-cashshop` (+`/detail`) |
 
