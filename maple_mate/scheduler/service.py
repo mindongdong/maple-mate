@@ -20,6 +20,8 @@ from sqlalchemy.sql import func
 from ..history.service import get_history_targets
 from ..registration.realm import CHALLENGERS_NO_TARGET, Realm, in_realm
 from ..registration.service import get_characters
+from . import category_filter
+from .category_filter import BUCKET_BOSS, BUCKET_DAILY, BUCKET_GUILD, BUCKET_WEEKLY
 from .models import SchedulerSubscription
 
 log = logging.getLogger(__name__)
@@ -298,6 +300,48 @@ def boss_counts(items: Sequence[BossItem]) -> tuple[int, int]:
     return sum(1 for b in items if b.done), len(items)
 
 
+# ── 카테고리 필터 재집계(순수, ADR-0014) ──────────────────────────────────────
+
+
+def visible_remaining(hw: Homework, excluded: frozenset[str]) -> tuple[int, int]:
+    """보이는 묶음만 (완료, 집계대상 총) 재집계 — 헤드라인·상태색 신호(ADR-0014 결정 3). 순수.
+
+    길드는 점수제라 원래 집계 비대상(제외 여부 무관). 일일/주간/보스 묶음이 꺼지면 그 항목이
+    헤드라인에서도 빠져 화면과 일치한다. excluded 가 비면 remaining_total 과 동일.
+    """
+    items: list[ContentItem] = []
+    if BUCKET_DAILY not in excluded:
+        items += [c for c in hw.daily if c.counts]
+    if BUCKET_WEEKLY not in excluded:
+        items += [c for c in hw.weekly if c.counts]
+    bosses = [] if BUCKET_BOSS in excluded else list(hw.boss)
+    done = sum(1 for c in items if c.done) + sum(1 for b in bosses if b.done)
+    return done, len(items) + len(bosses)
+
+
+def is_empty_filtered(hw: Homework, excluded: frozenset[str]) -> bool:
+    """보이는 묶음에 표시할 항목이 없으면 True — is_empty 의 필터 버전(ADR-0014 결정 5). 순수.
+
+    build_embed 가 실제 그리는 필드의 존재 여부를 묶음별로 본다(일일/주간=비길드 항목 qs0 제외,
+    길드=[길드] 항목, 보스=전체). 제외된 묶음은 건너뛴다.
+    """
+    daily_visible = BUCKET_DAILY not in excluded and bool(
+        by_category(hw.daily, CAT_QUEST)
+        or by_category(hw.daily, CAT_COUNT)
+        or by_category(hw.daily, CAT_BINARY)
+    )
+    weekly_visible = BUCKET_WEEKLY not in excluded and bool(
+        by_category(hw.weekly, CAT_QUEST)
+        or by_category(hw.weekly, CAT_COUNT)
+        or by_category(hw.weekly, CAT_BINARY)
+    )
+    guild_visible = BUCKET_GUILD not in excluded and bool(
+        by_category(hw.daily, CAT_GUILD) or by_category(hw.weekly, CAT_GUILD)
+    )
+    boss_visible = BUCKET_BOSS not in excluded and bool(hw.boss)
+    return not (daily_visible or weekly_visible or guild_visible or boss_visible)
+
+
 # ── 카테고리 본문(순수) ───────────────────────────────────────────────────────
 
 
@@ -362,17 +406,46 @@ def boss_cycle_value(items: Sequence[BossItem]) -> str:
 
 @dataclass(frozen=True)
 class Subscription:
-    """구독 1건(전달/잡 공유). realm 은 Realm enum 으로 디코드."""
+    """구독 1건(전달/잡 공유). realm 은 Realm enum, excluded 는 숨김 묶음 집합(ADR-0014)."""
 
     guild_id: int
     discord_user_id: int
     realm: Realm
     hour: int
+    excluded: frozenset[str] = frozenset()
 
 
 def _realm_of_value(value: str) -> Realm:
     """저장된 realm 디스크리미넌트 → Realm(예상 외 값은 본서버로 폴백)."""
     return Realm.CHALLENGERS if value == Realm.CHALLENGERS.value else Realm.MAIN
+
+
+async def get_subscription(
+    session_factory: async_sessionmaker[AsyncSession],
+    guild_id: int,
+    discord_user_id: int,
+    realm: Realm,
+) -> Subscription | None:
+    """(guild, user, realm) 구독 1건 — 켜기 병합의 베이스 읽기(없으면 None=빈 제외집합)."""
+    async with session_factory() as session:
+        row = (
+            await session.execute(
+                select(SchedulerSubscription).where(
+                    SchedulerSubscription.guild_id == guild_id,
+                    SchedulerSubscription.discord_user_id == discord_user_id,
+                    SchedulerSubscription.realm == realm.value,
+                )
+            )
+        ).scalar_one_or_none()
+    if row is None:
+        return None
+    return Subscription(
+        guild_id=row.guild_id,
+        discord_user_id=row.discord_user_id,
+        realm=_realm_of_value(row.realm),
+        hour=row.hour,
+        excluded=category_filter.from_csv(row.excluded_categories),
+    )
 
 
 async def set_subscription(
@@ -382,8 +455,10 @@ async def set_subscription(
     discord_user_id: int,
     realm: Realm,
     hour: int,
+    excluded: frozenset[str] = frozenset(),
 ) -> None:
-    """구독 켜기 upsert — (guild, user, realm) 에 hour 저장(같은 realm 재호출 = 시각 갱신)."""
+    """구독 켜기 upsert — (guild, user, realm) 에 hour·제외집합 저장(재호출 = 갱신)."""
+    excluded_csv = category_filter.to_csv(excluded)
     async with session_factory() as session:
         stmt = (
             pg_insert(SchedulerSubscription)
@@ -392,10 +467,15 @@ async def set_subscription(
                 discord_user_id=discord_user_id,
                 realm=realm.value,
                 hour=hour,
+                excluded_categories=excluded_csv,
             )
             .on_conflict_do_update(
                 index_elements=["guild_id", "discord_user_id", "realm"],
-                set_={"hour": hour, "updated_at": func.now()},
+                set_={
+                    "hour": hour,
+                    "excluded_categories": excluded_csv,
+                    "updated_at": func.now(),
+                },
             )
         )
         await session.execute(stmt)
@@ -438,6 +518,7 @@ async def subscriptions_at_hour(
                 discord_user_id=r.discord_user_id,
                 realm=_realm_of_value(r.realm),
                 hour=r.hour,
+                excluded=category_filter.from_csv(r.excluded_categories),
             )
             for r in rows
         ]

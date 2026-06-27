@@ -6,6 +6,12 @@ DB 함수(구독 토글·조회)·resolve_self 는 pg_insert/delete 통합 영�
 
 from __future__ import annotations
 
+from maple_mate.scheduler.category_filter import (
+    BUCKET_BOSS,
+    BUCKET_DAILY,
+    BUCKET_GUILD,
+    BUCKET_WEEKLY,
+)
 from maple_mate.scheduler.service import (
     CAT_BINARY,
     CAT_COUNT,
@@ -16,6 +22,7 @@ from maple_mate.scheduler.service import (
     CYCLE_WEEKLY,
     BossItem,
     ContentItem,
+    Homework,
     boss_counts,
     boss_cycle_value,
     bosses_by_cycle,
@@ -25,10 +32,12 @@ from maple_mate.scheduler.service import (
     difficulty_ko,
     field_counts,
     guild_field_value,
+    is_empty_filtered,
     parse_homework,
     section_text,
     strip_prefix,
     truncate,
+    visible_remaining,
     weekly_boss_limit,
 )
 
@@ -362,3 +371,73 @@ def test_section_text_joins_and_clamps():
     assert section_text([]) == ""
     out = section_text([f"⬜ 보스{i}(하드)" for i in range(200)])
     assert "…외" in out and len(out) <= 1024
+
+
+# ── 카테고리 필터 재집계(ADR-0014) ───────────────────────────────────────────
+
+
+def test_visible_remaining_no_exclusion_matches_total():
+    hw = parse_homework(_sample())
+    assert visible_remaining(hw, frozenset()) == hw.remaining_total == (3, 8)
+
+
+def test_visible_remaining_excludes_boss():
+    # 보스 3(완1) 빠짐 → 콘텐츠 daily3(완1)+weekly2(완1) = 5(완2).
+    assert visible_remaining(parse_homework(_sample()), frozenset({BUCKET_BOSS})) == (
+        2,
+        5,
+    )
+
+
+def test_visible_remaining_excludes_daily():
+    # 일일 3(완1 리멘) 빠짐 → weekly2(완1)+보스3(완1) = 5(완2).
+    assert visible_remaining(parse_homework(_sample()), frozenset({BUCKET_DAILY})) == (
+        2,
+        5,
+    )
+
+
+def test_visible_remaining_excludes_weekly():
+    # 주간 2(완1 에픽) 빠짐 → daily3(완1)+보스3(완1) = 6(완2).
+    assert visible_remaining(parse_homework(_sample()), frozenset({BUCKET_WEEKLY})) == (
+        2,
+        6,
+    )
+
+
+def test_visible_remaining_guild_exclusion_is_noop():
+    # 길드는 원래 집계 비대상 → 제외해도 헤드라인 불변.
+    hw = parse_homework(_sample())
+    assert visible_remaining(hw, frozenset({BUCKET_GUILD})) == (3, 8)
+
+
+def test_is_empty_filtered_false_when_visible_items():
+    assert is_empty_filtered(parse_homework(_sample()), frozenset()) is False
+
+
+def test_is_empty_filtered_true_when_all_buckets_excluded():
+    hw = parse_homework(_sample())
+    assert (
+        is_empty_filtered(
+            hw, frozenset({BUCKET_DAILY, BUCKET_WEEKLY, BUCKET_BOSS, BUCKET_GUILD})
+        )
+        is True
+    )
+
+
+def test_is_empty_filtered_boss_only_character_excluding_boss():
+    hw = Homework(
+        "보스만", "스카니아", 285, [], [], [BossItem("스우", "hard", False)], 0, 0
+    )
+    assert is_empty_filtered(hw, frozenset()) is False
+    assert (
+        is_empty_filtered(hw, frozenset({BUCKET_BOSS})) is True
+    )  # 보스 끄면 빈 캐릭터
+
+
+def test_is_empty_filtered_guild_only_character_excluding_guild():
+    hw = Homework(
+        "길드만", "스카니아", 285, [ContentItem("[길드] 지하 수로", 0, 0)], [], [], 0, 0
+    )
+    assert is_empty_filtered(hw, frozenset()) is False
+    assert is_empty_filtered(hw, frozenset({BUCKET_GUILD})) is True

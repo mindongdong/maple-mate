@@ -8,6 +8,12 @@ from maple_mate.bot.embeds import BRAND_COLOR
 from maple_mate.nexon.client import KST
 from maple_mate.registration.realm import Realm
 from maple_mate.scheduler.broadcast import _DONE_COLOR, build_embed
+from maple_mate.scheduler.category_filter import (
+    BUCKET_BOSS,
+    BUCKET_DAILY,
+    BUCKET_GUILD,
+    BUCKET_WEEKLY,
+)
 from maple_mate.scheduler.service import (
     CYCLE_DAILY,
     CYCLE_MONTHLY,
@@ -149,3 +155,40 @@ def test_embed_omits_empty_categories():
 def test_embed_footer_has_source():
     embed = build_embed(_homework(), Realm.MAIN, _NOW)
     assert "NEXON Open API" in (embed.footer.text or "")
+
+
+# ── 카테고리 필터(ADR-0014): 묶음 제외 시 그 필드 생략 + 헤드라인 재집계 ──────
+
+
+def test_embed_excludes_boss_bucket():
+    embed = build_embed(_homework(), Realm.MAIN, _NOW, frozenset({BUCKET_BOSS}))
+    names = [f.name for f in embed.fields]
+    assert all("보스" not in n for n in names)  # 4개 보스 필드 전부 생략
+    assert any(n.startswith("📝 일일 퀘스트") for n in names)  # 나머지는 유지
+    # 헤드라인 재집계: 보스 3(완1) 빠짐 → 콘텐츠 5(완2).
+    assert "🔥 남은 숙제 3개 (2/5 완료)" in (embed.description or "")
+
+
+def test_embed_excludes_daily_bucket():
+    embed = build_embed(_homework(), Realm.MAIN, _NOW, frozenset({BUCKET_DAILY}))
+    names = [f.name for f in embed.fields]
+    assert all("일일" not in n for n in names)  # 일일 퀘스트·콘텐츠 생략
+    assert any(n.startswith("🗡 주간 보스") for n in names)
+
+
+def test_embed_excludes_guild_bucket():
+    embed = build_embed(_homework(), Realm.MAIN, _NOW, frozenset({BUCKET_GUILD}))
+    assert all("길드" not in f.name for f in embed.fields)
+
+
+def test_embed_boss_only_when_others_excluded():
+    excluded = frozenset({BUCKET_DAILY, BUCKET_WEEKLY, BUCKET_GUILD})
+    embed = build_embed(_homework(), Realm.MAIN, _NOW, excluded)
+    names = [f.name for f in embed.fields]
+    assert names and all(n.startswith("🗡") for n in names)  # 보스 필드만 남음
+
+
+def test_embed_all_excluded_has_no_category_fields():
+    excluded = frozenset({BUCKET_DAILY, BUCKET_WEEKLY, BUCKET_BOSS, BUCKET_GUILD})
+    embed = build_embed(_homework(), Realm.MAIN, _NOW, excluded)
+    assert embed.fields == []  # 4묶음 전부 끄면 카테고리 필드 0개
