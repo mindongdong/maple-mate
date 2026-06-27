@@ -12,16 +12,70 @@ from types import SimpleNamespace
 import pytest
 
 from maple_mate.leaderboard import broadcast, commands
-from maple_mate.leaderboard.broadcast import LeaderboardPayload, _footer_text
+from maple_mate.leaderboard.broadcast import (
+    LeaderboardPayload,
+    _build_embed,
+    _footer_text,
+)
+from maple_mate.leaderboard.service import LeaderRow
 from maple_mate.registration.realm import Realm
 
 # ── 푸터 라벨 ────────────────────────────────────────────────────────────────
 
 
-def test_footer_label_says_yesterday_kst():
+def test_footer_label_says_today_current():
     text = _footer_text(date(2026, 6, 13))
-    assert "기준: 어제(06/13) KST" in text
+    assert "기준: 오늘(06/13) 현재" in text  # 표시 레벨이 라이브(오늘 현재)
     assert "NEXON Open API" in text
+
+
+# ── 임베드 순위판(위치) 텍스트 (ADR-0011) ────────────────────────────────────
+
+
+def _row(rank, nick, level, exp_rate, world_rank):
+    return LeaderRow(
+        discord_user_id=rank,
+        rank=rank,
+        nickname=nick,
+        level=level,
+        exp_rate=exp_rate,
+        delta=None,
+        world_rank=world_rank,
+    )
+
+
+def test_embed_ranking_lists_medal_and_level_only():
+    # 메달 · 닉 · 레벨(exp%)만 — 전체 서버순위·그래프 안내문구는 미표기(ADR-0011 피드백).
+    rows = [
+        _row(1, "손바", 287, 79.0, 12345),
+        _row(2, "라딘라면", 287, 41.0, 45678),
+    ]
+    desc = _build_embed(rows, date(2026, 6, 22)).description or ""
+    assert "🥇 **손바** — Lv.287 (79%)" in desc
+    assert "🥈 **라딘라면** — Lv.287 (41%)" in desc
+    assert "전체 #" not in desc  # 전체 서버 등수 제외
+    assert "성장 레이스" not in desc and "그래프" not in desc  # 안내 문구 제외
+
+
+def test_embed_ranking_caps_at_top_ten():
+    # 순위판은 Top10까지만(그래프도 같은 10명). 11위 이하는 임베드에 안 나온다.
+    rows = [_row(i, f"유저{i:02d}", 300 - i, 50.0, None) for i in range(1, 13)]
+    desc = _build_embed(rows, date(2026, 6, 22)).description or ""
+    for i in range(1, 11):
+        assert f"유저{i:02d}" in desc
+    assert "유저11" not in desc and "유저12" not in desc
+
+
+def test_embed_ranking_graceful_without_exp_rate():
+    # exp% 보강 실패(None) → 'Lv.287'(괄호 % 생략, ADR-0005 그레이스풀).
+    desc = (
+        _build_embed(
+            [_row(1, "네벨루크", 281, None, None)], date(2026, 6, 22)
+        ).description
+        or ""
+    )
+    assert "🥇 **네벨루크** — Lv.281" in desc
+    assert "(%" not in desc
 
 
 # ── /경험치 명령 분기 (defer → build_payload) ────────────────────────────────
@@ -54,7 +108,7 @@ class _FakeInteraction:
         self.followup = _FakeFollowup()
 
 
-async def _noop_ensure(deps, guild_id):
+async def _noop_ensure(deps, guild_id, realm=None):
     pass
 
 
@@ -137,10 +191,10 @@ async def test_leaderboard_command_dm_guard(monkeypatch):
 
 
 async def test_leaderboard_command_bootstrap_fetches_when_no_snapshot(monkeypatch):
-    """D-1 스냅샷 없으면 ensure_guild_data → refresh_guild 호출 후 build_payload."""
+    """온디맨드 부트스트랩: ensure_guild_data(빈 날 백필) 호출 후 build_payload."""
     bootstrap_called: list[int] = []
 
-    async def fake_ensure(deps, guild_id):
+    async def fake_ensure(deps, guild_id, realm=None):
         bootstrap_called.append(guild_id)
 
     payload = LeaderboardPayload(
@@ -263,3 +317,63 @@ async def test_build_payload_returns_none_below_min_ranked(monkeypatch):
 @pytest.mark.parametrize("count", [0, 1])
 async def test_min_ranked_is_two(count):
     assert broadcast.MIN_RANKED == 2
+
+
+async def test_build_payload_caps_embed_and_graph_to_top_ten(monkeypatch):
+    # 등재 12명 → 임베드 순위판 10줄·그래프 라인 10개, 둘 다 동일한 상위 10명(레벨 내림차순).
+    n = 12
+    targets = [
+        SimpleNamespace(discord_user_id=i, nickname=f"유저{i:02d}", ocid=f"o{i}")
+        for i in range(1, n + 1)
+    ]
+
+    async def fake_get_targets(sf, guild_id, realm=None):
+        return targets
+
+    async def fake_snapshots_on(sf, guild_id, snap_date, realm=None):
+        # 레벨 내림차순이 되도록 character_level 을 i 로 부여(유저01 이 최고 레벨).
+        return [
+            SimpleNamespace(
+                discord_user_id=t.discord_user_id,
+                snapshot_date=snap_date,
+                character_level=300 - i,
+                total_exp=1,
+                world_rank=i,
+                exp_rate=50.0,
+            )
+            for i, t in enumerate(targets, start=1)
+        ]
+
+    async def fake_live_levels(deps, tgts):
+        return {}  # 라이브 실패 → D-1 스냅샷 폴백(결정적 레벨 순서)
+
+    async def fake_history_progress(sf, guild_id, nicknames, today, *, realm=None):
+        return {nick: [(date(2026, 6, 13), 290.0)] for nick in nicknames.values()}
+
+    captured: dict[str, object] = {}
+
+    def fake_render(series, ref_date):
+        captured["series"] = series
+        return SimpleNamespace(getvalue=lambda: b"PNG")
+
+    monkeypatch.setattr(broadcast, "get_targets", fake_get_targets)
+    monkeypatch.setattr(broadcast.service, "snapshots_on", fake_snapshots_on)
+    monkeypatch.setattr(broadcast.service, "live_levels", fake_live_levels)
+    monkeypatch.setattr(broadcast.service, "history_progress", fake_history_progress)
+    monkeypatch.setattr(
+        broadcast.leaderboard_image, "render_progress_graph", fake_render
+    )
+
+    deps = SimpleNamespace(session_factory=object(), nexon=object())
+    payload = await broadcast.build_payload(object(), deps, 1)
+    assert payload is not None
+
+    # 그래프 = 상위 10명만(임베드와 동일 멤버) + 임베드와 동일 순위 순서(렌더러는 재정렬 안 함).
+    assert len(captured["series"]) == broadcast._TOP_N == 10
+    assert list(captured["series"]) == [f"유저{i:02d}" for i in range(1, 11)]
+
+    # 임베드 순위판도 10줄, 11·12위 제외.
+    desc = payload.embed.description or ""
+    for i in range(1, 11):
+        assert f"유저{i:02d}" in desc
+    assert "유저11" not in desc and "유저12" not in desc

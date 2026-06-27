@@ -53,46 +53,67 @@ class LeaderboardPayload:
         return [discord.File(io.BytesIO(self.graph_png), filename=_GRAPH_FILE)]
 
 
-def _footer_text(ref_date: date) -> str:
-    """기준일 라벨(작업지시서 파생 결정) — 누적은 D-1 마감값임을 명시 + 넥슨 출처표시."""
-    return f"기준: 어제({ref_date:%m/%d}) KST · {DATA_SOURCE}"
+def _footer_text(now_date: date) -> str:
+    """기준일 라벨 — 표시 레벨이 character/basic 라이브(오늘 현재)임을 명시 + 넥슨 출처표시(ADR-0011)."""
+    return f"기준: 오늘({now_date:%m/%d}) 현재 · {DATA_SOURCE}"
 
 
 def _embed_title(realm: Realm) -> str:
     """리더보드 제목 — 본서버 '📈 경험치 리더보드', 챌린저스 '🏆 챌린저스 경험치 리더보드'(결정 9)."""
     prefix = "🏆 챌린저스" if realm is Realm.CHALLENGERS else "📈"
-    return f"{prefix} 경험치 리더보드 — 최근 7일 레벨 추이"
+    return f"{prefix} 경험치 리더보드"
 
 
-def _build_embed(ref_date: date, realm: Realm = Realm.MAIN) -> discord.Embed:
-    """7일 레벨 추이 그래프를 담을 임베드(그래프를 메인 이미지로). 챌린저스는 🏆 제목."""
+# 순위판 메달(Top3) + 임베드·그래프 공통 표기 상한(상위 10명 — 동일 순위 소스로 같은 10명).
+_MEDALS = {1: "🥇", 2: "🥈", 3: "🥉"}
+_TOP_N = 10
+
+
+def _level_label(level: int, exp_rate: float | None) -> str:
+    """순위판 레벨 표기 — exp% 보강이 있으면 'Lv.287 (79%)', 없으면 'Lv.287'(ADR-0005 그레이스풀)."""
+    if exp_rate is None:
+        return f"Lv.{level}"
+    return f"Lv.{level} ({min(round(exp_rate), 99)}%)"
+
+
+def _rank_line(row: service.LeaderRow) -> str:
+    """임베드 순위 1행(위치) — 메달 · **닉** · 레벨(exp%). 전체 서버순위·어제 Δ는 미표기(ADR-0011)."""
+    badge = _MEDALS.get(row.rank, f"`{row.rank}.`")
+    return f"{badge} **{row.nickname}** — {_level_label(row.level, row.exp_rate)}"
+
+
+def _build_embed(
+    rows: Sequence[service.LeaderRow], now_date: date, realm: Realm = Realm.MAIN
+) -> discord.Embed:
+    """순위판(라이브 레벨 Top10) 텍스트 + 7일 추이 그래프 임베드. 챌린저스는 🏆 제목(ADR-0011)."""
+    ranking = "\n".join(_rank_line(r) for r in rows[:_TOP_N])
     embed = discord.Embed(
         title=_embed_title(realm),
-        description=(
-            "등록 캐릭터들의 최근 7일 레벨 진행이에요. 각 점은 그날의 레벨(경험치%),"
-            " 범례는 하루 평균 진행 속도예요."
-        ),
+        description=ranking,
         color=discord.Color.from_rgb(255, 140, 0),
     )
     embed.set_image(url=f"attachment://{_GRAPH_FILE}")
-    embed.set_footer(text=_footer_text(ref_date))
+    embed.set_footer(text=_footer_text(now_date))
     return embed
 
 
 async def build_payload(
     bot: discord.Client, deps: Deps, guild_id: int, realm: Realm = Realm.MAIN
 ) -> LeaderboardPayload | None:
-    """get_targets(realm) → realm D-1 스냅샷 → 등재 2명 미만이면 None → 7일 추이 그래프.
+    """get_targets(realm) → D-1 스냅샷 게이트 → 라이브 레벨 덮어쓰기 → 7일+오늘 추이 그래프.
 
-    `/경험치` 명령과 매일 10시 잡이 공유한다(작업지시서 #5). realm 별로 완전 분리(결정 8) —
-    본서버/챌린저스 각각 독립 MIN_RANKED 게이트. 렌더는 to_thread(이벤트 루프 비차단).
+    `/경험치` 명령과 매일 10시 잡이 공유한다(작업지시서 #5). realm 별로 완전 분리(결정 8) — 각각
+    독립 MIN_RANKED 게이트. **표시 레벨은 character/basic 라이브(오늘 현재)** 로 덮어쓰고, 그래프
+    끝에도 오늘 라이브 점을 붙여 임베드·그래프가 모두 '현재'로 일치한다(ADR-0011). 정렬·게이트·이력은
+    스냅샷 기반 유지. 렌더는 to_thread(이벤트 루프 비차단).
     """
     targets = await get_targets(deps.session_factory, guild_id, realm=realm)
     nicknames = {t.discord_user_id: t.nickname for t in targets}
 
     now = datetime.now(KST)
-    ref_date = service.yesterday_kst(now)  # D-1(누적 마감)
+    ref_date = service.yesterday_kst(now)  # D-1(스냅샷 이력 끝)
     prev_date = ref_date - timedelta(days=1)  # D-2(어제 Δ 계산용)
+    today = now.date()
 
     today_snaps = await service.snapshots_on(
         deps.session_factory, guild_id, ref_date, realm
@@ -101,20 +122,34 @@ async def build_payload(
         deps.session_factory, guild_id, prev_date, realm
     )
 
-    # rows 는 등재 카운트 게이트로만 쓴다(미렌더). build_rows = 등재 인원의 단일 출처(순위·미등재 제외).
+    # rows = 등재 인원의 단일 출처(순위·미등재 제외) — 게이트 + 임베드 순위판의 베이스.
     rows, _excluded = service.build_rows(today_snaps, prev_snaps, nicknames=nicknames)
     if len(rows) < MIN_RANKED:  # 등재 2명 미만 → 발송/표시 생략(Q10)
         return None
 
+    # 표시 레벨을 라이브로(character/basic 무지정=최신). 실패 대상은 D-1 스냅샷 폴백.
+    ranked_ids = {r.discord_user_id for r in rows}
+    live = await service.live_levels(
+        deps, [t for t in targets if t.discord_user_id in ranked_ids]
+    )
+    display_rows = service.with_live_levels(rows, live)
+
+    # 그래프: 7일 이력(스냅샷) + 오늘 라이브 점 → 끝점이 임베드 순위와 같은 '현재'.
     series = await service.history_progress(
         deps.session_factory, guild_id, nicknames, ref_date, realm=realm
     )
+    series = service.append_live_point(series, nicknames, live, today)
+    # 그래프도 임베드와 동일한 상위 _TOP_N 만 그 순위 순서로 그린다(단일 순위 소스 = display_rows).
+    # dict 삽입 순서 = 순위 순서라 렌더러가 1위에 팔레트 선두색을 준다(구조적 일치, 렌더러는 재정렬 안 함).
+    # 단, 7일 내내 exp% 결손이라 그릴 점이 0개인 상위권 캐릭은 순위판엔 뜨지만 그래프 라인은 없다(드묾).
+    top_nicks = [r.nickname for r in display_rows[:_TOP_N]]
+    series = {nick: series[nick] for nick in top_nicks if nick in series}
     graph_buf = await asyncio.to_thread(
         leaderboard_image.render_progress_graph, series, ref_date
     )
     return LeaderboardPayload(
         graph_png=graph_buf.getvalue(),
-        embed=_build_embed(ref_date, realm),
+        embed=_build_embed(display_rows, today, realm),
         ref_date=ref_date,
     )
 
@@ -125,13 +160,15 @@ async def refresh_guild(
     targets: Sequence[Target],
     ref_date: date,
 ) -> int:
-    """길드 1개의 (첫 실행)백필 → D-1 적재 공통 블록. 스킵 카운트 반환.
+    """길드 1개의 빈 과거일 백필 → D-1 적재 공통 블록. 스킵 카운트 반환.
 
-    `run_leaderboard_job` 과 `ensure_guild_data` 가 함께 사용한다.
+    `backfill` 은 멱등(이미 있는 날만 건너뜀)이라 매 실행 호출한다 — 봇 미가동일이나 뒤늦게
+    추가된 realm(챌린저스)의 공백이 매 잡마다 자가복구된다(정상 상태 넥슨 0콜). 이어 D-1 을
+    무조건 재적재해 어제 마감값을 신선화한다. `run_leaderboard_job` 과 `ensure_guild_data` 공용.
     """
-    session_factory = deps.session_factory
-    if not await service.has_snapshots(session_factory, guild_id):
-        await service.backfill(deps, guild_id, targets)  # 첫 실행 1회 백필(Q11)
+    await service.backfill(
+        deps, guild_id, targets
+    )  # 빈 과거일 채움(멱등 — 정상 상태 0콜)
     return await service.fetch_and_store(deps, guild_id, targets, ref_date.isoformat())
 
 
@@ -145,19 +182,18 @@ async def _all_realm_targets(session_factory, guild_id: int) -> list[Target]:
     return [*main, *chal]
 
 
-async def ensure_guild_data(deps: Deps, guild_id: int) -> None:
-    """`/경험치` 온디맨드 부트스트랩: D-1 스냅샷이 없으면 백필+적재해서 즉시 표시 가능하게 한다.
+async def ensure_guild_data(
+    deps: Deps, guild_id: int, realm: Realm = Realm.MAIN
+) -> None:
+    """`/경험치` 온디맨드: 그 realm 대표들의 빈 과거일 백필(7일 그래프 이력 공백 메움).
 
-    D-1 이 이미 있으면 빠른 no-op. exp_alert 를 켜지 않아도 명령 한 번으로 데이터가 뜨도록
-    `run_leaderboard_job` 의 첫 실행 경로를 /경험치 명령에서도 재현한다(두 realm 대상 모두 적재).
+    표시 레벨은 build_payload 가 character/basic(무지정=최신)으로 **라이브** 조회하므로 명령 시점
+    '현재 갱신'은 그쪽이 담당한다 — 여기선 `backfill`(멱등)로 7일 그래프 이력의 공백(봇 미가동일·
+    뒤늦게 추가된 챌린저스 realm)만 채운다(정상 상태 넥슨 0콜). 그 realm 등록자가 없으면 no-op.
     """
-    now = datetime.now(KST)
-    ref_date = service.yesterday_kst(now)
-    if await service.has_snapshot_on(deps.session_factory, guild_id, ref_date):
-        return  # D-1 이미 있음 → 아무 것도 안 함
-    targets = await _all_realm_targets(deps.session_factory, guild_id)
+    targets = await get_targets(deps.session_factory, guild_id, realm=realm)
     if targets:
-        await refresh_guild(deps, guild_id, targets, ref_date)
+        await service.backfill(deps, guild_id, targets)
 
 
 async def run_leaderboard_job(bot: discord.Client, deps: Deps) -> None:
