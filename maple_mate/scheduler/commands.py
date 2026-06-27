@@ -20,6 +20,13 @@ from ..nexon.client import KST
 from ..registration.realm import Realm, realm_title
 from . import service
 from .broadcast import build_embed, build_homeworks
+from .category_filter import (
+    CATEGORY_ON_OFF,
+    is_all_excluded,
+    merge_excluded,
+    parse_ondemand,
+    summarize,
+)
 from .service import DEFAULT_HOUR
 
 _MSG_GUILD_ONLY = "서버(길드) 안에서만 쓸 수 있어요."
@@ -28,20 +35,51 @@ _MSG_NO_HOMEWORK = (
     " 게임에서 콘텐츠를 스케줄러에 등록하면 여기 떠요."
 )
 _MSG_BAD_HOUR = "시각은 **0~23** 사이 정수로 입력해 주세요."
+# 4묶음 전부 끄기 가드(ADR-0014 결정 5): 온디맨드는 빌드 전 안내, 알림은 저장 없이 거부.
+_MSG_ALL_OFF = "표시할 카테고리를 최소 하나는 켜주세요. (일일·주간·보스·길드)"
+_MSG_ALL_OFF_REMINDER = (
+    "표시할 카테고리를 최소 하나는 남겨야 알림을 켤 수 있어요. (저장하지 않았어요)"
+)
+
+# 카테고리 파라미터 rename/choices 공유(`/스케줄러`·`/스케줄러알림 켜기`). 키 = 파라미터명.
+_CATEGORY_RENAME = {"daily": "일일", "weekly": "주간", "boss": "보스", "guild": "길드"}
+_CATEGORY_CHOICES = {name: CATEGORY_ON_OFF for name in _CATEGORY_RENAME}
+# describe 는 표면별로 의미가 다르다 — 온디맨드=기본 켜기, 알림=미지정 시 기존 유지.
+_ONDEMAND_DESCRIBE = {
+    "daily": "일일 숙제(일일 퀘스트·콘텐츠) 표시 — 기본 켜기",
+    "weekly": "주간 숙제(주간 퀘스트·콘텐츠) 표시 — 기본 켜기",
+    "boss": "보스 숙제(일간·주간·월간) 표시 — 기본 켜기",
+    "guild": "길드 콘텐츠 표시 — 기본 켜기",
+}
+_REMINDER_DESCRIBE = {
+    "daily": "일일 숙제 표시 — 미지정 시 기존 설정 유지",
+    "weekly": "주간 숙제 표시 — 미지정 시 기존 설정 유지",
+    "boss": "보스 숙제 표시 — 미지정 시 기존 설정 유지",
+    "guild": "길드 콘텐츠 표시 — 미지정 시 기존 설정 유지",
+}
 
 
 async def handle_scheduler(
-    deps: Deps, interaction: discord.Interaction, realm: Realm = Realm.MAIN
+    deps: Deps,
+    interaction: discord.Interaction,
+    realm: Realm = Realm.MAIN,
+    excluded: frozenset[str] = frozenset(),
 ) -> None:
-    """`/스케줄러` 본체: defer → build_homeworks → 캐릭터당 임베드 1개씩 followup(에러·빈 분기).
+    """`/스케줄러` 본체: defer → (all-off 가드) → build_homeworks → 캐릭터당 임베드 1개씩 followup.
 
-    등록 캐릭터 4개면 ephemeral 응답 4개(캐릭터당 메시지 1개). 빈 숙제 캐릭터는 생략한다.
+    등록 캐릭터 4개면 ephemeral 응답 4개(캐릭터당 메시지 1개). excluded(ADR-0014) 묶음은 가리고
+    필터 후 빈 캐릭터는 생략한다. 무상태 — excluded 는 이번 호출에만 적용(저장 안 함).
     """
     await defer(interaction, ephemeral=True)
     title = realm_title("스케줄러 숙제", realm)
     if interaction.guild_id is None:
         await interaction.followup.send(
             embed=make_embed(title, _MSG_GUILD_ONLY), ephemeral=True
+        )
+        return
+    if is_all_excluded(excluded):  # 4묶음 전부 끄기 → 빌드(페치) 전 안내
+        await interaction.followup.send(
+            embed=make_embed(title, _MSG_ALL_OFF), ephemeral=True
         )
         return
 
@@ -52,8 +90,8 @@ async def handle_scheduler(
         await interaction.followup.send(embed=make_embed(title, error), ephemeral=True)
         return
 
-    non_empty = [hw for hw in homeworks if not hw.is_empty]
-    if not non_empty:  # 전 캐릭터 빈 숙제(또는 전부 4xx 스킵)
+    non_empty = [hw for hw in homeworks if not service.is_empty_filtered(hw, excluded)]
+    if not non_empty:  # 전 캐릭터 (필터 후) 빈 숙제(또는 전부 4xx 스킵)
         await interaction.followup.send(
             embed=make_embed(title, _MSG_NO_HOMEWORK), ephemeral=True
         )
@@ -62,14 +100,25 @@ async def handle_scheduler(
     now = datetime.now(KST)
     for homework in non_empty:  # 캐릭터당 메시지 1개(온디맨드 ephemeral)
         await interaction.followup.send(
-            embed=build_embed(homework, realm, now), ephemeral=True
+            embed=build_embed(homework, realm, now, excluded), ephemeral=True
         )
 
 
 async def handle_reminder_on(
-    deps: Deps, interaction: discord.Interaction, hour: int, realm: Realm
+    deps: Deps,
+    interaction: discord.Interaction,
+    hour: int,
+    realm: Realm,
+    daily: app_commands.Choice[str] | None = None,
+    weekly: app_commands.Choice[str] | None = None,
+    boss: app_commands.Choice[str] | None = None,
+    guild: app_commands.Choice[str] | None = None,
 ) -> None:
-    """`/스케줄러알림 켜기` 본체: 시각 검증 → fail-fast 가드(키·대표) → 구독 upsert."""
+    """`/스케줄러알림 켜기` 본체: 시각 검증 → fail-fast 가드 → 제외집합 tri-state 병합 → upsert.
+
+    카테고리 파라미터는 미지정=기존 유지(병합), 켜기/끄기=델타(ADR-0014 결정 2). 시각만 바꿔도
+    꺼둔 묶음이 유지된다. 병합 결과가 4묶음 전부 끄기면 저장하지 않고 거부한다(결정 5).
+    """
     title = realm_title("스케줄러 알림", realm)
     if interaction.guild_id is None:
         await interaction.response.send_message(
@@ -92,17 +141,31 @@ async def handle_reminder_on(
         )
         return
 
+    # 기존 제외집합 로드 → tri-state 병합 → all-off 거부(저장 안 함) → upsert.
+    existing = await service.get_subscription(
+        deps.session_factory, interaction.guild_id, interaction.user.id, realm
+    )
+    base = existing.excluded if existing is not None else frozenset()
+    excluded = merge_excluded(base, daily=daily, weekly=weekly, boss=boss, guild=guild)
+    if is_all_excluded(excluded):
+        await interaction.response.send_message(
+            embed=make_embed(title, _MSG_ALL_OFF_REMINDER), ephemeral=True
+        )
+        return
+
     await service.set_subscription(
         deps.session_factory,
         guild_id=interaction.guild_id,
         discord_user_id=interaction.user.id,
         realm=realm,
         hour=hour,
+        excluded=excluded,
     )
     await interaction.response.send_message(
         embed=make_embed(
             realm_title("스케줄러 알림 켜짐 🔔", realm),
-            f"매일 **{hour:02d}:00**(KST)에 등록 캐릭터별 스케줄러 숙제를 DM으로 보낼게요.",
+            f"매일 **{hour:02d}:00**(KST)에 등록 캐릭터별 스케줄러 숙제를 DM으로 보낼게요."
+            f"\n{summarize(excluded)}",
         ),
         ephemeral=True,
     )
@@ -151,15 +214,20 @@ def setup(bot: discord.Client) -> None:
         name="스케줄러",
         description="본인 등록 캐릭터 전체의 인게임 스케줄러 숙제 현황을 보여줍니다 (개인 키 필요).",
     )
-    @app_commands.rename(mode="모드")
-    @app_commands.describe(mode=MODE_DESCRIBE)
-    @app_commands.choices(mode=MODE_CHOICES)
+    @app_commands.rename(mode="모드", **_CATEGORY_RENAME)
+    @app_commands.describe(mode=MODE_DESCRIBE, **_ONDEMAND_DESCRIBE)
+    @app_commands.choices(mode=MODE_CHOICES, **_CATEGORY_CHOICES)
     @cooldowns.spec_cooldown()  # 개인 키 1콜 — 스펙류와 동일 10초
     async def scheduler_command(
         interaction: discord.Interaction,
         mode: app_commands.Choice[str] | None = None,
+        daily: app_commands.Choice[str] | None = None,
+        weekly: app_commands.Choice[str] | None = None,
+        boss: app_commands.Choice[str] | None = None,
+        guild: app_commands.Choice[str] | None = None,
     ) -> None:
-        await handle_scheduler(deps, interaction, parse_mode(mode))
+        excluded = parse_ondemand(daily, weekly, boss, guild)
+        await handle_scheduler(deps, interaction, parse_mode(mode), excluded)
 
     group = app_commands.Group(
         name="스케줄러알림",
@@ -170,19 +238,33 @@ def setup(bot: discord.Client) -> None:
         name="켜기",
         description="스케줄러 숙제 DM 구독을 켭니다 (개인 키 필요).",
     )
-    @app_commands.rename(hour="시각", mode="모드")
+    @app_commands.rename(hour="시각", mode="모드", **_CATEGORY_RENAME)
     @app_commands.describe(
         hour=f"받을 시각 (KST 0~23시, 기본 {DEFAULT_HOUR}시)",
         mode=MODE_DESCRIBE,
+        **_REMINDER_DESCRIBE,
     )
-    @app_commands.choices(mode=MODE_CHOICES)
+    @app_commands.choices(mode=MODE_CHOICES, **_CATEGORY_CHOICES)
     @cooldowns.settings_cooldown()
     async def reminder_on(
         interaction: discord.Interaction,
         hour: app_commands.Range[int, 0, 23] = DEFAULT_HOUR,
         mode: app_commands.Choice[str] | None = None,
+        daily: app_commands.Choice[str] | None = None,
+        weekly: app_commands.Choice[str] | None = None,
+        boss: app_commands.Choice[str] | None = None,
+        guild: app_commands.Choice[str] | None = None,
     ) -> None:
-        await handle_reminder_on(deps, interaction, hour, parse_mode(mode))
+        await handle_reminder_on(
+            deps,
+            interaction,
+            hour,
+            parse_mode(mode),
+            daily=daily,
+            weekly=weekly,
+            boss=boss,
+            guild=guild,
+        )
 
     @group.command(name="끄기", description="스케줄러 숙제 DM 구독을 끕니다.")
     @app_commands.rename(mode="모드")

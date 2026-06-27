@@ -20,6 +20,8 @@ from sqlalchemy.sql import func
 from ..history.service import get_history_targets
 from ..registration.realm import CHALLENGERS_NO_TARGET, Realm, in_realm
 from ..registration.service import get_characters
+from . import category_filter
+from .category_filter import BUCKET_BOSS, BUCKET_DAILY, BUCKET_GUILD, BUCKET_WEEKLY
 from .models import SchedulerSubscription
 
 log = logging.getLogger(__name__)
@@ -237,7 +239,6 @@ def parse_homework(data: dict) -> Homework:
 
 _PREFIX_RE = re.compile(r"^\s*\[[^\]]*\]\s*")  # 선두 `[..]` 한 그룹
 _NAME_MAX = 18  # 표시 이름 최대 길이(모바일 줄바꿈 방지)
-_DONE_BUDGET = 800  # 완료 이름 join 클램프(필드 1024 내 여유)
 
 
 def section_text(lines: Sequence[str], limit: int = FIELD_LIMIT) -> str:
@@ -270,19 +271,6 @@ def truncate(name: str, limit: int = _NAME_MAX) -> str:
     return name if len(name) <= limit else name[: limit - 1] + "…"
 
 
-def join_clamp(names: Sequence[str], limit: int = _DONE_BUDGET) -> str:
-    """이름들을 ` · ` 로 잇되 한도 초과분은 `…외 K개`로 접는다(완료 한 줄). 순수."""
-    out: list[str] = []
-    used = 0
-    for i, name in enumerate(names):
-        addition = (3 if out else 0) + len(name)  # " · "
-        if used + addition > limit:
-            return " · ".join(out) + f" …외 {len(names) - i}개"
-        out.append(name)
-        used += addition
-    return " · ".join(out)
-
-
 # ── 카테고리 버킷·집계(순수) ─────────────────────────────────────────────────
 
 
@@ -312,14 +300,56 @@ def boss_counts(items: Sequence[BossItem]) -> tuple[int, int]:
     return sum(1 for b in items if b.done), len(items)
 
 
+# ── 카테고리 필터 재집계(순수, ADR-0014) ──────────────────────────────────────
+
+
+def visible_remaining(hw: Homework, excluded: frozenset[str]) -> tuple[int, int]:
+    """보이는 묶음만 (완료, 집계대상 총) 재집계 — 헤드라인·상태색 신호(ADR-0014 결정 3). 순수.
+
+    길드는 점수제라 원래 집계 비대상(제외 여부 무관). 일일/주간/보스 묶음이 꺼지면 그 항목이
+    헤드라인에서도 빠져 화면과 일치한다. excluded 가 비면 remaining_total 과 동일.
+    """
+    items: list[ContentItem] = []
+    if BUCKET_DAILY not in excluded:
+        items += [c for c in hw.daily if c.counts]
+    if BUCKET_WEEKLY not in excluded:
+        items += [c for c in hw.weekly if c.counts]
+    bosses = [] if BUCKET_BOSS in excluded else list(hw.boss)
+    done = sum(1 for c in items if c.done) + sum(1 for b in bosses if b.done)
+    return done, len(items) + len(bosses)
+
+
+def is_empty_filtered(hw: Homework, excluded: frozenset[str]) -> bool:
+    """보이는 묶음에 표시할 항목이 없으면 True — is_empty 의 필터 버전(ADR-0014 결정 5). 순수.
+
+    build_embed 가 실제 그리는 필드의 존재 여부를 묶음별로 본다(일일/주간=비길드 항목 qs0 제외,
+    길드=[길드] 항목, 보스=전체). 제외된 묶음은 건너뛴다.
+    """
+    daily_visible = BUCKET_DAILY not in excluded and bool(
+        by_category(hw.daily, CAT_QUEST)
+        or by_category(hw.daily, CAT_COUNT)
+        or by_category(hw.daily, CAT_BINARY)
+    )
+    weekly_visible = BUCKET_WEEKLY not in excluded and bool(
+        by_category(hw.weekly, CAT_QUEST)
+        or by_category(hw.weekly, CAT_COUNT)
+        or by_category(hw.weekly, CAT_BINARY)
+    )
+    guild_visible = BUCKET_GUILD not in excluded and bool(
+        by_category(hw.daily, CAT_GUILD) or by_category(hw.weekly, CAT_GUILD)
+    )
+    boss_visible = BUCKET_BOSS not in excluded and bool(hw.boss)
+    return not (daily_visible or weekly_visible or guild_visible or boss_visible)
+
+
 # ── 카테고리 본문(순수) ───────────────────────────────────────────────────────
 
 
 def content_field_value(items: Sequence[ContentItem]) -> str:
-    """퀘스트/회수/완료미완료 본문 — 진행중(게이지) → 미완료 ⬜ → 완료 수+이름. 순수.
+    """퀘스트/회수/완료미완료 본문 — 진행중(게이지) → 미완료 ⬜ → 완료 ✅. 순수.
 
     진행중(회수형 0<now<max)만 달성률 내림차순 게이지. 나머지 미완료는 `⬜ 이름`(0/100 도배 소멸).
-    완료는 수와 이름을 한 줄로 접는다(qs0 기타는 사전 제외).
+    완료는 ⬜ 미완료와 거울 대칭으로 `✅ 이름` 한 줄씩(카운트는 필드 헤더에 있음, qs0 기타 제외).
     """
     active = [c for c in items if not c.excluded]
     in_progress = sorted(
@@ -335,9 +365,8 @@ def content_field_value(items: Sequence[ContentItem]) -> str:
         lines.append(f"🟡 {truncate(c.name)} `{c.now_count}/{c.max_count}`")
     for c in todo:
         lines.append(f"⬜ {truncate(c.name)}")
-    if done:
-        names = join_clamp([truncate(c.name) for c in done])
-        lines.append(f"✅ 완료 {len(done)}개 · {names}")
+    for c in done:
+        lines.append(f"✅ {truncate(c.name)}")
     return section_text(lines)
 
 
@@ -353,18 +382,22 @@ def guild_field_value(items: Sequence[ContentItem]) -> str:
     return section_text(lines)
 
 
+def _boss_line(box: str, b: BossItem) -> str:
+    """보스 한 줄 `{box} 이름(난이도)` — 난이도 미상이면 괄호 생략. 순수."""
+    name = truncate(b.name)
+    diff = difficulty_ko(b.difficulty)
+    return f"{box} {name}({diff})" if diff else f"{box} {name}"
+
+
 def boss_cycle_value(items: Sequence[BossItem]) -> str:
-    """한 cycle 보스 본문 — 미처치 ⬜ 이름(난이도) → 처치 수+이름. '뭘 잡아야 하나' 우선. 순수."""
+    """한 cycle 보스 본문 — 미처치 ⬜ 이름(난이도) → 처치 ✅ 이름(난이도). '뭘 잡아야 하나' 우선. 순수.
+
+    처치는 ⬜ 미처치와 거울 대칭으로 한 줄씩(카운트는 필드 헤더에 있음).
+    """
     not_done = [b for b in items if not b.done]
     done = [b for b in items if b.done]
-    lines: list[str] = []
-    for b in not_done:
-        name = truncate(b.name)
-        diff = difficulty_ko(b.difficulty)
-        lines.append(f"⬜ {name}({diff})" if diff else f"⬜ {name}")
-    if done:
-        names = join_clamp([truncate(b.name) for b in done])
-        lines.append(f"✅ 처치 {len(done)}개 · {names}")
+    lines = [_boss_line("⬜", b) for b in not_done]
+    lines += [_boss_line("✅", b) for b in done]
     return section_text(lines)
 
 
@@ -373,17 +406,46 @@ def boss_cycle_value(items: Sequence[BossItem]) -> str:
 
 @dataclass(frozen=True)
 class Subscription:
-    """구독 1건(전달/잡 공유). realm 은 Realm enum 으로 디코드."""
+    """구독 1건(전달/잡 공유). realm 은 Realm enum, excluded 는 숨김 묶음 집합(ADR-0014)."""
 
     guild_id: int
     discord_user_id: int
     realm: Realm
     hour: int
+    excluded: frozenset[str] = frozenset()
 
 
 def _realm_of_value(value: str) -> Realm:
     """저장된 realm 디스크리미넌트 → Realm(예상 외 값은 본서버로 폴백)."""
     return Realm.CHALLENGERS if value == Realm.CHALLENGERS.value else Realm.MAIN
+
+
+async def get_subscription(
+    session_factory: async_sessionmaker[AsyncSession],
+    guild_id: int,
+    discord_user_id: int,
+    realm: Realm,
+) -> Subscription | None:
+    """(guild, user, realm) 구독 1건 — 켜기 병합의 베이스 읽기(없으면 None=빈 제외집합)."""
+    async with session_factory() as session:
+        row = (
+            await session.execute(
+                select(SchedulerSubscription).where(
+                    SchedulerSubscription.guild_id == guild_id,
+                    SchedulerSubscription.discord_user_id == discord_user_id,
+                    SchedulerSubscription.realm == realm.value,
+                )
+            )
+        ).scalar_one_or_none()
+    if row is None:
+        return None
+    return Subscription(
+        guild_id=row.guild_id,
+        discord_user_id=row.discord_user_id,
+        realm=_realm_of_value(row.realm),
+        hour=row.hour,
+        excluded=category_filter.from_csv(row.excluded_categories),
+    )
 
 
 async def set_subscription(
@@ -393,8 +455,10 @@ async def set_subscription(
     discord_user_id: int,
     realm: Realm,
     hour: int,
+    excluded: frozenset[str] = frozenset(),
 ) -> None:
-    """구독 켜기 upsert — (guild, user, realm) 에 hour 저장(같은 realm 재호출 = 시각 갱신)."""
+    """구독 켜기 upsert — (guild, user, realm) 에 hour·제외집합 저장(재호출 = 갱신)."""
+    excluded_csv = category_filter.to_csv(excluded)
     async with session_factory() as session:
         stmt = (
             pg_insert(SchedulerSubscription)
@@ -403,10 +467,15 @@ async def set_subscription(
                 discord_user_id=discord_user_id,
                 realm=realm.value,
                 hour=hour,
+                excluded_categories=excluded_csv,
             )
             .on_conflict_do_update(
                 index_elements=["guild_id", "discord_user_id", "realm"],
-                set_={"hour": hour, "updated_at": func.now()},
+                set_={
+                    "hour": hour,
+                    "excluded_categories": excluded_csv,
+                    "updated_at": func.now(),
+                },
             )
         )
         await session.execute(stmt)
@@ -449,6 +518,7 @@ async def subscriptions_at_hour(
                 discord_user_id=r.discord_user_id,
                 realm=_realm_of_value(r.realm),
                 hour=r.hour,
+                excluded=category_filter.from_csv(r.excluded_categories),
             )
             for r in rows
         ]

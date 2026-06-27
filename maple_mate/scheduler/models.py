@@ -27,6 +27,9 @@ class SchedulerSubscription(Base):
     # 발송 시각(KST 시 단위, 0–23). 기본값(21)은 앱이 켜기 upsert 마다 명시 → 서버 default 없음.
     hour: Mapped[int] = mapped_column(Integer, nullable=False)
 
+    # 숨김 묶음 CSV(예: "보스,길드"). NULL/빈=제외 없음=전부 표시(ADR-0014 결정 4 — 하위·상위호환).
+    excluded_categories: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
