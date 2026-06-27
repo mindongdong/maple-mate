@@ -25,7 +25,6 @@ from maple_mate.scheduler.service import (
     difficulty_ko,
     field_counts,
     guild_field_value,
-    join_clamp,
     parse_homework,
     section_text,
     strip_prefix,
@@ -319,18 +318,17 @@ def test_content_field_value_todo_first():
     lines = out.split("\n")
     assert lines[0] == "🟡 몬스터파크 `2/14`"  # 진행중 게이지 먼저
     assert "⬜ 소멸의 여로" in out  # 미완료 체크박스(0/100 소멸)
-    assert (
-        "✅ 완료 2개 · 에픽 던전 : 하이마운틴 · 리멘" in out
-    )  # 완료 수+이름(에픽 포함)
+    assert "✅ 에픽 던전 : 하이마운틴" in out  # 완료 한 줄씩(에픽 포함)
+    assert "✅ 리멘" in out
     assert "탈라하트" not in out  # qs0 제외
 
 
-def test_content_field_value_all_done_collapses():
+def test_content_field_value_all_done_per_line():
     items = [
         ContentItem("a", 0, 1, type="quest", quest_state="2"),
         ContentItem("b", 1, 1),
     ]
-    assert content_field_value(items) == "✅ 완료 2개 · a · b"
+    assert content_field_value(items) == "✅ a\n✅ b"
 
 
 def test_guild_field_value():
@@ -353,15 +351,10 @@ def test_boss_cycle_value_undone_first():
     lines = out.split("\n")
     assert lines[0] == "⬜ 스우(하드)"  # 미처치 먼저 + 난이도 한글
     assert lines[1] == "⬜ 이름만"  # 난이도 없으면 생략
-    assert "✅ 처치 1개 · 자쿰" in out
+    assert "✅ 자쿰(카오스)" in out  # 처치 한 줄씩 + 난이도 한글
 
 
 # ── 길이 안전(클램프) ─────────────────────────────────────────────────────────
-
-
-def test_join_clamp_collapses_overflow():
-    out = join_clamp([f"항목{i}" for i in range(50)], limit=20)
-    assert "…외" in out and len(out) <= 30
 
 
 def test_section_text_joins_and_clamps():

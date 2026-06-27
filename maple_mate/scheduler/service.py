@@ -237,7 +237,6 @@ def parse_homework(data: dict) -> Homework:
 
 _PREFIX_RE = re.compile(r"^\s*\[[^\]]*\]\s*")  # 선두 `[..]` 한 그룹
 _NAME_MAX = 18  # 표시 이름 최대 길이(모바일 줄바꿈 방지)
-_DONE_BUDGET = 800  # 완료 이름 join 클램프(필드 1024 내 여유)
 
 
 def section_text(lines: Sequence[str], limit: int = FIELD_LIMIT) -> str:
@@ -268,19 +267,6 @@ def truncate(name: str, limit: int = _NAME_MAX) -> str:
     """프리픽스 제거 후 말줄임(… 포함 limit 자). 순수."""
     name = strip_prefix(name)
     return name if len(name) <= limit else name[: limit - 1] + "…"
-
-
-def join_clamp(names: Sequence[str], limit: int = _DONE_BUDGET) -> str:
-    """이름들을 ` · ` 로 잇되 한도 초과분은 `…외 K개`로 접는다(완료 한 줄). 순수."""
-    out: list[str] = []
-    used = 0
-    for i, name in enumerate(names):
-        addition = (3 if out else 0) + len(name)  # " · "
-        if used + addition > limit:
-            return " · ".join(out) + f" …외 {len(names) - i}개"
-        out.append(name)
-        used += addition
-    return " · ".join(out)
 
 
 # ── 카테고리 버킷·집계(순수) ─────────────────────────────────────────────────
@@ -316,10 +302,10 @@ def boss_counts(items: Sequence[BossItem]) -> tuple[int, int]:
 
 
 def content_field_value(items: Sequence[ContentItem]) -> str:
-    """퀘스트/회수/완료미완료 본문 — 진행중(게이지) → 미완료 ⬜ → 완료 수+이름. 순수.
+    """퀘스트/회수/완료미완료 본문 — 진행중(게이지) → 미완료 ⬜ → 완료 ✅. 순수.
 
     진행중(회수형 0<now<max)만 달성률 내림차순 게이지. 나머지 미완료는 `⬜ 이름`(0/100 도배 소멸).
-    완료는 수와 이름을 한 줄로 접는다(qs0 기타는 사전 제외).
+    완료는 ⬜ 미완료와 거울 대칭으로 `✅ 이름` 한 줄씩(카운트는 필드 헤더에 있음, qs0 기타 제외).
     """
     active = [c for c in items if not c.excluded]
     in_progress = sorted(
@@ -335,9 +321,8 @@ def content_field_value(items: Sequence[ContentItem]) -> str:
         lines.append(f"🟡 {truncate(c.name)} `{c.now_count}/{c.max_count}`")
     for c in todo:
         lines.append(f"⬜ {truncate(c.name)}")
-    if done:
-        names = join_clamp([truncate(c.name) for c in done])
-        lines.append(f"✅ 완료 {len(done)}개 · {names}")
+    for c in done:
+        lines.append(f"✅ {truncate(c.name)}")
     return section_text(lines)
 
 
@@ -353,18 +338,22 @@ def guild_field_value(items: Sequence[ContentItem]) -> str:
     return section_text(lines)
 
 
+def _boss_line(box: str, b: BossItem) -> str:
+    """보스 한 줄 `{box} 이름(난이도)` — 난이도 미상이면 괄호 생략. 순수."""
+    name = truncate(b.name)
+    diff = difficulty_ko(b.difficulty)
+    return f"{box} {name}({diff})" if diff else f"{box} {name}"
+
+
 def boss_cycle_value(items: Sequence[BossItem]) -> str:
-    """한 cycle 보스 본문 — 미처치 ⬜ 이름(난이도) → 처치 수+이름. '뭘 잡아야 하나' 우선. 순수."""
+    """한 cycle 보스 본문 — 미처치 ⬜ 이름(난이도) → 처치 ✅ 이름(난이도). '뭘 잡아야 하나' 우선. 순수.
+
+    처치는 ⬜ 미처치와 거울 대칭으로 한 줄씩(카운트는 필드 헤더에 있음).
+    """
     not_done = [b for b in items if not b.done]
     done = [b for b in items if b.done]
-    lines: list[str] = []
-    for b in not_done:
-        name = truncate(b.name)
-        diff = difficulty_ko(b.difficulty)
-        lines.append(f"⬜ {name}({diff})" if diff else f"⬜ {name}")
-    if done:
-        names = join_clamp([truncate(b.name) for b in done])
-        lines.append(f"✅ 처치 {len(done)}개 · {names}")
+    lines = [_boss_line("⬜", b) for b in not_done]
+    lines += [_boss_line("✅", b) for b in done]
     return section_text(lines)
 
 

@@ -54,7 +54,7 @@ def _field(embed, prefix):
 def test_embed_category_fields_present():
     names = [f.name for f in build_embed(_homework(), Realm.MAIN, _NOW).fields]
     assert any(n.startswith("📝 일일 퀘스트") for n in names)
-    assert any(n.startswith("🎯 일일 회수") for n in names)
+    assert any(n.startswith("📋 일일 콘텐츠") for n in names)
     assert any(n.startswith("⚔️ 주간 콘텐츠") for n in names)
     assert any(n.startswith("🏰 길드 콘텐츠") for n in names)
     assert any(n.startswith("🗡 주간 보스") for n in names)
@@ -70,21 +70,21 @@ def test_embed_no_progress_bar_anywhere():
 
 def test_embed_daily_quest_field_todo_first():
     f = _field(build_embed(_homework(), Realm.MAIN, _NOW), "📝 일일 퀘스트")
-    assert "남은 1" in f.name and "1/2" in f.name  # 리멘 완료, 소멸 미완
+    assert "1/2" in f.name and "남은" not in f.name  # 리멘 완료, 소멸 미완(남은 N 제거)
     assert "⬜ 소멸" in f.value
-    assert "✅ 완료 1개 · 리멘" in f.value
+    assert "✅ 리멘" in f.value  # 완료 한 줄씩
 
 
 def test_embed_count_field_shows_gauge():
-    f = _field(build_embed(_homework(), Realm.MAIN, _NOW), "🎯 일일 회수")
-    assert "🟡 몬스터파크 `2/14`" in f.value
+    f = _field(build_embed(_homework(), Realm.MAIN, _NOW), "📋 일일 콘텐츠")
+    assert "🟡 몬스터파크 `2/14`" in f.value  # 회수형이 콘텐츠 필드로 병합
 
 
 def test_embed_weekly_content_includes_epic_dungeon():
     f = _field(build_embed(_homework(), Realm.MAIN, _NOW), "⚔️ 주간 콘텐츠")
-    assert "남은 1" in f.name and "1/2" in f.name  # 에르다 미완, 에픽 완료
+    assert "1/2" in f.name and "남은" not in f.name  # 에르다 미완, 에픽 완료
     assert "⬜ 에르다 스펙트럼" in f.value
-    assert "✅ 완료 1개 · 에픽 던전 : 하이마운틴" in f.value
+    assert "✅ 에픽 던전 : 하이마운틴" in f.value  # 완료 한 줄씩
 
 
 def test_embed_guild_field_score_no_count_header():
