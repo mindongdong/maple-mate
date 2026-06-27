@@ -116,7 +116,10 @@ async def test_job_dms_each_character(monkeypatch):
         broadcast.service, "subscriptions_at_hour", subscriptions_at_hour
     )
     monkeypatch.setattr(broadcast, "build_homeworks", build_homeworks)
-    monkeypatch.setattr(broadcast, "build_embed", lambda hw, realm, now: "e")
+    monkeypatch.setattr(broadcast, "build_embed", lambda hw, realm, now, excluded: "e")
+    monkeypatch.setattr(
+        broadcast.service, "is_empty_filtered", lambda hw, excluded: hw.is_empty
+    )
     monkeypatch.setattr(broadcast, "_send_dm", send_dm)
     await broadcast.run_scheduler_reminder_job(bot=object(), deps=_deps())
     assert dmed == [10, 10, 10]  # 캐릭터 3개 → 본인 DM 3개(캐릭터당 메시지 1개)
@@ -144,7 +147,10 @@ async def test_job_skips_empty_characters(monkeypatch):
         broadcast.service, "subscriptions_at_hour", subscriptions_at_hour
     )
     monkeypatch.setattr(broadcast, "build_homeworks", build_homeworks)
-    monkeypatch.setattr(broadcast, "build_embed", lambda hw, realm, now: "e")
+    monkeypatch.setattr(broadcast, "build_embed", lambda hw, realm, now, excluded: "e")
+    monkeypatch.setattr(
+        broadcast.service, "is_empty_filtered", lambda hw, excluded: hw.is_empty
+    )
     monkeypatch.setattr(broadcast, "_send_dm", send_dm)
     await broadcast.run_scheduler_reminder_job(bot=object(), deps=_deps())
     assert len(sent) == 2  # 빈 캐릭터 1개 스킵(빈 DM 금지)
@@ -168,7 +174,10 @@ async def test_job_continues_when_dm_blocked(monkeypatch):
         broadcast.service, "subscriptions_at_hour", subscriptions_at_hour
     )
     monkeypatch.setattr(broadcast, "build_homeworks", build_homeworks)
-    monkeypatch.setattr(broadcast, "build_embed", lambda hw, realm, now: "e")
+    monkeypatch.setattr(broadcast, "build_embed", lambda hw, realm, now, excluded: "e")
+    monkeypatch.setattr(
+        broadcast.service, "is_empty_filtered", lambda hw, excluded: hw.is_empty
+    )
     monkeypatch.setattr(broadcast, "_send_dm", send_dm)
     await broadcast.run_scheduler_reminder_job(bot=object(), deps=_deps())
     assert attempted == [10, 11]  # 차단된 10 이후에도 11 시도(전체 계속)
