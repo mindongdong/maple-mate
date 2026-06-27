@@ -54,6 +54,9 @@ EXP_MISFIRE_GRACE_SAME_DAY = 13 * 3600 + 59 * 60
 # 한 메시지 임베드 상한(디스코드). 신규 다건이 이를 넘으면 여러 메시지로 쪼개 보낸다.
 EMBEDS_PER_MESSAGE = 10
 
+# 스케줄러 알리미: 매시 정각(분=0) 디스패치. 그 시(hour) per-user 구독을 조회해 DM(ADR-0012 결정 4).
+SCHEDULER_REMINDER_MINUTE = 0
+
 
 def build_event_embeds(events: Sequence[SundayEvent]) -> list[discord.Embed]:
     """이벤트 → 임베드(클릭 제목 + 기간 + 작은 썸네일 + 상세 배너 큰 이미지). 순수 — 단위테스트 대상(Q6).
@@ -440,14 +443,28 @@ def start_scheduler(bot: discord.Client, deps: Deps) -> AsyncIOScheduler:
         coalesce=True,
         max_instances=1,
     )
+    # 스케줄러 알리미: 매시 정각 1개 잡이 그 시(hour) per-user 구독을 조회해 DM 발송(ADR-0012
+    # 결정 4 — per-minute 디스패처 회피). 미발화 따라잡기 없음(놓친 시각의 숙제 알림은 stale).
+    from ..scheduler.broadcast import run_scheduler_reminder_job
+
+    scheduler.add_job(
+        run_scheduler_reminder_job,
+        trigger=CronTrigger(minute=SCHEDULER_REMINDER_MINUTE, timezone=KST_ZONE),
+        args=[bot, deps],
+        id="scheduler_reminder",
+        name="스케줄러 알리미",
+        coalesce=True,
+        max_instances=1,
+    )
     scheduler.start()
     log.info(
-        "스케줄러 시작: 썬데이(금 %02d:%02d)·공지(%s시)·경험치(%02d:%02d) KST 잡 등록",
+        "스케줄러 시작: 썬데이(금 %02d:%02d)·공지(%s시)·경험치(%02d:%02d)·스케줄러 알리미(매시 :%02d) KST 잡 등록",
         SUNDAY_HOUR,
         SUNDAY_MINUTE,
         NOTICE_HOURS,
         EXP_HOUR,
         EXP_MINUTE,
+        SCHEDULER_REMINDER_MINUTE,
     )
     return scheduler
 
