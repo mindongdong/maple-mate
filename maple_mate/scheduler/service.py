@@ -1,7 +1,7 @@
 """스케줄러 알리미 비즈니스 로직 (전달-무관: 순수 + DB). discord/넥슨 타입 비의존.
 
 - 순수: `parse_homework`(응답 → DTO, registration_flag 필터)·라인 빌더·`section_text`(1024 클램프).
-- DB: 구독 토글/조회(scheduler_subscription)·`_resolve_self`(키 + realm 대표 ocid 해석).
+- DB: 구독 토글/조회(scheduler_subscription)·`resolve_self_characters`(키 + realm 캐릭터 전체).
 DB 함수는 pg_insert/delete 통합 영역이라 단위테스트에서 제외한다(작업지시서 #5, 기존 방침).
 """
 
@@ -18,8 +18,8 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.sql import func
 
 from ..history.service import get_history_targets
-from ..registration.realm import CHALLENGERS_NO_TARGET, Realm
-from ..registration.service import get_targets
+from ..registration.realm import CHALLENGERS_NO_TARGET, Realm, in_realm
+from ..registration.service import get_characters
 from .models import SchedulerSubscription
 
 log = logging.getLogger(__name__)
@@ -455,38 +455,42 @@ async def subscriptions_at_hour(
     return subs
 
 
-# ── 본인 키 + realm 대표 ocid 해석 (DB, bitik _self_target 패턴) ──────────────
+# ── 본인 키 + realm 캐릭터 전체 해석 (DB, bitik _self_target 패턴) ─────────────
 
 
-async def resolve_self(
+async def resolve_self_characters(
     session_factory: async_sessionmaker[AsyncSession],
     guild_id: int,
     discord_user_id: int,
     realm: Realm,
-) -> tuple[str | None, str | None, str | None]:
-    """(개인 키 암호문, realm 대표 ocid, 에러 메시지). 성공이면 에러 None, 실패면 앞 둘이 None.
+) -> tuple[str | None, list[tuple[str, str]], str | None]:
+    """(개인 키 암호문, [(ocid, 닉네임) … 그 realm 캐릭터 전부], 에러 메시지).
 
-    개인 키는 계정 단위(realm 무관), 대표 ocid 는 그 realm 대표(per-character). 가드 순서:
-    미등록 → 키 미등록 → realm 대표 없음(fail fast 구독 가드·온디맨드 공통, 결정 7).
+    성공이면 에러 None, 실패면 앞 둘이 None/빈 리스트. 개인 키는 계정 단위(realm 무관), 캐릭터는
+    그 realm 전체(레벨 내림차순). 대표 1캐릭이 아니라 **등록 캐릭터 전부**로 확장(ADR-0012 개정).
+    가드 순서: 미등록 → 키 미등록 → realm 캐릭터 0개(fail fast 구독 가드·온디맨드 공통, 결정 7).
     """
     history_targets = await get_history_targets(
         session_factory, guild_id, [discord_user_id]
     )
     if not history_targets:
-        return None, None, "이 서버에 등록되지 않았어요. `/캐릭터등록` 먼저 해주세요."
+        return None, [], "이 서버에 등록되지 않았어요. `/캐릭터등록` 먼저 해주세요."
     key_encrypted = history_targets[0].api_key_encrypted
     if key_encrypted is None:
         return (
             None,
-            None,
+            [],
             "개인 키 미등록이라 스케줄러를 볼 수 없어요. `/키등록`으로 키를 추가해 주세요.",
         )
-    rep_targets = await get_targets(session_factory, guild_id, [discord_user_id], realm)
-    if not rep_targets:
+    characters = await get_characters(session_factory, guild_id, discord_user_id)
+    in_realm_chars = [
+        (c.ocid, c.nickname) for c in characters if in_realm(c.world, realm)
+    ]
+    if not in_realm_chars:
         msg = (
             CHALLENGERS_NO_TARGET
             if realm is Realm.CHALLENGERS
             else "등록된 본서버 캐릭터가 없어요. `/캐릭터등록` 먼저 해주세요."
         )
-        return None, None, msg
-    return key_encrypted, rep_targets[0].ocid, None
+        return None, [], msg
+    return key_encrypted, in_realm_chars, None

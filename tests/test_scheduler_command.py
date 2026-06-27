@@ -1,6 +1,6 @@
 """`/스케줄러`·`/스케줄러알림` 핸들러 단위테스트 — 결과 분기 + 구독 가드 (작업지시서 #5).
 
-가짜 Interaction 으로 핸들러를 직접 호출하고, build_homework·service DB 함수는 monkeypatch
+가짜 Interaction 으로 핸들러를 직접 호출하고, build_homeworks·service DB 함수는 monkeypatch
 (test_guide·test_leaderboard_commands 패턴). 실제 발송은 라이브 1회 확인.
 """
 
@@ -52,11 +52,11 @@ def _deps():
     )
 
 
-def _homework(empty: bool = False) -> Homework:
+def _homework(name: str = "내캐릭", empty: bool = False) -> Homework:
     if empty:
-        return Homework("신규", "스카니아", 200, [], [], [], 0, 0)
+        return Homework(name, "스카니아", 200, [], [], [], 0, 0)
     return Homework(
-        "내캐릭",
+        name,
         "스카니아",
         285,
         [ContentItem("무릉도장", 1, 1)],
@@ -78,10 +78,10 @@ async def test_scheduler_guild_only(monkeypatch):
 
 
 async def test_scheduler_shows_error_when_build_fails(monkeypatch):
-    async def build_homework(deps, g, u, realm):
-        return None, "개인 키 미등록이라 스케줄러를 볼 수 없어요."
+    async def build_homeworks(deps, g, u, realm):
+        return [], "개인 키 미등록이라 스케줄러를 볼 수 없어요."
 
-    monkeypatch.setattr(commands, "build_homework", build_homework)
+    monkeypatch.setattr(commands, "build_homeworks", build_homeworks)
     interaction = _interaction()
     await commands.handle_scheduler(_deps(), interaction, Realm.MAIN)
     [sent] = interaction.followup.sent
@@ -90,41 +90,57 @@ async def test_scheduler_shows_error_when_build_fails(monkeypatch):
 
 
 async def test_scheduler_empty_homework_message(monkeypatch):
-    async def build_homework(deps, g, u, realm):
-        return _homework(empty=True), None
+    async def build_homeworks(deps, g, u, realm):
+        return [_homework(empty=True)], None  # 전 캐릭터 빈 숙제
 
-    monkeypatch.setattr(commands, "build_homework", build_homework)
+    monkeypatch.setattr(commands, "build_homeworks", build_homeworks)
     interaction = _interaction()
     await commands.handle_scheduler(_deps(), interaction, Realm.MAIN)
     [sent] = interaction.followup.sent
     assert "등록된 숙제" in sent["embed"].description  # 빈 안내(체크리스트 아님)
 
 
-async def test_scheduler_renders_checklist_embed(monkeypatch):
-    async def build_homework(deps, g, u, realm):
-        return _homework(), None
+async def test_scheduler_renders_one_message_per_character(monkeypatch):
+    async def build_homeworks(deps, g, u, realm):
+        return [_homework(name="캐릭A"), _homework(name="캐릭B")], None
 
-    monkeypatch.setattr(commands, "build_homework", build_homework)
+    monkeypatch.setattr(commands, "build_homeworks", build_homeworks)
     interaction = _interaction()
     await commands.handle_scheduler(_deps(), interaction, Realm.MAIN)
-    [sent] = interaction.followup.sent
-    assert sent["embed"].title == "🗓 내캐릭 의 스케줄러 숙제"
-    assert sent["ephemeral"] is True  # 온디맨드는 ephemeral(결정 1)
+    titles = [s["embed"].title for s in interaction.followup.sent]
+    assert titles == [
+        "🗓 캐릭A 의 스케줄러 숙제",
+        "🗓 캐릭B 의 스케줄러 숙제",
+    ]  # 캐릭터당 1개
+    assert all(s["ephemeral"] is True for s in interaction.followup.sent)
+
+
+async def test_scheduler_skips_empty_characters_renders_rest(monkeypatch):
+    async def build_homeworks(deps, g, u, realm):
+        return [_homework(name="캐릭A"), _homework(name="빈캐릭", empty=True)], None
+
+    monkeypatch.setattr(commands, "build_homeworks", build_homeworks)
+    interaction = _interaction()
+    await commands.handle_scheduler(_deps(), interaction, Realm.MAIN)
+    titles = [s["embed"].title for s in interaction.followup.sent]
+    assert titles == ["🗓 캐릭A 의 스케줄러 숙제"]  # 빈 캐릭터 생략, 나머지 표시
 
 
 # ── /스케줄러알림 켜기: fail fast 가드 + 시각 저장 ───────────────────────────
 
 
-async def test_reminder_on_rejects_without_key_or_rep(monkeypatch):
+async def test_reminder_on_rejects_without_key_or_character(monkeypatch):
     set_calls: list = []
 
-    async def resolve_self(sf, g, u, realm):
-        return None, None, "개인 키 미등록이라 알림을 켤 수 없어요."
+    async def resolve_self_characters(sf, g, u, realm):
+        return None, [], "개인 키 미등록이라 알림을 켤 수 없어요."
 
     async def set_subscription(sf, **kwargs):
         set_calls.append(kwargs)
 
-    monkeypatch.setattr(commands.service, "resolve_self", resolve_self)
+    monkeypatch.setattr(
+        commands.service, "resolve_self_characters", resolve_self_characters
+    )
     monkeypatch.setattr(commands.service, "set_subscription", set_subscription)
     interaction = _interaction()
     await commands.handle_reminder_on(_deps(), interaction, 21, Realm.MAIN)
@@ -136,13 +152,15 @@ async def test_reminder_on_rejects_without_key_or_rep(monkeypatch):
 async def test_reminder_on_stores_hour_and_realm(monkeypatch):
     set_calls: list = []
 
-    async def resolve_self(sf, g, u, realm):
-        return "enc", "ocid1", None
+    async def resolve_self_characters(sf, g, u, realm):
+        return "enc", [("ocid1", "캐릭A")], None
 
     async def set_subscription(sf, **kwargs):
         set_calls.append(kwargs)
 
-    monkeypatch.setattr(commands.service, "resolve_self", resolve_self)
+    monkeypatch.setattr(
+        commands.service, "resolve_self_characters", resolve_self_characters
+    )
     monkeypatch.setattr(commands.service, "set_subscription", set_subscription)
     interaction = _interaction()
     await commands.handle_reminder_on(_deps(), interaction, 9, Realm.CHALLENGERS)
@@ -155,14 +173,16 @@ async def test_reminder_on_stores_hour_and_realm(monkeypatch):
 async def test_reminder_on_rejects_invalid_hour(monkeypatch):
     set_calls: list = []
 
-    async def resolve_self(sf, g, u, realm):  # 도달하면 안 됨
+    async def resolve_self_characters(sf, g, u, realm):  # 도달하면 안 됨
         set_calls.append("resolve")
-        return "enc", "ocid1", None
+        return "enc", [("ocid1", "캐릭A")], None
 
     async def set_subscription(sf, **kwargs):
         set_calls.append("set")
 
-    monkeypatch.setattr(commands.service, "resolve_self", resolve_self)
+    monkeypatch.setattr(
+        commands.service, "resolve_self_characters", resolve_self_characters
+    )
     monkeypatch.setattr(commands.service, "set_subscription", set_subscription)
     interaction = _interaction()
     await commands.handle_reminder_on(_deps(), interaction, 25, Realm.MAIN)
