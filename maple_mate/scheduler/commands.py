@@ -1,8 +1,8 @@
 """스케줄러 알리미 Discord 어댑터 (얇은 전달 계층, 작업지시서 #5).
 
-- `/스케줄러 [모드]`: 본인 대표 캐릭터 숙제 체크리스트(ephemeral 온디맨드, 결정 1).
+- `/스케줄러 [모드]`: 본인 등록 캐릭터 전체 숙제(캐릭터당 ephemeral 메시지 1개, 온디맨드).
 - `/스케줄러알림 켜기 [시각] [모드]` / `끄기 [모드]`: per-user DM 구독 토글(결정 2·4).
-  켜기는 키·realm 대표 없으면 구독 거부(fail fast, 결정 7a). 발송은 매시 정각 cron(broadcast).
+  켜기는 키·realm 캐릭터 없으면 구독 거부(fail fast, 결정 7a). 발송은 매시 정각 cron(broadcast).
 """
 
 from __future__ import annotations
@@ -19,7 +19,7 @@ from ..dependencies import Deps
 from ..nexon.client import KST
 from ..registration.realm import Realm, realm_title
 from . import service
-from .broadcast import build_embed, build_homework
+from .broadcast import build_embed, build_homeworks
 from .service import DEFAULT_HOUR
 
 _MSG_GUILD_ONLY = "서버(길드) 안에서만 쓸 수 있어요."
@@ -33,7 +33,10 @@ _MSG_BAD_HOUR = "시각은 **0~23** 사이 정수로 입력해 주세요."
 async def handle_scheduler(
     deps: Deps, interaction: discord.Interaction, realm: Realm = Realm.MAIN
 ) -> None:
-    """`/스케줄러` 본체: defer(ephemeral) → build_homework → 결과 분기(에러·빈·체크리스트)."""
+    """`/스케줄러` 본체: defer → build_homeworks → 캐릭터당 임베드 1개씩 followup(에러·빈 분기).
+
+    등록 캐릭터 4개면 ephemeral 응답 4개(캐릭터당 메시지 1개). 빈 숙제 캐릭터는 생략한다.
+    """
     await defer(interaction, ephemeral=True)
     title = realm_title("스케줄러 숙제", realm)
     if interaction.guild_id is None:
@@ -42,20 +45,25 @@ async def handle_scheduler(
         )
         return
 
-    homework, error = await build_homework(
+    homeworks, error = await build_homeworks(
         deps, interaction.guild_id, interaction.user.id, realm
     )
-    if homework is None:
+    if error is not None:  # 미등록·키없음·realm 캐릭터 0 → 가드 메시지
         await interaction.followup.send(embed=make_embed(title, error), ephemeral=True)
         return
-    if homework.is_empty:
+
+    non_empty = [hw for hw in homeworks if not hw.is_empty]
+    if not non_empty:  # 전 캐릭터 빈 숙제(또는 전부 4xx 스킵)
         await interaction.followup.send(
             embed=make_embed(title, _MSG_NO_HOMEWORK), ephemeral=True
         )
         return
 
-    embed = build_embed(homework, realm, datetime.now(KST))
-    await interaction.followup.send(embed=embed, ephemeral=True)  # 온디맨드 ephemeral
+    now = datetime.now(KST)
+    for homework in non_empty:  # 캐릭터당 메시지 1개(온디맨드 ephemeral)
+        await interaction.followup.send(
+            embed=build_embed(homework, realm, now), ephemeral=True
+        )
 
 
 async def handle_reminder_on(
@@ -74,8 +82,8 @@ async def handle_reminder_on(
         )
         return
 
-    # fail fast: 키·realm 대표가 없으면 구독 자체를 거부한다(결정 7a — 죽은 구독 예방).
-    _key, _ocid, error = await service.resolve_self(
+    # fail fast: 키·realm 캐릭터가 없으면 구독 자체를 거부한다(결정 7a — 죽은 구독 예방).
+    _key, _chars, error = await service.resolve_self_characters(
         deps.session_factory, interaction.guild_id, interaction.user.id, realm
     )
     if error is not None:
@@ -94,7 +102,7 @@ async def handle_reminder_on(
     await interaction.response.send_message(
         embed=make_embed(
             realm_title("스케줄러 알림 켜짐 🔔", realm),
-            f"매일 **{hour:02d}:00**(KST)에 스케줄러 숙제 체크리스트를 DM으로 보낼게요.",
+            f"매일 **{hour:02d}:00**(KST)에 등록 캐릭터별 스케줄러 숙제를 DM으로 보낼게요.",
         ),
         ephemeral=True,
     )
@@ -141,7 +149,7 @@ def setup(bot: discord.Client) -> None:
 
     @bot.tree.command(  # type: ignore[attr-defined]
         name="스케줄러",
-        description="본인 대표 캐릭터의 인게임 스케줄러 숙제 현황을 보여줍니다 (개인 키 필요).",
+        description="본인 등록 캐릭터 전체의 인게임 스케줄러 숙제 현황을 보여줍니다 (개인 키 필요).",
     )
     @app_commands.rename(mode="모드")
     @app_commands.describe(mode=MODE_DESCRIBE)

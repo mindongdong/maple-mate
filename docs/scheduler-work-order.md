@@ -5,8 +5,8 @@
 
 ## 0. 한 줄 목표
 
-넥슨 `scheduler/character-state`(개인 키 + ocid)로 **본인 대표 캐릭터의 인게임 스케줄러 숙제 체크리스트**를
-(1) `/스케줄러` 온디맨드 조회(ephemeral)와 (2) **매일 정해진 시각 본인 DM**(per-user 구독)으로 보여준다.
+넥슨 `scheduler/character-state`(개인 키 + ocid)로 **본인 등록 캐릭터 전체의 인게임 스케줄러 숙제**를
+(1) `/스케줄러` 온디맨드 조회(ephemeral)와 (2) **매일 정해진 시각 본인 DM**(per-user 구독)으로 **캐릭터당 메시지 1개**로 보여준다(ADR-0012 개정 2026-06-27: 대표 1캐릭 → 등록 캐릭터 전체).
 
 ## 1. 확정 제약 (scheduler.md / ADR-0012)
 
@@ -30,17 +30,17 @@ down_revision = `c3d4e5f6a7b8`(현 head).
 - **순수:** `parse_homework(data) -> Homework`(DTO: 일일/주간 `ContentItem`, 보스 `BossItem`, 주간보스 클리어 수/한도).
   `registration_flag=="true"` 필터. `daily_contents`·`weekly_contents`·`boss_contents` 섹션별. 완료/미완료 모두 보존(체크리스트).
 - **순수:** `content_line`(게이지 `now/max`), `boss_line`(✅/⬜ + 난이도), `section_lines`(1024자 클램프 `…외 N개`). 단위테스트 대상.
-- **DB:** `set_subscription`(켜기 upsert: hour+realm), `clear_subscription`(끄기 delete), `subscriptions_at_hour(hour) -> list[Sub]`(cron 조회), `_resolve_self(guild,user,realm) -> (key_enc|None, ocid|None, error|None)`(키+realm 대표 ocid 해석, bitik `_self_target` 패턴).
+- **DB:** `set_subscription`(켜기 upsert: hour+realm), `clear_subscription`(끄기 delete), `subscriptions_at_hour(hour) -> list[Sub]`(cron 조회), `resolve_self_characters(guild,user,realm) -> (key_enc|None, [(ocid,nick)]…realm 캐릭터 전부, error|None)`(키 + realm 캐릭터 전체 해석, 대표 1캐릭에서 확장).
   DB 함수는 pg_insert/delete 통합 영역 → 단위테스트 제외(기존 방침).
 
 ### #4 broadcast(어댑터) — `scheduler/broadcast.py`
-- `build_homework(deps, guild, user, realm) -> (Homework|None, str|None)` — `_resolve_self` → 키 복호화 → `scheduler_character_state(date=None)` → `parse_homework`. 실패는 `(None, 사용자메시지)`, 성공은 `(homework, None)`(homework 는 `is_empty` 일 수 있음). **온디맨드·알림 공유**(결정 6).
+- `build_homeworks(deps, guild, user, realm) -> (list[Homework], str|None)` — `resolve_self_characters` → 키 복호화 → **캐릭터별** `scheduler_character_state(date=None)` → `parse_homework`. 캐릭터별 4xx 는 조용히 스킵(나머지 계속), 가드 실패는 `([], 사용자메시지)`. **온디맨드·알림 공유**(결정 6).
 - `build_embed(homework, realm, now) -> discord.Embed` — 필드 파생 카테고리별 필드(퀘/회수/점수/보스 cycle, [ADR-0013](adr/0013-scheduler-field-derived-categories.md)) + 부제 전체 잔여 + 푸터(`HH:MM 기준 · NEXON Open API`). 챌린저스 `🏆` 제목, 잔여 0=초록.
-- `run_scheduler_reminder_job(bot, deps)` — 매시 정각 cron 본체. now.hour 구독 0개면 스킵(넥슨 0콜) → 구독별 `build_homework` → DM 발송. 키없음·4xx·`is_empty`·DM 차단 모두 **조용히 스킵 + 앱로그**(결정 7). cron 등록은 `notification/scheduler.py:start_scheduler`(잡 본체는 지연 import — 리더보드 패턴).
+- `run_scheduler_reminder_job(bot, deps)` — 매시 정각 cron 본체. now.hour 구독 0개면 스킵(넥슨 0콜) → 구독별 `build_homeworks` → **캐릭터당 DM**(빈 캐릭터 스킵). 키없음·4xx·`is_empty`·DM 차단 모두 **조용히 스킵 + 앱로그**(결정 7). cron 등록은 `notification/scheduler.py:start_scheduler`(잡 본체는 지연 import — 리더보드 패턴).
 
 ### #5 commands(전달) — `scheduler/commands.py`
-- `/스케줄러 [모드]` — defer(ephemeral) → `build_homework` → 결과 분기(키 미등록·realm 대표 없음·등록 숙제 0개·체크리스트). spec_cooldown(10초).
-- `/스케줄러알림` `app_commands.Group` — `켜기 [시각=21] [모드]`(구독 시점 키·대표 가드 = fail fast, 결정 7a), `끄기 [모드]`. settings_cooldown.
+- `/스케줄러 [모드]` — defer(ephemeral) → `build_homeworks` → 캐릭터당 followup 1개(키 미등록·realm 캐릭터 없음·전 캐릭터 숙제 0개 분기). spec_cooldown(10초).
+- `/스케줄러알림` `app_commands.Group` — `켜기 [시각=21] [모드]`(구독 시점 키·realm 캐릭터 가드 = fail fast, 결정 7a), `끄기 [모드]`. settings_cooldown.
 - `bot/core.py:_register_commands` 에 `setup_scheduler(bot)` 배선.
 
 ## 3. 표시 규약 (as-built — 필드 파생 카테고리, [ADR-0013](adr/0013-scheduler-field-derived-categories.md))
@@ -78,20 +78,20 @@ Lv.287 · 크로아                                (부제 = 레벨·월드)
 |---|---|---|
 | 미등록(캐릭 0) | "등록 먼저(`/캐릭터등록`)" | 스킵 |
 | 키 미등록 | "키 등록(`/키등록`)" | 스킵 |
-| realm 대표 없음 | 챌린저스/본서버 안내 | 스킵 |
-| 4xx(비대상·저활동) | `classify_target_error` | 스킵 + 앱로그 |
-| 등록 숙제 0개(`is_empty`) | "인게임 스케줄러에 등록된 숙제가 없어요" | 스킵(빈 DM 금지) |
-| 전부 완료 | ✅ 체크리스트 | ✅ DM 발송 |
+| realm 캐릭터 없음 | 챌린저스/본서버 안내 | 스킵 |
+| 캐릭터별 4xx(비대상·저활동) | 그 캐릭터만 조용히 스킵 | 스킵 + 앱로그 |
+| 전 캐릭터 숙제 0개(`is_empty`) | "인게임 스케줄러에 등록된 숙제가 없어요" | 스킵(빈 DM 금지) |
+| 전부 완료 | ✅ 캐릭터당 카드 | ✅ 캐릭터당 DM |
 
-구독 가드(켜기): 키·realm 대표 없으면 구독 거부(fail fast). DM 차단 유저는 cron 조용히 스킵(자가 발견).
+구독 가드(켜기): 키·realm 캐릭터 없으면 구독 거부(fail fast). DM 차단 유저는 cron 조용히 스킵(자가 발견).
 
 ## 5. 테스트 전략 (오프라인 픽스처)
 
 - `test_nexon_client.py` +: `scheduler_character_state` 오늘=date 무지정 / 과거=명시 / 개인 키 헤더 / ocid 파라미터.
 - `test_scheduler_service.py`: `parse_homework`(registration_flag 필터·게이지·보스 플래그·is_empty), `content_line/boss_line/section_lines`(1024 클램프).
 - `test_scheduler_embed.py`: `build_embed` 카테고리별 필드·챌린저스 제목·전부완료(초록).
-- `test_scheduler_job.py`: `run_scheduler_reminder_job` — hour 구독 0 스킵, 구독별 DM, 키없음/4xx/empty/DM차단 조용히 스킵(monkeypatch I/O).
-- `test_scheduler_command.py`: `/스케줄러` 결과 분기(monkeypatch build_homework), `/스케줄러알림 켜기` 가드.
+- `test_scheduler_job.py`: `build_homeworks`(캐릭터별 페치·4xx 스킵) + `run_scheduler_reminder_job` — hour 구독 0 스킵, 캐릭터당 DM, empty/DM차단 조용히 스킵(monkeypatch I/O).
+- `test_scheduler_command.py`: `/스케줄러` 캐릭터당 메시지 1개(monkeypatch build_homeworks), `/스케줄러알림 켜기` 가드.
 
 ## 6. 비목표
 
