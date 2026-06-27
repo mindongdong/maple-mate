@@ -1,8 +1,9 @@
 """경험치 리더보드 페치·집계·prune·백필 (전달-무관). discord/apscheduler 비의존.
 
 - fetch_and_store: 대상별 ranking_overall(ocid, D-1) → 스냅샷 upsert(미등재/미준비는 스킵).
-- backfill: 첫 실행 시 과거 ~8일 선적재(이미 있으면 건너뜀).
-- build_rows: 순수 — total_exp 내림차순 정렬·순위 부여·어제 Δ 계산·미등재 제외 카운트.
+- backfill: 과거 ~8일 중 빈 날만 멱등 적재(매 실행 호출 — realm 별 공백 자가복구).
+- build_rows: 순수 — (레벨, 레벨내 exp%) 내림차순 정렬·순위 부여·어제 Δ 계산·미등재 제외 카운트(_rank_key).
+- live_levels/with_live_levels/append_live_point: 표시 레벨을 character/basic 라이브(최신)로 덮어쓰기.
 - history_progress: 그래프용 유저별 7일 진행도(레벨+exp%) 시계열(전달-무관).
 - prune_old_snapshots: snapshot_date 가 90일 경과한 행 삭제(09:00 운영 잡 편승).
 
@@ -14,7 +15,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 
 from sqlalchemy import delete, select
@@ -32,7 +33,7 @@ log = logging.getLogger(__name__)
 
 KST = timezone(timedelta(hours=9))
 
-# 백필 일수(작업지시서 Q11) — 첫 실행 1회 과거 ~8일 선적재.
+# 백필 일수(작업지시서 Q11) — 과거 ~8일 창. 매 실행 빈 날만 멱등 적재(realm 별 공백 자가복구).
 BACKFILL_DAYS = 8
 # 그래프 시계열 일수 — 최근 7일 진행도(레벨+exp%), 7일 전 대비 정규화.
 HISTORY_DAYS = 7
@@ -44,11 +45,12 @@ RETENTION_DAYS = 90
 class LeaderRow:
     """순위표 1행(전달 계층이 표로 렌더). total_exp(정렬키)는 비노출이라 DTO 에 없음(Q2).
 
-    exp_rate 는 레벨 내 경험치 백분율(있을 때만 'Lv.287 (45.2%)'). ranking/overall(주 소스)엔
-    비율이 없어 character/basic 으로 best-effort 보강하며, 그 호출이 실패하면 None('Lv.287').
-    delta=어제 하루 획득(이전 스냅샷 없으면 None='—'). world_rank=전체 서버 순위(#).
+    discord_user_id 는 라이브 레벨 덮어쓰기(with_live_levels)의 매칭 키. exp_rate 는 레벨 내
+    경험치 백분율(있을 때만 'Lv.287 (45.2%)'). delta=어제 하루 획득(없으면 None='—').
+    world_rank=전체 서버 순위(#). level·exp_rate 는 표시 시 character/basic 라이브 값으로 덮어써진다.
     """
 
+    discord_user_id: int
     rank: int
     nickname: str
     level: int
@@ -208,13 +210,20 @@ async def _existing_dates(
     session_factory: async_sessionmaker[AsyncSession],
     guild_id: int,
     discord_user_id: int,
+    realm: str,
     dates: Sequence[date],
 ) -> set[date]:
-    """대상 1명에 대해 주어진 날짜들 중 이미 적재된 snapshot_date 집합(백필 중복 콜 방지)."""
+    """대상 1명의 그 realm 에 이미 적재된 snapshot_date 집합(백필 중복 콜 방지).
+
+    realm 필터는 필수다 — 같은 디스코드 유저가 본서버·챌린저스 대표를 둘 다 가지면(PK 에 realm
+    포함, ADR-0009) realm 무관 조회는 한 realm 의 스냅샷이 다른 realm 의 빈 날을 가려, 백필이
+    그날을 '이미 있음'으로 건너뛰는 구멍을 만든다.
+    """
     async with session_factory() as session:
         stmt = select(ExpSnapshot.snapshot_date).where(
             ExpSnapshot.guild_id == guild_id,
             ExpSnapshot.discord_user_id == discord_user_id,
+            ExpSnapshot.realm == realm,
             ExpSnapshot.snapshot_date.in_(list(dates)),
         )
         rows = (await session.execute(stmt)).scalars().all()
@@ -227,18 +236,26 @@ async def backfill(
     targets: Sequence[Target],
     days: int = BACKFILL_DAYS,
 ) -> None:
-    """첫 실행 1회: 과거 D-1~D-`days` 를 대상별로 선적재(이미 있으면 건너뜀, 작업지시서 Q11).
+    """과거 D-1~D-`days` 중 **빈 날만** 대상별로 적재(멱등 — 이미 있으면 건너뜀).
 
-    그래프 첫날부터 일별 (레벨, exp%) 진행도가 채워지도록 과거일도 character/basic 까지 수집한다
-    (_fetch_one_day 기본 경로). 넥슨 콜은 N명×days×2(ranking+basic)로 늘지만 defer·길드당 1회성이라
-    허용 — 진행량 그래프는 baseline(보통 D-7)부터 exp_rate 가 있어야 정규화된다. 미등재/미준비·넥슨
-    장애는 _fetch_one_day 가 처리.
+    매 실행 호출해도 안전하다(작업지시서 Q11 의 '첫 실행 1회' 게이트 폐기) — _existing_dates 가
+    realm 별로 이미 있는 날을 빼므로 정상 상태(8일 다 참)엔 넥슨 콜 0건이고, 빈 날(봇 미가동·뒤늦게
+    추가된 챌린저스 realm)만 채워 공백이 자가복구된다. 그래프 첫날부터 일별 (레벨, exp%) 진행도가
+    채워지도록 과거일도 character/basic 까지 수집한다(_fetch_one_day 기본 경로). 진행량 그래프는
+    baseline(보통 D-7)부터 exp_rate 가 있어야 정규화된다. 미등재/미준비·넥슨 장애는 _fetch_one_day 가 처리.
     """
     today = datetime.now(KST).date()
     dates = [today - timedelta(days=d) for d in range(1, days + 1)]
     for target in targets:
+        realm = realm_of(
+            target.world
+        ).value  # 대표 world → realm(빈 날 판정을 realm 별로)
         existing = await _existing_dates(
-            deps.session_factory, target.guild_id, target.discord_user_id, dates
+            deps.session_factory,
+            target.guild_id,
+            target.discord_user_id,
+            realm,
+            dates,
         )
         for snapshot_date in dates:
             if snapshot_date in existing:
@@ -247,33 +264,6 @@ async def backfill(
 
 
 # ── 조회 + 순수 집계 ────────────────────────────────────────────────────────
-
-
-async def has_snapshots(
-    session_factory: async_sessionmaker[AsyncSession], guild_id: int
-) -> bool:
-    """길드에 스냅샷이 하나라도 있는지(첫 실행 백필 게이트, 작업지시서 Q11)."""
-    async with session_factory() as session:
-        stmt = select(ExpSnapshot.snapshot_date).where(ExpSnapshot.guild_id == guild_id)
-        return (await session.execute(stmt.limit(1))).first() is not None
-
-
-async def has_snapshot_on(
-    session_factory: async_sessionmaker[AsyncSession],
-    guild_id: int,
-    snapshot_date: date,
-) -> bool:
-    """길드의 특정 일자 스냅샷이 하나라도 있는지(온디맨드 부트스트랩 no-op 게이트)."""
-    async with session_factory() as session:
-        stmt = (
-            select(ExpSnapshot.snapshot_date)
-            .where(
-                ExpSnapshot.guild_id == guild_id,
-                ExpSnapshot.snapshot_date == snapshot_date,
-            )
-            .limit(1)
-        )
-        return (await session.execute(stmt)).first() is not None
 
 
 async def snapshots_on(
@@ -293,19 +283,35 @@ async def snapshots_on(
         return list((await session.execute(stmt)).scalars().all())
 
 
+def _rank_key(level: int, exp_rate: float | None) -> tuple[int, float]:
+    """통일 순위 키 — (레벨, 레벨 내 exp%). 임베드 순위판·그래프가 **한 공식**을 공유한다.
+
+    레벨 1차, 같은 레벨이면 exp%(레벨 내 진행) 2차(exp_rate None 은 레벨 내 최하 -1.0). total_exp 는
+    쓰지 않는다 — 그래프(progress=레벨+exp%/100)가 볼 수 없는 키라, 두 표시면을 한 공식으로 맞춘다.
+    챌린저스 **버닝**(레벨 부스트)은 누적과 무관하게 레벨을 올려 total_exp 순위를 뒤집으므로, 레벨
+    우선 키가 본서버(누적=레벨 단조)·챌린저스 모두 올바르고 그래프 순위와 일치한다(ADR-0011).
+    """
+    return (level, exp_rate if exp_rate is not None else -1.0)
+
+
 def build_rows(
     today_snaps: Sequence[ExpSnapshot],
     prev_snaps: Sequence[ExpSnapshot],
     *,
     nicknames: dict[int, str],
 ) -> tuple[list[LeaderRow], int]:
-    """순수: 오늘 스냅샷을 total_exp 내림차순 정렬·순위 부여·어제 Δ 계산. (행, 미등재수) 반환.
+    """순수: 오늘 스냅샷을 (레벨, 레벨 내 exp%) 내림차순 정렬·순위 부여·어제 Δ 계산. (행, 미등재수) 반환.
 
-    미등재 제외 카운트 = nicknames(등록자 전원) 중 today_snaps 에 없는 인원 수. Δ=오늘−어제
-    (어제 스냅샷 없으면 None='—', 음수는 None 클램프). 닉은 nicknames 로 해석(스냅샷에 닉 없음).
+    정렬 키 = `_rank_key`(레벨, exp%) — 임베드·그래프 통일 공식(total_exp 미사용). 같은 (레벨, exp%)
+    면 안정 정렬로 입력 순서를 유지한다. 미등재 제외 카운트 = nicknames 중 today_snaps 에 없는 인원.
+    Δ=오늘−어제(없으면 None, 음수 클램프).
     """
     prev_exp = {s.discord_user_id: s.total_exp for s in prev_snaps}
-    ordered = sorted(today_snaps, key=lambda s: s.total_exp, reverse=True)
+    ordered = sorted(
+        today_snaps,
+        key=lambda s: _rank_key(s.character_level, s.exp_rate),
+        reverse=True,
+    )
     rows: list[LeaderRow] = []
     for rank, snap in enumerate(ordered, start=1):
         prior = prev_exp.get(snap.discord_user_id)
@@ -317,6 +323,7 @@ def build_rows(
             delta = diff if diff > 0 else None  # 음수/0 은 None 클램프(획득 없음/보정)
         rows.append(
             LeaderRow(
+                discord_user_id=snap.discord_user_id,
                 rank=rank,
                 nickname=nicknames.get(snap.discord_user_id, "?"),
                 level=snap.character_level,
@@ -328,6 +335,79 @@ def build_rows(
     ranked_ids = {s.discord_user_id for s in today_snaps}
     excluded = sum(1 for uid in nicknames if uid not in ranked_ids)
     return rows, excluded
+
+
+# ── 라이브 레벨(표시 전용 — character/basic 무지정=최신) ─────────────────────
+
+
+async def live_levels(
+    deps: Deps, targets: Sequence[Target]
+) -> dict[int, tuple[int, float | None]]:
+    """대상별 character/basic(date 무지정=최신) → {discord_user_id: (레벨, exp%)}. 표시용 라이브 레벨.
+
+    종합 랭킹(전일 D-1)과 달리 character/basic 무지정은 **최신** 캐릭터 상태(현재 레벨·레벨 내 exp%)를
+    준다 — 리더보드 표시값을 '오늘 현재'로 만든다(정렬·게이트·그래프 이력은 여전히 스냅샷 기반).
+    best-effort: 호출/파싱 실패한 대상은 결과에서 빠져 호출측이 D-1 스냅샷으로 폴백한다.
+    """
+    out: dict[int, tuple[int, float | None]] = {}
+    for target in targets:
+        try:
+            basic = await deps.nexon.character_basic(target.ocid)  # 무지정=최신
+        except NexonAPIError as exc:
+            log.debug(
+                "character/basic 라이브 실패(D-1 폴백) ocid=%s: %s", target.ocid, exc
+            )
+            continue
+        raw_level = basic.get("character_level")
+        if raw_level is None:
+            continue
+        raw_rate = basic.get("character_exp_rate")
+        try:
+            rate = float(raw_rate) if raw_rate is not None else None
+        except (TypeError, ValueError):
+            rate = None
+        out[target.discord_user_id] = (int(raw_level), rate)
+    return out
+
+
+def with_live_levels(
+    rows: Sequence[LeaderRow], live: dict[int, tuple[int, float | None]]
+) -> list[LeaderRow]:
+    """rows 의 레벨·exp% 를 live 로 덮어쓰고 (레벨, exp%, 누적) 재정렬·재순위(순수).
+
+    live 에 없는 행(라이브 조회 실패)은 D-1 스냅샷 값을 유지한다. 순위(rank)는 덮어쓴 값 기준으로
+    1부터 재부여 — 임베드 표시 순위가 라이브 레벨과 일치한다(`_rank_key` 통일 공식, 그래프와 동일).
+    """
+    updated = [
+        replace(
+            r, level=live[r.discord_user_id][0], exp_rate=live[r.discord_user_id][1]
+        )
+        if r.discord_user_id in live
+        else r
+        for r in rows
+    ]
+    updated.sort(key=lambda r: _rank_key(r.level, r.exp_rate), reverse=True)
+    return [replace(r, rank=i) for i, r in enumerate(updated, start=1)]
+
+
+def append_live_point(
+    series: dict[str, list[tuple[date, float | None]]],
+    nicknames: dict[int, str],
+    live: dict[int, tuple[int, float | None]],
+    today: date,
+) -> dict[str, list[tuple[date, float | None]]]:
+    """7일 이력 시계열 끝에 오늘(today) 라이브 점을 붙인다(표시 전용, 미저장).
+
+    progress = 레벨 + exp%/100(스냅샷 이력과 동일 지표). 라이브 조회 실패거나 exp% None 이면
+    (today, None) 으로 선이 끊긴다(이력과 동일 규칙). 닉으로 uid 를 못 찾으면 None.
+    """
+    nick_to_uid = {nick: uid for uid, nick in nicknames.items()}
+    out: dict[str, list[tuple[date, float | None]]] = {}
+    for nick, pts in series.items():
+        lv = live.get(nick_to_uid.get(nick, -1))
+        point = lv[0] + lv[1] / 100 if lv is not None and lv[1] is not None else None
+        out[nick] = [*pts, (today, point)]
+    return out
 
 
 async def history_progress(

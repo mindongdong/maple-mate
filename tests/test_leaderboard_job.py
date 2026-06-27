@@ -36,7 +36,7 @@ async def test_no_channels_skips_nexon_call(monkeypatch):
     assert calls == ["channels"]  # 넥슨/적재/발송 없음(Q10·#5)
 
 
-async def test_first_run_backfills_then_fetches_and_sends(monkeypatch):
+async def test_job_backfills_then_fetches_and_sends(monkeypatch):
     calls: list[str] = []
     sent: list[tuple[int, int]] = []
 
@@ -45,9 +45,6 @@ async def test_first_run_backfills_then_fetches_and_sends(monkeypatch):
 
     async def get_targets(sf, guild_id, realm=None):
         return [SimpleNamespace(discord_user_id=10, nickname="손바", ocid="o1")]
-
-    async def has_snapshots(sf, guild_id):
-        return False  # 첫 실행
 
     async def backfill(deps, guild_id, targets):
         calls.append("backfill")
@@ -74,7 +71,6 @@ async def test_first_run_backfills_then_fetches_and_sends(monkeypatch):
         broadcast.channel_service, "enabled_exp_channels", enabled_exp_channels
     )
     monkeypatch.setattr(broadcast, "get_targets", get_targets)
-    monkeypatch.setattr(broadcast.service, "has_snapshots", has_snapshots)
     monkeypatch.setattr(broadcast.service, "backfill", backfill)
     monkeypatch.setattr(broadcast.service, "fetch_and_store", fetch_and_store)
     monkeypatch.setattr(broadcast, "build_payload", build_payload)
@@ -86,7 +82,8 @@ async def test_first_run_backfills_then_fetches_and_sends(monkeypatch):
     assert len(sent) == 1
 
 
-async def test_existing_snapshots_skip_backfill(monkeypatch):
+async def test_job_always_backfills_even_with_existing_data(monkeypatch):
+    # 게이트 폐기 후: 기존 스냅샷이 있어도 매 실행 backfill 을 호출한다(멱등 — 빈 날만 채움).
     calls: list[str] = []
 
     async def enabled_exp_channels(sf):
@@ -94,9 +91,6 @@ async def test_existing_snapshots_skip_backfill(monkeypatch):
 
     async def get_targets(sf, guild_id, realm=None):
         return [SimpleNamespace(discord_user_id=10, nickname="손바", ocid="o1")]
-
-    async def has_snapshots(sf, guild_id):
-        return True  # 이미 적재됨 → 백필 안 함
 
     async def backfill(deps, guild_id, targets):
         calls.append("backfill")
@@ -112,13 +106,12 @@ async def test_existing_snapshots_skip_backfill(monkeypatch):
         broadcast.channel_service, "enabled_exp_channels", enabled_exp_channels
     )
     monkeypatch.setattr(broadcast, "get_targets", get_targets)
-    monkeypatch.setattr(broadcast.service, "has_snapshots", has_snapshots)
     monkeypatch.setattr(broadcast.service, "backfill", backfill)
     monkeypatch.setattr(broadcast.service, "fetch_and_store", fetch_and_store)
     monkeypatch.setattr(broadcast, "build_payload", build_payload)
 
     await broadcast.run_leaderboard_job(bot=object(), deps=_deps())
-    assert "backfill" not in calls  # 기존 스냅샷 있음 → 백필 스킵(Q11)
+    assert "backfill" in calls  # 항상 백필(공백 자가복구)
     assert "fetch" in calls
 
 
@@ -133,9 +126,6 @@ async def test_per_guild_payload_built_once_per_realm_for_two_channels(monkeypat
 
     async def get_targets(sf, guild_id, realm=None):
         return [SimpleNamespace(discord_user_id=10, nickname="손바", ocid="o1")]
-
-    async def has_snapshots(sf, guild_id):
-        return True
 
     async def backfill(deps, guild_id, targets):
         pass
@@ -161,7 +151,6 @@ async def test_per_guild_payload_built_once_per_realm_for_two_channels(monkeypat
         broadcast.channel_service, "enabled_exp_channels", enabled_exp_channels
     )
     monkeypatch.setattr(broadcast, "get_targets", get_targets)
-    monkeypatch.setattr(broadcast.service, "has_snapshots", has_snapshots)
     monkeypatch.setattr(broadcast.service, "backfill", backfill)
     monkeypatch.setattr(broadcast.service, "fetch_and_store", fetch_and_store)
     monkeypatch.setattr(broadcast, "build_payload", build_payload)
@@ -173,14 +162,11 @@ async def test_per_guild_payload_built_once_per_realm_for_two_channels(monkeypat
     assert len(sent_files) == 2  # 채널 100, 101 각각 본서버 1장씩 발송
 
 
-# ── refresh_guild: 첫 실행 백필 게이트 ───────────────────────────────────────
+# ── refresh_guild: 매 실행 멱등 백필 → D-1 적재 ──────────────────────────────
 
 
-async def test_refresh_guild_backfills_when_empty_then_fetches(monkeypatch):
+async def test_refresh_guild_always_backfills_then_fetches(monkeypatch):
     calls: list[str] = []
-
-    async def has_snapshots(sf, guild_id):
-        return False  # 스냅샷 없음 → 백필
 
     async def backfill(deps, guild_id, targets):
         calls.append("backfill")
@@ -189,68 +175,45 @@ async def test_refresh_guild_backfills_when_empty_then_fetches(monkeypatch):
         calls.append("fetch")
         return 2
 
-    monkeypatch.setattr(broadcast.service, "has_snapshots", has_snapshots)
     monkeypatch.setattr(broadcast.service, "backfill", backfill)
     monkeypatch.setattr(broadcast.service, "fetch_and_store", fetch_and_store)
     skipped = await broadcast.refresh_guild(_deps(), 1, [object()], date(2026, 6, 13))
-    assert calls == ["backfill", "fetch"]
+    assert calls == ["backfill", "fetch"]  # 게이트 없이 항상 백필 → 적재
     assert skipped == 2
 
 
-async def test_refresh_guild_skips_backfill_when_snapshots_exist(monkeypatch):
-    calls: list[str] = []
-
-    async def has_snapshots(sf, guild_id):
-        return True  # 이미 있음 → 백필 생략
-
-    async def backfill(deps, guild_id, targets):
-        calls.append("backfill")
-
-    async def fetch_and_store(deps, guild_id, targets, date_iso):
-        calls.append("fetch")
-        return 0
-
-    monkeypatch.setattr(broadcast.service, "has_snapshots", has_snapshots)
-    monkeypatch.setattr(broadcast.service, "backfill", backfill)
-    monkeypatch.setattr(broadcast.service, "fetch_and_store", fetch_and_store)
-    await broadcast.refresh_guild(_deps(), 1, [object()], date(2026, 6, 13))
-    assert calls == ["fetch"]  # 백필 안 함
+# ── ensure_guild_data: 온디맨드(그 realm 빈 과거일 백필 — 표시는 build_payload 라이브) ──
 
 
-# ── ensure_guild_data: 온디맨드 부트스트랩(D-1 있으면 no-op) ──────────────────
-
-
-async def test_ensure_guild_data_noop_when_d1_exists(monkeypatch):
-    refreshed: list[int] = []
-
-    async def has_snapshot_on(sf, guild_id, ref_date):
-        return True  # D-1 이미 있음
-
-    async def refresh_guild(deps, guild_id, targets, ref_date):
-        refreshed.append(guild_id)
-        return 0
-
-    monkeypatch.setattr(broadcast.service, "has_snapshot_on", has_snapshot_on)
-    monkeypatch.setattr(broadcast, "refresh_guild", refresh_guild)
-    await broadcast.ensure_guild_data(_deps(), 1)
-    assert refreshed == []  # 페치 안 함(빠른 no-op)
-
-
-async def test_ensure_guild_data_refreshes_when_missing(monkeypatch):
-    refreshed: list[int] = []
-
-    async def has_snapshot_on(sf, guild_id, ref_date):
-        return False  # D-1 없음 → 부트스트랩
+async def test_ensure_guild_data_backfills_realm_gaps(monkeypatch):
+    seen = {}
 
     async def get_targets(sf, guild_id, realm=None):
+        seen["realm"] = realm
         return [SimpleNamespace(discord_user_id=10, nickname="손바", ocid="o1")]
 
-    async def refresh_guild(deps, guild_id, targets, ref_date):
-        refreshed.append(guild_id)
-        return 0
+    backfilled: list[int] = []
 
-    monkeypatch.setattr(broadcast.service, "has_snapshot_on", has_snapshot_on)
+    async def backfill(deps, guild_id, targets):
+        backfilled.append(len(targets))
+
     monkeypatch.setattr(broadcast, "get_targets", get_targets)
-    monkeypatch.setattr(broadcast, "refresh_guild", refresh_guild)
+    monkeypatch.setattr(broadcast.service, "backfill", backfill)
+    await broadcast.ensure_guild_data(_deps(), 1, Realm.CHALLENGERS)
+    assert seen["realm"] is Realm.CHALLENGERS  # 그 realm 대표만(realm 혼합 없음)
+    assert backfilled == [1]  # 7일 그래프 이력 공백만 메움(현재값은 라이브)
+
+
+async def test_ensure_guild_data_noop_when_no_targets(monkeypatch):
+    backfilled: list[int] = []
+
+    async def get_targets(sf, guild_id, realm=None):
+        return []  # 등록자 없음
+
+    async def backfill(deps, guild_id, targets):
+        backfilled.append(len(targets))
+
+    monkeypatch.setattr(broadcast, "get_targets", get_targets)
+    monkeypatch.setattr(broadcast.service, "backfill", backfill)
     await broadcast.ensure_guild_data(_deps(), 1)
-    assert refreshed == [1]  # 부트스트랩 페치 실행
+    assert backfilled == []  # 대상 0 → 백필 안 함

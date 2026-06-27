@@ -37,10 +37,10 @@ _MSG_CHAL_NOT_READY = (
 async def handle_leaderboard(
     deps: Deps, interaction: discord.Interaction, realm: Realm = Realm.MAIN
 ) -> None:
-    """`/경험치` 본체: defer → 온디맨드 부트스트랩 → build_payload(realm) → 7일 추이 공개 발송.
+    """`/경험치` 본체: defer → 온디맨드 갱신(그 realm D-1 재적재) → build_payload(realm) → 공개 발송.
 
-    payload 가 None 이면 그 realm 등록자 수를 확인해 <2명 vs 데이터 미준비(챌린저스는 랭킹
-    집계 전)를 구분해 안내한다.
+    주기 잡과 독립으로 명령 시점에 D-1 을 새로 받아 가장 신선한 어제 기준을 보여준다. payload 가
+    None 이면 그 realm 등록자 수를 확인해 <2명 vs 데이터 미준비(챌린저스는 랭킹 집계 전)를 구분해 안내한다.
     """
     await defer(interaction)
     title = realm_title("경험치 리더보드", realm)
@@ -51,8 +51,8 @@ async def handle_leaderboard(
         )
         return
 
-    # D-1 스냅샷이 없으면 즉시 백필+적재(첫 호출 온디맨드 부트스트랩, 두 realm 모두).
-    await ensure_guild_data(deps, interaction.guild_id)
+    # 명령 시점 온디맨드 갱신: 그 realm D-1 을 넥슨에서 새로 받고(주기 잡과 독립) 빈 과거일 백필.
+    await ensure_guild_data(deps, interaction.guild_id, realm)
 
     payload = await build_payload(interaction.client, deps, interaction.guild_id, realm)
     if payload is None:

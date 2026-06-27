@@ -54,15 +54,40 @@ def _snap(
 # ── build_rows: 정렬·순위·Δ·미등재 제외 ──────────────────────────────────────
 
 
-def test_build_rows_sorts_by_total_exp_desc_and_ranks():
+def test_build_rows_same_level_same_exp_rate_ignores_total_exp():
+    # 통일 키 = (레벨, 레벨내 exp%)뿐 — total_exp 는 타이브레이크에서 제외(그래프와 동일 공식).
+    # 동레벨·exp% 동일(None)이면 누적이 달라도 순서를 뒤집지 않고 입력 순서를 유지(안정 정렬).
     nicknames = {10: "손바", 20: "라딘라면"}
-    today = [_snap(10, _EXP_D2), _snap(20, _EXP_D1)]  # 20 이 더 높음
+    today = [_snap(10, _EXP_D2), _snap(20, _EXP_D1)]  # 둘 다 Lv.287, 20 이 누적 큼
     prev = [_snap(10, _EXP_D2, d=_PREV), _snap(20, _EXP_D2, d=_PREV)]
     rows, excluded = build_rows(today, prev, nicknames=nicknames)
     assert excluded == 0
     assert [r.rank for r in rows] == [1, 2]
-    assert rows[0].nickname == "라딘라면"  # total_exp 최고가 1위
-    assert rows[1].nickname == "손바"
+    assert rows[0].nickname == "손바"  # 누적이 작아도 입력 순서 유지(total_exp 미사용)
+    assert rows[1].nickname == "라딘라면"
+
+
+def test_build_rows_ranks_by_level_over_total_exp():
+    # 챌린저스 버닝: Lv.276 의 누적이 Lv.272 보다 적어도 레벨이 높아 1위(total_exp 단독 정렬 회귀 방지).
+    nicknames = {10: "중망레테", 20: "힘찬하악질"}
+    today = [
+        _snap(10, 2_777_501_192_234, level=276, exp_rate=41.1),  # 레벨 높고 누적 적음
+        _snap(20, 3_949_632_842_569, level=272, exp_rate=71.5),  # 레벨 낮고 누적 많음
+    ]
+    rows, _ = build_rows(today, [], nicknames=nicknames)
+    assert [r.nickname for r in rows] == ["중망레테", "힘찬하악질"]  # 레벨 우선
+    assert [r.rank for r in rows] == [1, 2]
+
+
+def test_build_rows_same_level_ranks_by_exp_rate_over_total_exp():
+    # 같은 레벨이면 exp%(레벨 내 진행)가 2차 키 — 누적이 낮아도 exp% 높으면 먼저(그래프와 일치).
+    nicknames = {10: "무기콤보", 20: "힘찬하악질"}
+    today = [
+        _snap(10, 9_000_000, level=272, exp_rate=9.4),  # 누적 큼, exp% 낮음
+        _snap(20, 5_000_000, level=272, exp_rate=71.5),  # 누적 작음, exp% 높음
+    ]
+    rows, _ = build_rows(today, [], nicknames=nicknames)
+    assert [r.nickname for r in rows] == ["힘찬하악질", "무기콤보"]
 
 
 def test_build_rows_delta_matches_spike_numbers():
@@ -115,6 +140,69 @@ def test_build_rows_passes_exp_rate_through():
     by_nick = {r.nickname: r.exp_rate for r in rows}
     assert by_nick["손바"] == 45.23
     assert by_nick["라딘라면"] is None  # 보강 실패 행은 None 유지
+
+
+# ── 라이브 레벨(표시 전용 — character/basic 무지정=최신) ─────────────────────
+
+
+def _lrow(uid, level, exp_rate, *, rank=1):
+    return service.LeaderRow(
+        discord_user_id=uid,
+        rank=rank,
+        nickname=f"u{uid}",
+        level=level,
+        exp_rate=exp_rate,
+        delta=None,
+        world_rank=None,
+    )
+
+
+async def test_live_levels_fetches_latest_and_skips_failures():
+    # character/basic 을 date 무지정(최신)으로 호출, 실패 대상은 결과에서 제외(폴백은 호출측).
+    class FakeNexon:
+        async def character_basic(self, ocid, date=None):
+            assert date is None  # 무지정=최신
+            if ocid == "bad":
+                raise NexonAPIError("OPENAPI00009", "not ready")
+            return {"character_level": 274, "character_exp_rate": "14.24"}
+
+    deps = SimpleNamespace(nexon=FakeNexon())
+    targets = [
+        SimpleNamespace(discord_user_id=10, ocid="ok"),
+        SimpleNamespace(discord_user_id=20, ocid="bad"),
+    ]
+    out = await service.live_levels(deps, targets)
+    assert out == {10: (274, 14.24)}  # 실패한 20 은 빠짐
+
+
+def test_with_live_levels_overrides_and_reranks():
+    # D-1 순위(레벨 272 > 271)를 라이브(20 이 274 로 추월)가 뒤집어 재순위·재부여.
+    rows = [_lrow(10, 272, 9.0, rank=1), _lrow(20, 271, 50.0, rank=2)]
+    out = service.with_live_levels(rows, {10: (272, 10.0), 20: (274, 14.2)})
+    assert [(r.nickname, r.level, r.rank) for r in out] == [
+        ("u20", 274, 1),
+        ("u10", 272, 2),
+    ]
+
+
+def test_with_live_levels_keeps_d1_when_live_missing():
+    # 라이브 조회 실패 대상은 D-1 값 유지(폴백).
+    [out] = service.with_live_levels([_lrow(10, 287, 79.0)], {})
+    assert out.level == 287 and out.exp_rate == 79.0
+
+
+def test_append_live_point_adds_today_progress():
+    today = date(2026, 6, 24)
+    series = {"손바": [(date(2026, 6, 23), 287.7)]}
+    out = service.append_live_point(series, {10: "손바"}, {10: (287, 80.0)}, today)
+    assert out["손바"][-1] == (today, 287.8)  # 287 + 80/100
+
+
+def test_append_live_point_none_when_live_missing():
+    today = date(2026, 6, 24)
+    series = {"손바": [(date(2026, 6, 23), 287.7)]}
+    out = service.append_live_point(series, {10: "손바"}, {}, today)
+    assert out["손바"][-1] == (today, None)  # 라이브 없으면 선 끊김
 
 
 # ── history_progress: 유저별 7일 진행도(레벨+exp%) 시계열 ─────────────────────
@@ -468,31 +556,34 @@ async def test_backfill_fetches_ranking_and_basic():
     assert all(p["exp_rate"] == 10.0 for p in upserts)  # basic 의 exp_rate 적재됨
 
 
-# ── has_snapshot_on: 온디맨드 부트스트랩 no-op 게이트 ─────────────────────────
+# ── backfill: realm 별 빈 날 판정(dual-realm 구멍 회귀 가드) ───────────────────
 
 
-def _first_factory(first_value):
-    class _Session:
-        async def __aenter__(self):
-            return self
+async def test_backfill_checks_existing_dates_per_target_realm(monkeypatch):
+    # 같은 디스코드 유저가 본서버·챌린저스 대표를 둘 다 가질 때(ADR-0009), 백필은 대상의 realm
+    # 으로 기존일을 조회해야 한다 — realm 무관 조회는 한 realm 의 스냅샷이 다른 realm 의 빈 날을
+    # 가려 그날을 건너뛰는 구멍을 만든다(챌린저스 추이가 일부 끊기는 버그).
+    seen_realms: list[str] = []
 
-        async def __aexit__(self, *exc):
-            return False
+    async def fake_existing(session_factory, guild_id, discord_user_id, realm, dates):
+        seen_realms.append(realm)
+        return set()  # 전부 빈 날 → 전부 페치(가림 없음을 검증)
 
-        async def execute(self, stmt):
-            return SimpleNamespace(first=lambda: first_value)
+    fetched: list[str | None] = []
 
-        async def commit(self):
-            return None
+    async def fake_fetch_one_day(deps, target, snapshot_date):
+        fetched.append(target.world)
+        return True
 
-    return lambda: _Session()
-
-
-async def test_has_snapshot_on_true_when_row_present():
+    monkeypatch.setattr(service, "_existing_dates", fake_existing)
+    monkeypatch.setattr(service, "_fetch_one_day", fake_fetch_one_day)
+    deps = SimpleNamespace(session_factory=object(), nexon=object())
+    targets = [
+        _target(10, "ocM", world="스카니아"),  # 본서버
+        _target(20, "ocC", world="챌린저스3"),  # 챌린저스
+    ]
+    await service.backfill(deps, 1, targets, days=8)
+    assert seen_realms == ["본서버", "챌린저스"]  # 대표 world → realm 으로 빈 날 조회
     assert (
-        await service.has_snapshot_on(_first_factory(("2026-06-13",)), 1, _REF) is True
-    )
-
-
-async def test_has_snapshot_on_false_when_absent():
-    assert await service.has_snapshot_on(_first_factory(None), 1, _REF) is False
+        len(fetched) == 16
+    )  # 대상 2명 × 8일 전부 페치(다른 realm 이 빈 날을 가리지 않음)

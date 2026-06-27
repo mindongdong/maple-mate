@@ -1,4 +1,4 @@
-"""경험치 리더보드 그래프 렌더 테스트 (matplotlib — 예외 없이 PNG + 라벨·일평균 순수 로직)."""
+"""경험치 리더보드 '성장 레이스' 그래프 렌더 테스트 (matplotlib — 예외 없이 PNG + 성장 라벨 순수 로직)."""
 
 from __future__ import annotations
 
@@ -23,11 +23,11 @@ def _is_png(buf: io.BytesIO) -> bool:
     return img.format == "PNG"
 
 
-# ── 점 라벨·일평균(순수) ──────────────────────────────────────────────────────
+# ── 선 끝 라벨(순수) ──────────────────────────────────────────────────────────
 
 
 def test_progress_label_formats_level_and_pct():
-    # 연속 progress(레벨+exp%/100) → 'Lv.287 (69%)'. 정수 레벨 + 정수 exp%.
+    # 연속 progress(레벨+exp%/100) → 'Lv.287 (79%)'. 정수 레벨 + 정수 exp%.
     f = leaderboard_image._progress_label
     assert f(287.69) == "Lv.287 (69%)"
     assert f(288.0) == "Lv.288 (0%)"
@@ -35,24 +35,15 @@ def test_progress_label_formats_level_and_pct():
     assert f(287.999) == "Lv.287 (99%)"  # 99.5%↑ 는 99로 클램프('(100%)' 방지)
 
 
-def test_daily_average_is_level_gain_over_days():
-    # 첫 가용 287.0 ~ 끝 290.0(+3레벨), 간격 6일 → (3.0*100)/6 = 50%/일. 레벨업도 연속 합산.
-    f = leaderboard_image._daily_average
-    pts = [
-        (date(2026, 6, 7), 287.0),
-        (date(2026, 6, 10), 288.5),
-        (date(2026, 6, 13), 290.0),
-    ]
-    assert f(pts) == 50.0
+def test_spread_labels_enforces_min_gap_preserving_order():
+    # 붙은 끝-라벨을 최소 간격으로 위로 밀어 올리되 입력 인덱스 순서는 보존.
+    out = leaderboard_image._spread_labels([0.0, 0.01, 0.02], 0.1)
+    assert out[0] == 0.0
+    assert out[1] >= out[0] + 0.1
+    assert out[2] >= out[1] + 0.1
 
 
-def test_daily_average_zero_for_single_or_no_point():
-    f = leaderboard_image._daily_average
-    assert f([(date(2026, 6, 13), 287.0)]) == 0.0  # 데이터 1개
-    assert f([(date(2026, 6, 7), None), (date(2026, 6, 13), 287.0)]) == 0.0  # 가용 1개
-
-
-# ── 7일 레벨 추이 그래프 ──────────────────────────────────────────────────────
+# ── 7일 절대 레벨 추이 그래프 ─────────────────────────────────────────────────
 
 
 def _series(**users) -> dict[str, list[tuple[date, float | None]]]:
@@ -82,3 +73,26 @@ def test_render_graph_empty_data_guard():
 
 def test_render_graph_no_series_guard():
     assert _is_png(render_progress_graph({}, _REF))
+
+
+def test_palette_has_at_least_ten_distinct_colors():
+    # Top10 라인 전원 고유색 — 9·10위가 1·2위와 색 충돌하지 않도록 10색 이상.
+    colors = leaderboard_image._LINE_COLORS
+    assert len(colors) >= 10
+    assert len(set(colors)) >= 10  # 모두 서로 다른 색
+
+
+def test_render_graph_ten_users():
+    # 상위 10명 라인을 한 그래프에 — 예외 없이 PNG(10색 팔레트·끝라벨 분산 경로).
+    series = _series(**{f"유저{i:02d}": [290.0 + i * 0.1] * 7 for i in range(1, 11)})
+    assert _is_png(render_progress_graph(series, _REF))
+
+
+def test_render_graph_dual_realm_crossing_lines():
+    # 교차·급상승(정규화 outlier +72레벨)·동레벨 혼합 경로 예외 없이 PNG.
+    series = _series(
+        무기콤보=[None, None, 200.0, 200.5, 262.4, 272.5, 272.5],
+        중망레테=[None, None, 262.2, 266.4, 272.1, 276.1, 276.1],
+        힘찬하악질=[None, None, 260.6, 260.7, 262.2, 272.7, 272.7],
+    )
+    assert _is_png(render_progress_graph(series, _REF))
