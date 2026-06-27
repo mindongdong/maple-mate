@@ -22,6 +22,7 @@ import maple_mate.notification.models  # noqa: E402,F401
 # 도메인 모델 모듈 임포트 → 테이블이 Base.metadata 에 등록(autogenerate/compare 용).
 # 새 도메인 추가 시 여기에 models 임포트를 한 줄 추가.
 import maple_mate.registration.models  # noqa: E402,F401
+import maple_mate.scheduler.models  # noqa: E402,F401
 from maple_mate.database.core import Base, normalize_db_url
 
 load_dotenv()  # .env → os.environ (DATABASE_URL)

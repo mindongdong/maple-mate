@@ -1,0 +1,231 @@
+"""스케줄러 알리미 Discord 어댑터 + 명령 본체 공유 (작업지시서 #4).
+
+전달-무관 service 위에 넥슨 페치·임베드·DM 발송을 얹는 얇은 어댑터. `build_homework` 는
+`/스케줄러` 온디맨드와 매시 정각 DM 잡이 공유하는 산출물 빌더(결정 6). `run_scheduler_reminder_job`
+은 그 시각 구독 0개면 스킵(넥슨 0콜) → 구독별 build_homework → 본인 DM 발송. 키없음·4xx·등록 0개·
+DM 차단은 모두 **조용히 스킵 + 앱로그만**(결정 7 — "친구 개인 키 실패는 자가 발견").
+"""
+
+from __future__ import annotations
+
+import logging
+from datetime import datetime
+
+import discord
+
+from ..bot.embeds import BRAND_COLOR, append_source, format_footer, make_embed
+from ..dependencies import Deps
+from ..nexon.client import KST
+from ..nexon.errors import NexonAPIError
+from ..registration.realm import Realm
+from ..registration.service import classify_target_error
+from . import service
+from .service import Homework
+
+log = logging.getLogger(__name__)
+
+
+def _embed_title(name: str, realm: Realm) -> str:
+    """임베드 제목 — 본서버 '🗓', 챌린저스 '🏆 챌린저스'(리더보드 _embed_title 패턴)."""
+    prefix = "🏆 챌린저스" if realm is Realm.CHALLENGERS else "🗓"
+    return f"{prefix} {name} 의 스케줄러 숙제"
+
+
+# 전부 완료(잔여 0) 상태색 — 디스코드 그린. 잔여>0 은 브랜드 오렌지(상태색 2색, ADR-0013).
+_DONE_COLOR = discord.Color.from_rgb(87, 242, 135)
+
+
+def _subtitle(hw: Homework, done: int, total: int) -> str | None:
+    """제목 아래 부제 — `Lv.276 · 챌린저스2` + 전체 잔여 한 줄(집계대상 있을 때)."""
+    parts = [f"Lv.{hw.character_level}"] if hw.character_level else []
+    if hw.world_name:
+        parts.append(hw.world_name)
+    head = " · ".join(parts)
+    if total <= 0:
+        return head or None
+    remaining = total - done
+    mark = "✅" if remaining == 0 else "🔥"  # 0 일 때 🔥 어색 → ✅ 로 스왑(문구는 동일)
+    line = f"{mark} 남은 숙제 {remaining}개 ({done}/{total} 완료)"
+    return f"{head}\n{line}" if head else line
+
+
+def _content_field(
+    embed: discord.Embed, label: str, items: list[service.ContentItem]
+) -> None:
+    """퀘스트/회수/완료미완료 필드 — 헤더 `남은 N + 완료/총`(진행바 없음), 본문 todo-first. 빈 건 생략."""
+    if not items:
+        return
+    done, total = service.field_counts(items)
+    if total == 0:  # 전부 qs0(기타) 만 → 표시할 게 없음
+        return
+    embed.add_field(
+        name=f"{label} — 남은 {total - done}  {done}/{total}",
+        value=service.content_field_value(items),
+        inline=False,
+    )
+
+
+def _guild_field(
+    embed: discord.Embed, label: str, items: list[service.ContentItem]
+) -> None:
+    """길드 콘텐츠 필드(점수제) — 완료개념 없어 헤더 카운트 없이 본문만. 빈 건 생략."""
+    if not items:
+        return
+    embed.add_field(name=label, value=service.guild_field_value(items), inline=False)
+
+
+def _boss_field(
+    embed: discord.Embed,
+    label: str,
+    items: list[service.BossItem],
+    clear: tuple[int, int] | None = None,
+) -> None:
+    """보스 cycle 필드 — 헤더 `남은 N + 처치/총`(진행바 없음), 주간은 (처치 c/12) 부가. 빈 건 생략."""
+    if not items:
+        return
+    done, total = service.boss_counts(items)
+    name = f"{label} — 남은 {total - done}  {done}/{total}"
+    if clear is not None:
+        count, limit = clear
+        name += f"  (처치 {count}/{limit})"
+    embed.add_field(name=name, value=service.boss_cycle_value(items), inline=False)
+
+
+def build_embed(hw: Homework, realm: Realm, now: datetime) -> discord.Embed:
+    """Homework → 필드 파생 카테고리 임베드(ADR-0013). 빈 카테고리는 생략.
+
+    일일/주간을 퀘스트·회수·완료미완료·점수로 가르고, 보스는 cycle(일/주/월)별로 나눈다. 부제에 전체
+    잔여, 상태색은 잔여 0이면 초록·있으면 오렌지. 푸터 '오늘 HH:MM 기준 · NEXON Open API'.
+    """
+    done, total = hw.remaining_total
+    color = _DONE_COLOR if (total > 0 and done >= total) else BRAND_COLOR
+    embed = make_embed(
+        _embed_title(hw.character_name, realm),
+        _subtitle(hw, done, total),
+        color=color,
+    )
+    # 일일 — 퀘스트 / 회수(몬파) / 완료미완료
+    _content_field(
+        embed, "📝 일일 퀘스트", service.by_category(hw.daily, service.CAT_QUEST)
+    )
+    _content_field(
+        embed, "🎯 일일 회수", service.by_category(hw.daily, service.CAT_COUNT)
+    )
+    _content_field(
+        embed, "📋 일일 콘텐츠", service.by_category(hw.daily, service.CAT_BINARY)
+    )
+    # 주간 — 퀘스트 / 완료미완료(보스성) / 회수
+    _content_field(
+        embed, "📆 주간 퀘스트", service.by_category(hw.weekly, service.CAT_QUEST)
+    )
+    _content_field(
+        embed, "⚔️ 주간 콘텐츠", service.by_category(hw.weekly, service.CAT_BINARY)
+    )
+    _content_field(
+        embed, "🎯 주간 회수", service.by_category(hw.weekly, service.CAT_COUNT)
+    )
+    # 길드 콘텐츠(점수제) — 일+주 합산([길드] 주간 미션 포인트·플래그 레이스·지하 수로)
+    _guild_field(
+        embed,
+        "🏰 길드 콘텐츠",
+        service.by_category(hw.daily, service.CAT_GUILD)
+        + service.by_category(hw.weekly, service.CAT_GUILD),
+    )
+    # 보스 — cycle 별(주간만 처치 카운터 부가)
+    _boss_field(
+        embed,
+        "🗡 주간 보스",
+        service.bosses_by_cycle(hw.boss, service.CYCLE_WEEKLY),
+        clear=(
+            hw.weekly_boss_clear_count,
+            service.weekly_boss_limit(hw.weekly_boss_clear_limit),
+        ),
+    )
+    _boss_field(
+        embed, "🗡 일간 보스", service.bosses_by_cycle(hw.boss, service.CYCLE_DAILY)
+    )
+    _boss_field(
+        embed, "🗡 월간 보스", service.bosses_by_cycle(hw.boss, service.CYCLE_MONTHLY)
+    )
+    _boss_field(embed, "🗡 기타 보스", service.bosses_other_cycle(hw.boss))
+    embed.set_footer(text=append_source(format_footer(now, now)))
+    return embed
+
+
+async def build_homework(
+    deps: Deps, guild_id: int, user_id: int, realm: Realm
+) -> tuple[Homework | None, str | None]:
+    """본인 키 + realm 대표 ocid → 오늘 스케줄러 페치 → 파싱. 온디맨드·DM 잡 공유(결정 6).
+
+    성공이면 (Homework, None)(homework 는 is_empty 일 수 있음), 실패면 (None, 사용자메시지).
+    넥슨 4xx(비대상·저활동)는 raise 하지 않고 흡수해 메시지로 변환(error_log 미적재 — 결정 7,
+    개인 키 실패는 운영 요약 제외 철학). 키없음/대표없음은 resolve_self 가 메시지로 거른다.
+    """
+    key_encrypted, ocid, error = await service.resolve_self(
+        deps.session_factory, guild_id, user_id, realm
+    )
+    if error is not None:
+        return None, error
+    api_key = deps.cipher.decrypt(key_encrypted)  # type: ignore[arg-type]
+    try:
+        data = await deps.nexon.scheduler_character_state(api_key, ocid)  # 오늘=무지정
+    except NexonAPIError as exc:
+        log.warning(
+            "스케줄러 조회 실패 (guild=%s user=%s realm=%s): %s",
+            guild_id,
+            user_id,
+            realm.value,
+            exc,
+        )
+        return None, classify_target_error(exc)
+    return service.parse_homework(data), None
+
+
+async def _fetch_user(bot: discord.Client, user_id: int) -> discord.User | None:
+    """DM 대상 유저 해석: 캐시(get_user) → fetch 폴백. 실패는 앱로그만."""
+    user = bot.get_user(user_id)
+    if user is not None:
+        return user
+    try:
+        return await bot.fetch_user(user_id)
+    except discord.HTTPException as exc:
+        log.warning("스케줄러 알리미 유저 해석 실패 (user=%s): %s", user_id, exc)
+        return None
+
+
+async def _send_dm(bot: discord.Client, user_id: int, embed: discord.Embed) -> bool:
+    """본인 DM 발송. DM 차단(Forbidden)·기타 HTTP 실패는 앱로그만 남기고 False(결정 7)."""
+    user = await _fetch_user(bot, user_id)
+    if user is None:
+        return False
+    try:
+        await user.send(embed=embed)
+        return True
+    except discord.HTTPException as exc:  # Forbidden(DM 차단) 포함
+        log.warning("스케줄러 알리미 DM 실패 (user=%s): %s", user_id, exc)
+        return False
+
+
+async def run_scheduler_reminder_job(bot: discord.Client, deps: Deps) -> None:
+    """매시 정각 잡: now.hour 구독 조회 → 0개면 스킵 → 구독별 숙제 빌드 → 본인 DM 발송.
+
+    is_empty(등록 숙제 0개)·실패(키없음·4xx)·DM 차단은 모두 조용히 스킵(결정 7). 한 구독 실패가
+    다음 구독을 막지 않는다.
+    """
+    now = datetime.now(KST)
+    subs = await service.subscriptions_at_hour(deps.session_factory, now.hour)
+    if not subs:
+        log.info("스케줄러 알리미 스킵: %d시 구독 없음(넥슨 호출 안 함)", now.hour)
+        return
+
+    sent = 0
+    for sub in subs:
+        homework, _error = await build_homework(
+            deps, sub.guild_id, sub.discord_user_id, sub.realm
+        )
+        if homework is None or homework.is_empty:
+            continue  # 키없음·4xx·등록 0개 → 조용히 스킵(빈 DM 금지)
+        embed = build_embed(homework, sub.realm, now)
+        if await _send_dm(bot, sub.discord_user_id, embed):
+            sent += 1
+    log.info("스케줄러 알리미: %d시 구독 %d건 중 %d건 발송", now.hour, len(subs), sent)

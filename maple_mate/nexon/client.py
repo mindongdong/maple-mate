@@ -376,6 +376,24 @@ class NexonClient:
             return ranking[0]
         return None
 
+    # ── 스케줄러 알리미 (개인 키 + ocid, 오늘=date 무지정) ───────────────────
+    #
+    # 이력류 친척(개인 키 스코프)이나 history/* 와 달리 ocid 로 계정 내 캐릭터를 지정한다
+    # (docs/api/scheduler.md). ⚠️ 오늘 데이터는 date_iso=None(무지정)으로만 — 오늘을 명시하면
+    # OPENAPI00004. 과거(−14일)는 date_iso 명시. 비대상/저활동 ocid 는 빈 응답이 아니라
+    # 4xx(실측 OPENAPI00003/00004) → _request 가 NexonAPIError 로 raise(호출자가 흡수).
+
+    async def scheduler_character_state(
+        self, api_key: str, ocid: str, date_iso: str | None = None
+    ) -> dict:
+        """개인 키 + ocid 로 그 캐릭터의 인게임 스케줄러 숙제 현황(일일/주간/보스)."""
+        return await self._request(
+            "maplestory/v1/scheduler/character-state",
+            api_key=api_key,
+            ocid=ocid,
+            date=date_iso,
+        )
+
     # ── Phase 4 알림 (앱 키, 진행 중 이벤트 목록) ──────────────────────────
     #
     # notice-event 는 파라미터 없이 "현재 진행 중" 항목만 반환(docs/api/notice.md). 따라서

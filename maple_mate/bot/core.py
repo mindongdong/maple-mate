@@ -97,6 +97,7 @@ class MapleMateBot(discord.Client):
         from ..leaderboard.commands import setup_leaderboard
         from ..notification.commands import setup as setup_notification
         from ..registration.commands import setup as setup_registration
+        from ..scheduler.commands import setup as setup_scheduler
         from ..union.commands import setup as setup_union
 
         setup_registration(self)
@@ -106,6 +107,7 @@ class MapleMateBot(discord.Client):
         setup_potential(self)  # /잠재
         setup_bitik(self)  # /비틱 (스타포스·잠재·득템)
         setup_leaderboard(self)  # /경험치 · /경험치알림
+        setup_scheduler(self)  # /스케줄러 · /스케줄러알림 (per-user DM 구독)
         setup_notification(self)  # /썬데이
         setup_guide(self)  # /가이드 (봇 기능 안내 · /핑 흡수)
 

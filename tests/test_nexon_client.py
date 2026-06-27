@@ -328,3 +328,42 @@ async def test_fetch_image_rejects_non_image_body_and_does_not_cache():
         with pytest.raises(NexonAPIError):
             await client.fetch_image("https://x/icon")  # 캐시 오염 없음 → 다시 네트워크
     assert calls["n"] == 2
+
+
+# ── scheduler_character_state: 개인 키 + ocid, 오늘=date 무지정 ──────────────
+
+
+async def test_scheduler_character_state_sends_personal_key_and_ocid_no_date():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/maplestory/v1/scheduler/character-state"
+        assert request.url.params["ocid"] == "oc1"
+        # 오늘 데이터는 date 무지정으로만(명시 시 OPENAPI00004) → 쿼리에 date 없음.
+        assert "date" not in request.url.params
+        assert request.headers["x-nxopen-api-key"] == "personal_key"
+        return httpx.Response(
+            200, json={"character_name": "내캐릭", "boss_contents": []}
+        )
+
+    async with _client(handler) as client:
+        data = await client.scheduler_character_state("personal_key", "oc1")
+    assert data["character_name"] == "내캐릭"
+
+
+async def test_scheduler_character_state_past_date_is_sent_explicitly():
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["date"] == "2026-06-20"
+        return httpx.Response(200, json={"character_name": "내캐릭"})
+
+    async with _client(handler) as client:
+        await client.scheduler_character_state("k", "oc1", date_iso="2026-06-20")
+
+
+async def test_scheduler_character_state_4xx_raises():
+    def handler(request: httpx.Request) -> httpx.Response:
+        # 비대상/저활동 캐릭터 → 빈 응답 아닌 4xx(실측 OPENAPI00003).
+        return _error_response(400, "OPENAPI00003", "Please input valid id.")
+
+    async with _client(handler) as client:
+        with pytest.raises(NexonAPIError) as exc:
+            await client.scheduler_character_state("k", "oc1")
+    assert exc.value.error_class is ErrorClass.INVALID_ID
