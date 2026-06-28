@@ -47,7 +47,10 @@ async def on_app_command_error(
 
 class MapleMateBot(discord.Client):
     def __init__(self, *, deps: Deps, dev_guild_id: int | None):
-        intents = discord.Intents.default()  # 슬래시 커맨드는 특권 인텐트 불필요
+        intents = discord.Intents.default()
+        # members 특권 인텐트(ADR-0015) — /스타포스·/잠재가 등록자의 서버 표시명을 get_member 로
+        # 안정 해석하기 위함. ⚠️ Discord 개발자 포털 Server Members Intent 토글 + 재배포 필수.
+        intents.members = True
         # 비교 임베드의 유저 태그(@닉)는 '누가 어떤 캐릭 주인'인지 표시용 — 핑(알림)은 울리지
         # 않도록 전역 차단. (임베드 본문 멘션은 기본적으로 핑 안 하지만 명시적으로 무력화)
         super().__init__(

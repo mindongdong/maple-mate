@@ -27,7 +27,7 @@ from ..nexon.client import NexonClient
 from ..nexon.errors import ErrorClass, NexonAPIError, to_error_log_type
 from ..security.crypto import KeyCipher
 from .models import Character, Registration
-from .realm import Realm, in_realm, realm_of
+from .realm import Realm, in_realm
 
 log = logging.getLogger(__name__)
 
@@ -443,27 +443,6 @@ async def get_targets(
         order = {uid: i for i, uid in enumerate(user_ids)}
         targets.sort(key=lambda t: order.get(t.discord_user_id, len(order)))
     return targets
-
-
-async def get_realm_by_nickname(
-    session_factory: async_sessionmaker[AsyncSession],
-    guild_id: int,
-) -> dict[str, Realm]:
-    """길드 등록 캐릭터의 {maple_nickname → Realm} 맵 (/잠재 realm 필터용, ADR-0009).
-
-    cube/potential 레코드엔 world_name 이 없어(결정 6 비대칭) character_name 을 등록 닉맵으로
-    realm 해석한다. 미상 닉(미등록 캐릭터·닉 변경 잔류)은 호출자가 본서버로 폴백한다. 서버 내
-    닉 중복(ADR-0006 허용)은 마지막 행 우선 — 실수요 드묾(realm 간 동명은 거의 없음).
-    """
-    async with session_factory() as session:
-        rows = (
-            await session.execute(
-                select(Character.maple_nickname, Character.world).where(
-                    Character.guild_id == guild_id
-                )
-            )
-        ).all()
-    return {nickname: realm_of(world) for nickname, world in rows}
 
 
 async def refresh_ocid(
