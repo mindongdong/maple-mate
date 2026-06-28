@@ -117,7 +117,7 @@ def test_format_luck_clamps_extremes() -> None:
 
 
 def test_format_count_is_single_number() -> None:
-    # 11성 필터로 미상 소멸 → 분자=분모, 항상 단일 건수(M/N 분기 삭제).
+    # 10성 필터로 미상 소멸 → 분자=분모, 항상 단일 건수(M/N 분기 삭제).
     assert _format_count(_summary(50.0, matched=21, total=21)) == "21건"
     assert _format_count(_summary(50.0, matched=21, total=47)) == "21건"
 
@@ -141,7 +141,7 @@ def test_build_table_has_event_field_and_no_unmatched_field() -> None:
     results = [(_t(1), _summary(70.0, matched=21, total=21))]
     embed, _file = _build_table(results, [], "footer")
     names = [f.name for f in embed.fields]
-    assert any("11성 이상" in n for n in names)  # 신규 ℹ️ 필드
+    assert any("10성 이상" in n for n in names)  # 신규 ℹ️ 필드
     assert not any("레벨 미상" in n for n in names)  # 삭제된 필드
     assert any("계정 전체 합산" in n for n in names)  # 유지
 
@@ -193,12 +193,12 @@ async def test_no_record_when_empty() -> None:
 
 
 async def test_no_record_when_only_low_stars() -> None:
-    # 강화는 했으나 전부 10성 이하 → 11성 이상 기록 없음(no-record 분기, ADR-0016).
-    nexon = _FakeNexon(records=[_record("손바", 0, 1), _record("손바", 5, 6)])
+    # 강화는 했으나 전부 10성 미만(9→10 포함) → 10성 이상 기록 없음(no-record 분기, ADR-0016).
+    nexon = _FakeNexon(records=[_record("손바", 0, 1), _record("손바", 9, 10)])
     deps, _ = _make_deps(nexon)
     result = await _process_target(deps, _target(), DATES, {}, "표시명")
     assert isinstance(result, TargetOutcome)
-    assert "11성 이상" in result.error
+    assert "10성 이상" in result.error
 
 
 async def test_fetch_failure_returns_outcome_and_logs_error() -> None:
@@ -212,7 +212,7 @@ async def test_fetch_failure_returns_outcome_and_logs_error() -> None:
 
 
 async def test_unmatched_equipment_is_reported_to_error_log() -> None:
-    # 11성+ 미상 장비 → unmatched → error_log(unmatched_equipment) 적재. 매칭 장비가 함께
+    # 10성+ 미상 장비 → unmatched → error_log(unmatched_equipment) 적재. 매칭 장비가 함께
     # 있어야 결과가 표(tuple)로 나온다(미상만이면 no-record 분기).
     matched = _record("손바", 17, 18)  # 하이네스(세트 150) → 매칭
     unknown = _record("손바", 17, 18)

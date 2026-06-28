@@ -350,17 +350,18 @@ async def prune_old_history_cache(
 
 # ── 집계 (순수) ────────────────────────────────────────────────────────────
 
-# 11성 이상 시도만 집계한다(ADR-0016). 1+1(10성 이하 전용) 이벤트 무력화 + 저성 잡음·레벨
-# 미상 장비(전수 ≤7성) 제거 + 자동 고레벨 한정(11성은 108레벨+에서만 가능). 11성에선 파괴가
-# 없고(파괴 바닥 12성) 파괴→12 복귀도 ≥11 이라 등반이 11성 위에서 자기완결한다.
-MIN_AGGREGATE_STAR = 11
+# 10성 이상 시도만 집계한다(ADR-0016, 개정으로 11→10). before_star 는 강화 시작 성수라
+# before_star≥10 = "10→11 강화부터 포함"(9→10 제외) — 사용자 선호. 저성 잡음·레벨 미상
+# 장비(전수 ≤7성)는 여전히 제외. 10성 floor 에서도 파괴 바닥 12성·파괴→12 복귀가 모두 ≥10 이라
+# 등반이 자기완결한다. (10성엔 1+1 이벤트가 드물게 섞일 수 있으나 미모델 — 영향 경미.)
+MIN_AGGREGATE_STAR = 10
 
 
 @dataclass(frozen=True)
 class StarforceSummary:
     """대상 1명의 스타포스 집계 결과.
 
-    luck_score(메소 백분위)·메소(total/net/expected) 모두 11성 이상 레벨 매칭 시도 기준 — 손익과 일관.
+    luck_score(메소 백분위)·메소(total/net/expected) 모두 10성 이상 레벨 매칭 시도 기준 — 손익과 일관.
     이벤트 보정(ADR-0016): 기대·분포는 강화 당시 이벤트 조건, total_meso 는 실지불(할인 반영).
     """
 
@@ -372,11 +373,11 @@ class StarforceSummary:
         int  # 기댓값 대비 손익(total_meso − expected, 둘 다 이벤트 조건 → 할인 중립)
     )
     expected: float  # 기댓값(매칭 시도 Σexpected_meso, 이벤트 보정)
-    matched_count: int  # 11성+ 레벨 매칭된 시도 수
-    total_count: int  # 집계 대상 시도 수(매칭+미상). 11성 필터로 미상 거의 소멸 → 보통 matched 와 동일.
+    matched_count: int  # 10성+ 레벨 매칭된 시도 수
+    total_count: int  # 집계 대상 시도 수(매칭+미상). 10성 필터로 미상 거의 소멸 → 보통 matched 와 동일.
     unmatched_items: tuple[
         str, ...
-    ]  # 레벨 미상으로 제외된 11성+ 장비명(EXCLUDED/저레벨/저성 제외분은 불포함)
+    ]  # 레벨 미상으로 제외된 10성+ 장비명(EXCLUDED/저레벨/저성 제외분은 불포함)
 
 
 def _sort_key(a: StarforceAttempt) -> tuple:
@@ -425,9 +426,9 @@ def aggregate_starforce(
     min_level: int = MIN_AGGREGATE_LEVEL,
     min_star: int = MIN_AGGREGATE_STAR,
 ) -> StarforceSummary:
-    """아이템별 시작★→최종★ 집계 → 운빨·손익메소(11성+ 레벨 매칭 시도, 이벤트 보정).
+    """아이템별 시작★→최종★ 집계 → 운빨·손익메소(10성+ 레벨 매칭 시도, 이벤트 보정).
 
-    먼저 11성 미만 시도를 통째로 거른다(min_star, ADR-0016). 남은 레벨 매칭 아이템만 집계:
+    먼저 10성 미만 시도를 통째로 거른다(min_star, ADR-0016). 남은 레벨 매칭 아이템만 집계:
     시작★=첫(시간순) before_star, 최종★=기간 내 최고 after_star, 아이템별 성수 이벤트 마스크로
     expected += expected_meso(이벤트 보정), total_meso += Σ실지불(할인 반영). 미매칭(레벨 미상)
     아이템은 unmatched_items 로 분리. 운빨(luck_score) = 실지불 총합이 같은 이벤트 조건 분포에서
@@ -436,10 +437,10 @@ def aggregate_starforce(
     계정 전체화: 그룹 키 = (character_name, target_item). 동명 장비를 캐릭터별로 분리해
     서로 다른 캐릭터의 같은 이름 장비가 한 묶음으로 합쳐지는 버그를 막는다.
 
-    집계 제외(미상과 구분): 11성 미만 시도 · excluded_items(특정 장비) · min_level 미만 레벨 장비는
+    집계 제외(미상과 구분): 10성 미만 시도 · excluded_items(특정 장비) · min_level 미만 레벨 장비는
     통째로 빠진다 — 총메소·기댓값·운빨은 물론 분모(total_count)·미상 제보에서도 제외(없던 셈).
     """
-    attempts = [a for a in attempts if a.before_star >= min_star]  # 11성+ 필터(최우선)
+    attempts = [a for a in attempts if a.before_star >= min_star]  # 10성+ 필터(최우선)
 
     by_group: dict[tuple[str, str], list[StarforceAttempt]] = {}
     for a in attempts:

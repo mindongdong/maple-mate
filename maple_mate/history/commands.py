@@ -119,7 +119,7 @@ def _format_luck(summary: StarforceSummary) -> str:
 
 
 def _format_count(summary: StarforceSummary) -> str:
-    """기준건수 — 11성 필터로 미상이 사라져 분자=분모라 단일 건수로 표시(ADR-0016)."""
+    """기준건수 — 10성 필터로 미상이 사라져 분자=분모라 단일 건수로 표시(ADR-0016)."""
     return f"{summary.matched_count}건"
 
 
@@ -170,11 +170,11 @@ async def _process_target(
     summary = await asyncio.to_thread(
         aggregate_starforce, attempts, lambda item: match_level(item, known)
     )
-    await _report_unmatched(deps, target, summary)  # 11성+ 미상 제보(유저 비노출)
+    await _report_unmatched(deps, target, summary)  # 10성+ 미상 제보(유저 비노출)
     if summary.matched_count == 0:
-        # 강화는 했으나 11성 이상이 없거나(저성만) 전부 레벨 미상 → 보여줄 게 없음(ADR-0016).
+        # 강화는 했으나 10성 이상이 없거나(저성만) 전부 레벨 미상 → 보여줄 게 없음(ADR-0016).
         return TargetOutcome(
-            target=spec_target, error="기간 내 11성 이상 강화 기록이 없어요."
+            target=spec_target, error="기간 내 10성 이상 강화 기록이 없어요."
         )
     return spec_target, summary
 
@@ -263,8 +263,8 @@ def _build_table(
         inline=False,
     )
     embed.add_field(
-        name="ℹ️ 11성 이상 강화만 집계",
-        value="저성·이벤트 장비는 빼고 **11성 이상** 강화만 비교해요. 강화 당시 이벤트(파괴 확률 감소·비용 할인)도 반영했어요.",
+        name="ℹ️ 10성 이상 강화만 집계",
+        value="**10성 이상** 강화만 비교해요. 강화 당시 썬데이 이벤트도 반영했어요.",
         inline=False,
     )
     return embed, file
