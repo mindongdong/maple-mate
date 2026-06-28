@@ -20,8 +20,15 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ..dependencies import Deps
 from .cache import is_cache_fresh
 from .equipment_level import EXCLUDED_ITEMS, MIN_AGGREGATE_LEVEL
-from .expected_cost import actual_meso, expected_meso, meso_luck_percentile, net_meso
+from .expected_cost import (
+    ClimbItem,
+    actual_paid_meso,
+    expected_meso,
+    meso_luck_percentile,
+    net_meso,
+)
 from .models import HistoryCache
+from .starforce_data import parse_event_range
 
 log = logging.getLogger(__name__)
 
@@ -186,6 +193,31 @@ class StarforceAttempt:
     world_name: str = (
         ""  # realm 신호(ADR-0009) — 파싱만 보존(/스타포스 realm 필터는 ADR-0015로 제거)
     )
+    # 이벤트 보정(ADR-0016) — 이 시도의 before_star 가 이벤트 적용 범위에 들었는지(파싱 시 확정).
+    destroy_reduced: bool = False  # 파괴확률 감소 이벤트 적용 시도
+    cost_discount: bool = False  # 강화비용 할인 이벤트 적용 시도
+
+
+def _attempt_events(event_list: object, before_star: int) -> tuple[bool, bool]:
+    """starforce_event_list + before_star → (파괴감소 적용?, 비용할인 적용?).
+
+    실측: event_list 는 성공률/파괴감소/비용할인이 각각 별 객체로 분리되며, 각 객체의
+    starforce_event_range 가 적용 성수를 명시한다(docs/api/history.md). 이 시도의 before_star 가
+    그 객체 범위에 들고 해당 rate 가 있으면 적용으로 본다. 비배열·비dict·범위 미상은 미적용 폴백.
+    """
+    if not isinstance(event_list, list):
+        return False, False
+    destroy = discount = False
+    for ev in event_list:
+        if not isinstance(ev, dict):
+            continue
+        if before_star not in parse_event_range(ev.get("starforce_event_range")):
+            continue
+        if ev.get("destroy_decrease_rate"):
+            destroy = True
+        if ev.get("cost_discount_rate"):
+            discount = True
+    return destroy, discount
 
 
 def parse_attempts(records: Sequence[dict]) -> list[StarforceAttempt]:
@@ -200,16 +232,22 @@ def parse_attempts(records: Sequence[dict]) -> list[StarforceAttempt]:
         # "슈페리얼 장비 미해당"/"슈페리얼 장비 해당". '슈페리얼' 키워드 필수 +
         # '미해당' 제외로 판정: 미상 포맷(빈값·"0" 등)은 일반 장비로 폴백(과잉 제외 방지).
         flag = r.get("superior_item_flag") or ""
+        before_star = int(r.get("before_starforce_count", 0))
+        destroy_reduced, cost_discount = _attempt_events(
+            r.get("starforce_event_list"), before_star
+        )
         attempts.append(
             StarforceAttempt(
                 target_item=r.get("target_item", ""),
-                before_star=int(r.get("before_starforce_count", 0)),
+                before_star=before_star,
                 after_star=int(r.get("after_starforce_count", 0)),
                 result=r.get("item_upgrade_result", ""),
                 date_create=r.get("date_create", ""),
                 character_name=r.get("character_name", ""),
                 superior="슈페리얼" in flag and "미해당" not in flag,
                 world_name=r.get("world_name", ""),
+                destroy_reduced=destroy_reduced,
+                cost_discount=cost_discount,
             )
         )
     return attempts
@@ -312,27 +350,33 @@ async def prune_old_history_cache(
 
 # ── 집계 (순수) ────────────────────────────────────────────────────────────
 
+# 11성 이상 시도만 집계한다(ADR-0016). 1+1(10성 이하 전용) 이벤트 무력화 + 저성 잡음·레벨
+# 미상 장비(전수 ≤7성) 제거 + 자동 고레벨 한정(11성은 108레벨+에서만 가능). 11성에선 파괴가
+# 없고(파괴 바닥 12성) 파괴→12 복귀도 ≥11 이라 등반이 11성 위에서 자기완결한다.
+MIN_AGGREGATE_STAR = 11
+
 
 @dataclass(frozen=True)
 class StarforceSummary:
     """대상 1명의 스타포스 집계 결과.
 
-    luck_score(메소 백분위)·메소(total/net/expected) 모두 레벨 매칭 시도 기준 — 손익과 일관.
+    luck_score(메소 백분위)·메소(total/net/expected) 모두 11성 이상 레벨 매칭 시도 기준 — 손익과 일관.
+    이벤트 보정(ADR-0016): 기대·분포는 강화 당시 이벤트 조건, total_meso 는 실지불(할인 반영).
     """
 
     luck_score: (
         float | None
-    )  # 메소 행운 백분위(0~100, 높을수록 운 좋음=싸게 끝냄, ADR-0002)
-    total_meso: int  # 총 사용 메소(매칭 시도 Σcost)
-    net_meso: int  # 기댓값 대비 손익(total_meso − expected)
-    expected: float  # 기댓값(매칭 시도 Σexpected_meso)
-    matched_count: int  # 레벨 매칭된 시도 수
-    total_count: (
-        int  # 집계 대상 시도 수(매칭+미상). 제외분(EXCLUDED/100미만)은 분모에서도 뺀다.
+    )  # 메소 행운 백분위(0~100, 높을수록 운 좋음=싸게 끝냄, ADR-0002·0016)
+    total_meso: int  # 총 사용 메소(매칭 시도 Σ실지불, 할인 반영)
+    net_meso: (
+        int  # 기댓값 대비 손익(total_meso − expected, 둘 다 이벤트 조건 → 할인 중립)
     )
+    expected: float  # 기댓값(매칭 시도 Σexpected_meso, 이벤트 보정)
+    matched_count: int  # 11성+ 레벨 매칭된 시도 수
+    total_count: int  # 집계 대상 시도 수(매칭+미상). 11성 필터로 미상 거의 소멸 → 보통 matched 와 동일.
     unmatched_items: tuple[
         str, ...
-    ]  # 레벨 미상으로 제외된 장비명(EXCLUDED/저레벨 제외분은 불포함)
+    ]  # 레벨 미상으로 제외된 11성+ 장비명(EXCLUDED/저레벨/저성 제외분은 불포함)
 
 
 def _sort_key(a: StarforceAttempt) -> tuple:
@@ -343,36 +387,70 @@ def _sort_key(a: StarforceAttempt) -> tuple:
         return (1, a.date_create)
 
 
+def _event_masks(
+    item_attempts: Sequence[StarforceAttempt],
+) -> tuple[frozenset[int], frozenset[int]]:
+    """아이템 시도 묶음 → (destroy_stars, discount_stars). 성수별 과반 투표(ADR-0016 §3-3).
+
+    성수 s의 before_star=s 시도 중 과반이 이벤트 보유면 그 성수를 마스크에 넣는다. 동률은 True
+    (이벤트 인정=보수적 — 이벤트를 무시하면 기대가 부풀어 거짓 '운 좋음'이 되므로 인정 쪽으로).
+    카운터팩추얼 재등반(시뮬·기대)의 성수별 조건 가정에만 쓰인다(실지불은 각 시도 실제 플래그).
+    """
+    destroy_total: dict[int, int] = {}
+    destroy_on: dict[int, int] = {}
+    discount_total: dict[int, int] = {}
+    discount_on: dict[int, int] = {}
+    for a in item_attempts:
+        s = a.before_star
+        destroy_total[s] = destroy_total.get(s, 0) + 1
+        discount_total[s] = discount_total.get(s, 0) + 1
+        if a.destroy_reduced:
+            destroy_on[s] = destroy_on.get(s, 0) + 1
+        if a.cost_discount:
+            discount_on[s] = discount_on.get(s, 0) + 1
+    destroy_stars = frozenset(
+        s for s, total in destroy_total.items() if destroy_on.get(s, 0) * 2 >= total
+    )
+    discount_stars = frozenset(
+        s for s, total in discount_total.items() if discount_on.get(s, 0) * 2 >= total
+    )
+    return destroy_stars, discount_stars
+
+
 def aggregate_starforce(
     attempts: Sequence[StarforceAttempt],
     level_of: Callable[[str], int | None],
     *,
     excluded_items: frozenset[str] = EXCLUDED_ITEMS,
     min_level: int = MIN_AGGREGATE_LEVEL,
+    min_star: int = MIN_AGGREGATE_STAR,
 ) -> StarforceSummary:
-    """아이템별 시작★→최종★ 집계 → 운지수·손익메소(레벨 매칭 성공分만).
+    """아이템별 시작★→최종★ 집계 → 운빨·손익메소(11성+ 레벨 매칭 시도, 이벤트 보정).
 
-    레벨 매칭 아이템만 집계(운빨·메소 동일 기준): 아이템별 시작★=첫(시간순) before_star,
-    최종★=기간 내 최고 after_star, expected += expected_meso(level, 시작★, 최종★),
-    total_meso += Σcost(level, before_star). 미매칭(레벨 미상) 아이템은 unmatched_items 로 분리.
-    운빨(luck_score) = 그 아이템들의 실제 총 메소가 가능 분포에서 차지하는 백분위(메소 기반).
+    먼저 11성 미만 시도를 통째로 거른다(min_star, ADR-0016). 남은 레벨 매칭 아이템만 집계:
+    시작★=첫(시간순) before_star, 최종★=기간 내 최고 after_star, 아이템별 성수 이벤트 마스크로
+    expected += expected_meso(이벤트 보정), total_meso += Σ실지불(할인 반영). 미매칭(레벨 미상)
+    아이템은 unmatched_items 로 분리. 운빨(luck_score) = 실지불 총합이 같은 이벤트 조건 분포에서
+    차지하는 백분위(메소 기반).
 
     계정 전체화: 그룹 키 = (character_name, target_item). 동명 장비를 캐릭터별로 분리해
     서로 다른 캐릭터의 같은 이름 장비가 한 묶음으로 합쳐지는 버그를 막는다.
 
-    집계 제외(미상과 구분): excluded_items(특정 장비) · min_level 미만 레벨 장비는 통째로 빠진다 —
-    총메소·기댓값·운빨은 물론 분모(total_count)·미상 제보에서도 제외(없던 셈).
+    집계 제외(미상과 구분): 11성 미만 시도 · excluded_items(특정 장비) · min_level 미만 레벨 장비는
+    통째로 빠진다 — 총메소·기댓값·운빨은 물론 분모(total_count)·미상 제보에서도 제외(없던 셈).
     """
+    attempts = [a for a in attempts if a.before_star >= min_star]  # 11성+ 필터(최우선)
+
     by_group: dict[tuple[str, str], list[StarforceAttempt]] = {}
     for a in attempts:
         by_group.setdefault((a.character_name, a.target_item), []).append(a)
 
-    total_meso = 0
+    total_meso = 0.0
     expected = 0.0
     matched_count = 0
     counted = 0  # 집계 대상(매칭+미상) 시도 수 — 제외분은 분모에서도 뺀다
     unmatched: list[str] = []
-    luck_items: list[tuple[int, int, int, int]] = []  # (level, 시작★, 최종★, 실제메소)
+    luck_items: list[ClimbItem] = []
 
     for (_char_name, item), item_attempts in by_group.items():
         if item in excluded_items:
@@ -387,15 +465,29 @@ def aggregate_starforce(
         ordered = sorted(item_attempts, key=_sort_key)
         start_star = ordered[0].before_star
         final_star = max(a.after_star for a in item_attempts)
-        item_actual = actual_meso(level, [a.before_star for a in item_attempts])
-        expected += expected_meso(level, start_star, final_star)
+        destroy_stars, discount_stars = _event_masks(item_attempts)
+        item_actual = actual_paid_meso(
+            level, [(a.before_star, a.cost_discount) for a in item_attempts]
+        )
+        expected += expected_meso(
+            level, start_star, final_star, destroy_stars, discount_stars
+        )
         total_meso += item_actual
         matched_count += len(item_attempts)
-        luck_items.append((level, start_star, final_star, item_actual))
+        luck_items.append(
+            ClimbItem(
+                level,
+                start_star,
+                final_star,
+                item_actual,
+                destroy_stars,
+                discount_stars,
+            )
+        )
 
     return StarforceSummary(
         luck_score=meso_luck_percentile(luck_items),
-        total_meso=total_meso,
+        total_meso=round(total_meso),
         net_meso=net_meso(total_meso, expected),
         expected=expected,
         matched_count=matched_count,
