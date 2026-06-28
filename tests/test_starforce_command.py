@@ -6,12 +6,18 @@
 
 from __future__ import annotations
 
+import inspect
 from datetime import date
 from types import SimpleNamespace
 
 from maple_mate.dependencies import Deps
 from maple_mate.error_log.models import ErrorLog
-from maple_mate.history.commands import _format_profit, _process_target
+from maple_mate.history.commands import (
+    _format_profit,
+    _process_target,
+    handle_starforce,
+    resolve_member_displays,
+)
 from maple_mate.history.service import HistoryTarget
 from maple_mate.nexon.errors import NexonAPIError
 from maple_mate.registration.service import Target, TargetOutcome
@@ -103,10 +109,12 @@ async def test_success_returns_target_and_summary() -> None:
         equipped={"하이네스 워리어헬름": 150},
     )
     deps, _ = _make_deps(nexon)
-    result = await _process_target(deps, _target(), DATES, {})
+    result = await _process_target(deps, _target(), DATES, {}, "표시명")
     assert isinstance(result, tuple)
     target, summary = result
     assert isinstance(target, Target)
+    # 라벨 = 디스코드 서버 표시명(캐릭터 닉 아님, ADR-0015).
+    assert target.nickname == "표시명"
     assert summary.matched_count == 2
     assert summary.total_count == 2
     assert summary.luck_score is not None
@@ -116,7 +124,7 @@ async def test_other_character_records_counted_account_wide() -> None:
     # 계정 전체화: 대표와 다른 캐릭터(부캐) 기록도 계정 전체라 함께 집계된다(닉 필터 제거).
     nexon = _FakeNexon(records=[_record("부캐", 0, 1)])
     deps, _ = _make_deps(nexon)
-    result = await _process_target(deps, _target(), DATES, {})
+    result = await _process_target(deps, _target(), DATES, {}, "표시명")
     assert isinstance(result, tuple)
     _, summary = result
     assert summary.total_count == 1
@@ -126,7 +134,7 @@ async def test_no_record_when_empty() -> None:
     # 키는 있으나 기간 내 강화 기록이 전혀 없음 = 기록 없음(키 미등록과 구분).
     nexon = _FakeNexon(records=[])
     deps, _ = _make_deps(nexon)
-    result = await _process_target(deps, _target(), DATES, {})
+    result = await _process_target(deps, _target(), DATES, {}, "표시명")
     assert isinstance(result, TargetOutcome)
     assert "기록이 없어요" in result.error
 
@@ -134,7 +142,7 @@ async def test_no_record_when_empty() -> None:
 async def test_fetch_failure_returns_outcome_and_logs_error() -> None:
     nexon = _FakeNexon(raise_exc=NexonAPIError("OPENAPI00001", "boom", http_status=500))
     deps, added = _make_deps(nexon)
-    result = await _process_target(deps, _target(), DATES, {})
+    result = await _process_target(deps, _target(), DATES, {}, "표시명")
     assert isinstance(result, TargetOutcome)
     assert not result.ok
     logs = [o for o in added if isinstance(o, ErrorLog)]
@@ -147,10 +155,48 @@ async def test_unmatched_equipment_is_reported_to_error_log() -> None:
     rec["target_item"] = "정체불명 장비"
     nexon = _FakeNexon(records=[rec], equipped={})
     deps, added = _make_deps(nexon)
-    result = await _process_target(deps, _target(), DATES, {})
+    result = await _process_target(deps, _target(), DATES, {}, "표시명")
     assert isinstance(result, tuple)
     logs = [o for o in added if isinstance(o, ErrorLog)]
     assert any(
         o.error_type == "unmatched_equipment" and o.detail == "정체불명 장비"
         for o in logs
     )
+
+
+# ── resolve_member_displays: 표시명 매핑 + 서버 이탈 제외(ADR-0015 결정 3) ─────
+
+
+def _keyed_target(uid: int, nickname: str = "메이플닉") -> HistoryTarget:
+    return HistoryTarget(
+        guild_id=1,
+        discord_user_id=uid,
+        nickname=nickname,
+        ocid=f"oc{uid}",
+        api_key_encrypted="enc",
+    )
+
+
+def test_resolve_member_displays_maps_present_and_excludes_left() -> None:
+    targets = [_keyed_target(2, "본캐닉"), _keyed_target(3, "떠난이닉")]
+    guild = SimpleNamespace(
+        get_member=lambda uid: (
+            SimpleNamespace(display_name="표시명") if uid == 2 else None
+        )  # uid 3 = 서버 이탈(get_member None)
+    )
+    display_by_uid, present = resolve_member_displays(guild, targets)
+    assert display_by_uid == {2: "표시명"}
+    assert [t.discord_user_id for t in present] == [2]  # 이탈 유저 제외
+
+
+def test_resolve_member_displays_none_guild_excludes_all() -> None:
+    display_by_uid, present = resolve_member_displays(None, [_keyed_target(2)])
+    assert display_by_uid == {} and present == []
+
+
+# ── 모드 파라미터 제거(ADR-0015) ───────────────────────────────────────────
+
+
+def test_handle_starforce_signature_has_no_mode() -> None:
+    params = inspect.signature(handle_starforce).parameters
+    assert "realm" not in params and "mode" not in params
