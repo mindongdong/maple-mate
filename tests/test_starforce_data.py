@@ -11,7 +11,10 @@ import pytest
 from maple_mate.history.starforce_data import (
     MAX_STAR,
     STARFORCE_PROB,
+    apply_destroy_reduction,
     cost,
+    discounted_cost,
+    parse_event_range,
     reachable_star,
 )
 
@@ -98,3 +101,45 @@ def test_destroy_only_from_star_15() -> None:
         assert STARFORCE_PROB[star][2] == 0.0, star
     for star in range(15, 30):
         assert STARFORCE_PROB[star][2] > 0.0, star
+
+
+# ── 이벤트 보정 헬퍼 (ADR-0016) ────────────────────────────────────────────
+
+
+@pytest.mark.parametrize("star", range(MAX_STAR))
+def test_apply_destroy_reduction_preserves_total_and_success(star: int) -> None:
+    p, m, d = STARFORCE_PROB[star]
+    p2, m2, d2 = apply_destroy_reduction(STARFORCE_PROB[star])
+    assert p2 + m2 + d2 == pytest.approx(1.0)  # 합 보존
+    assert p2 == p  # 성공 불변
+    assert d2 == pytest.approx(d * 0.7)  # 파괴 30% 감소
+    assert m2 == pytest.approx(m + d * 0.3)  # 줄어든 분은 유지로
+
+
+def test_apply_destroy_reduction_no_op_when_no_destroy() -> None:
+    # 파괴 없는 성수(d=0)는 그대로.
+    assert apply_destroy_reduction((0.5, 0.5, 0.0)) == (0.5, 0.5, 0.0)
+
+
+def test_discounted_cost_is_30_percent_off() -> None:
+    assert discounted_cost(200, 11) == pytest.approx(cost(200, 11) * 0.7)
+    assert discounted_cost(250, 0) == pytest.approx(cost(250, 0) * 0.7)
+
+
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("0~29", frozenset(range(30))),
+        ("15,16,17,18,19,20,21", frozenset(range(15, 22))),
+        ("15, 16 , 17", frozenset({15, 16, 17})),
+        ("21~15", frozenset(range(15, 22))),  # 역순도 정규화
+        ("5", frozenset({5})),
+        (None, frozenset()),
+        ("", frozenset()),
+        ("   ", frozenset()),
+        ("garbage", frozenset()),
+        ("a~b", frozenset()),
+    ],
+)
+def test_parse_event_range(raw, expected) -> None:
+    assert parse_event_range(raw) == expected

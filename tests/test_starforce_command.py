@@ -13,12 +13,15 @@ from types import SimpleNamespace
 from maple_mate.dependencies import Deps
 from maple_mate.error_log.models import ErrorLog
 from maple_mate.history.commands import (
-    _format_profit,
+    _build_table,
+    _format_count,
+    _format_luck,
     _process_target,
+    _rank_results,
     handle_starforce,
     resolve_member_displays,
 )
-from maple_mate.history.service import HistoryTarget
+from maple_mate.history.service import HistoryTarget, StarforceSummary
 from maple_mate.nexon.errors import NexonAPIError
 from maple_mate.registration.service import Target, TargetOutcome
 
@@ -86,11 +89,61 @@ def _make_deps(nexon: _FakeNexon) -> tuple[Deps, list[object]]:
     return deps, added
 
 
-def test_format_profit_intuitive_sign() -> None:
-    # 이득(기댓값보다 덜 씀, net<0) → +, 손해(더 씀, net>0) → −, 정확히 기댓값 → 0.
-    assert _format_profit(-45_970_000) == "+4597만"
-    assert _format_profit(1_221_270_000) == "-12억 2127만"
-    assert _format_profit(0) == "0"
+# ── 표시 (ADR-0016) — 운빨 클램프·단일 건수·동점 정렬·ℹ️ 필드 ─────────────────
+
+
+def _summary(
+    luck: float | None, *, matched: int = 5, total: int = 5, net: int = 0
+) -> StarforceSummary:
+    return StarforceSummary(
+        luck_score=luck,
+        total_meso=0,
+        net_meso=net,
+        expected=0.0,
+        matched_count=matched,
+        total_count=total,
+        unmatched_items=(),
+    )
+
+
+def test_format_luck_clamps_extremes() -> None:
+    # '상위 0%' 금지 → '상위 1% 미만', 대칭으로 극단 불운은 '상위 99% 초과'.
+    assert _format_luck(_summary(99.7)) == "상위 1% 미만"  # top=0.3
+    assert _format_luck(_summary(100.0)) == "상위 1% 미만"  # top=0
+    assert _format_luck(_summary(0.5)) == "상위 99% 초과"  # top=99.5
+    assert _format_luck(_summary(0.0)) == "상위 99% 초과"  # top=100
+    assert _format_luck(_summary(70.0)) == "상위 30%"  # 일반 구간
+    assert _format_luck(_summary(None)) == "—"
+
+
+def test_format_count_is_single_number() -> None:
+    # 11성 필터로 미상 소멸 → 분자=분모, 항상 단일 건수(M/N 분기 삭제).
+    assert _format_count(_summary(50.0, matched=21, total=21)) == "21건"
+    assert _format_count(_summary(50.0, matched=21, total=47)) == "21건"
+
+
+def _t(uid: int) -> Target:
+    return Target(guild_id=1, discord_user_id=uid, nickname=f"u{uid}", ocid="")
+
+
+def test_rank_results_tiebreak_by_profit() -> None:
+    # 운빨 동점(둘 다 클램프돼 같은 표시) → 손익(이득) 큰(net 작은) 쪽이 1위.
+    less_gain = (_t(1), _summary(99.9, net=-1_000))  # 이득 1000
+    more_gain = (_t(2), _summary(99.9, net=-5_000))  # 이득 5000 (더 큼)
+    ranked = _rank_results([less_gain, more_gain])
+    assert ranked[0][1].net_meso == -5_000  # 더 큰 이득이 위
+    # None 운빨은 항상 맨 아래.
+    ranked2 = _rank_results([(_t(3), _summary(None)), more_gain])
+    assert ranked2[0][1].luck_score == 99.9 and ranked2[1][1].luck_score is None
+
+
+def test_build_table_has_event_field_and_no_unmatched_field() -> None:
+    results = [(_t(1), _summary(70.0, matched=21, total=21))]
+    embed, _file = _build_table(results, [], "footer")
+    names = [f.name for f in embed.fields]
+    assert any("11성 이상" in n for n in names)  # 신규 ℹ️ 필드
+    assert not any("레벨 미상" in n for n in names)  # 삭제된 필드
+    assert any("계정 전체 합산" in n for n in names)  # 유지
 
 
 def _target() -> HistoryTarget:
@@ -105,7 +158,7 @@ def _target() -> HistoryTarget:
 
 async def test_success_returns_target_and_summary() -> None:
     nexon = _FakeNexon(
-        records=[_record("손바", 0, 1), _record("손바", 1, 2)],
+        records=[_record("손바", 17, 18), _record("손바", 18, 19)],
         equipped={"하이네스 워리어헬름": 150},
     )
     deps, _ = _make_deps(nexon)
@@ -122,7 +175,7 @@ async def test_success_returns_target_and_summary() -> None:
 
 async def test_other_character_records_counted_account_wide() -> None:
     # 계정 전체화: 대표와 다른 캐릭터(부캐) 기록도 계정 전체라 함께 집계된다(닉 필터 제거).
-    nexon = _FakeNexon(records=[_record("부캐", 0, 1)])
+    nexon = _FakeNexon(records=[_record("부캐", 17, 18)])
     deps, _ = _make_deps(nexon)
     result = await _process_target(deps, _target(), DATES, {}, "표시명")
     assert isinstance(result, tuple)
@@ -139,6 +192,15 @@ async def test_no_record_when_empty() -> None:
     assert "기록이 없어요" in result.error
 
 
+async def test_no_record_when_only_low_stars() -> None:
+    # 강화는 했으나 전부 10성 이하 → 11성 이상 기록 없음(no-record 분기, ADR-0016).
+    nexon = _FakeNexon(records=[_record("손바", 0, 1), _record("손바", 5, 6)])
+    deps, _ = _make_deps(nexon)
+    result = await _process_target(deps, _target(), DATES, {}, "표시명")
+    assert isinstance(result, TargetOutcome)
+    assert "11성 이상" in result.error
+
+
 async def test_fetch_failure_returns_outcome_and_logs_error() -> None:
     nexon = _FakeNexon(raise_exc=NexonAPIError("OPENAPI00001", "boom", http_status=500))
     deps, added = _make_deps(nexon)
@@ -150,10 +212,12 @@ async def test_fetch_failure_returns_outcome_and_logs_error() -> None:
 
 
 async def test_unmatched_equipment_is_reported_to_error_log() -> None:
-    # 시드·장착 어디에도 없는 장비 → unmatched → error_log(unmatched_equipment) 적재.
-    rec = _record("손바", 0, 1)
-    rec["target_item"] = "정체불명 장비"
-    nexon = _FakeNexon(records=[rec], equipped={})
+    # 11성+ 미상 장비 → unmatched → error_log(unmatched_equipment) 적재. 매칭 장비가 함께
+    # 있어야 결과가 표(tuple)로 나온다(미상만이면 no-record 분기).
+    matched = _record("손바", 17, 18)  # 하이네스(세트 150) → 매칭
+    unknown = _record("손바", 17, 18)
+    unknown["target_item"] = "정체불명 장비"
+    nexon = _FakeNexon(records=[matched, unknown], equipped={})
     deps, added = _make_deps(nexon)
     result = await _process_target(deps, _target(), DATES, {}, "표시명")
     assert isinstance(result, tuple)
