@@ -251,27 +251,31 @@ def test_aggregate_luck_uses_matched_items_only() -> None:
     assert s2.unmatched_items == ("unknown",)
 
 
-# ── 11성 필터 · 이벤트 마스크 · 실지불 (ADR-0016) ──────────────────────────
+# ── 10성 필터 · 이벤트 마스크 · 실지불 (ADR-0016) ──────────────────────────
 
 
-def test_aggregate_excludes_below_11_star() -> None:
-    # 11성 미만 시도는 통째로 제외(분모·미상·메소 모두). 11성+만 집계.
+def test_aggregate_excludes_below_10_star() -> None:
+    # 10성 미만 시도는 통째로 제외, 10→11(before=10)부터 집계. 경계: 9→10 제외 / 10→11 포함.
     attempts = [
-        _attempt("itemA", 9, 10, "2026-05-01T10:00:00+09:00"),  # before 9 <11 제외
-        _attempt("itemA", 10, 11, "2026-05-01T11:00:00+09:00"),  # before 10 <11 제외
-        _attempt("itemA", 11, 12, "2026-05-01T12:00:00+09:00"),  # 집계
+        _attempt("itemA", 8, 9, "2026-05-01T10:00:00+09:00"),  # before 8 <10 제외
+        _attempt(
+            "itemA", 9, 10, "2026-05-01T11:00:00+09:00"
+        ),  # before 9 <10 제외(9→10)
+        _attempt("itemA", 10, 11, "2026-05-01T12:00:00+09:00"),  # before 10 포함(10→11)
+        _attempt("itemA", 11, 12, "2026-05-01T13:00:00+09:00"),  # 포함
     ]
     summary = aggregate_starforce(attempts, lambda item: 200)
-    assert summary.matched_count == 1  # 11→12 한 건만
-    assert summary.total_count == 1
-    assert summary.expected == pytest.approx(expected_meso(200, 11, 12))
+    assert summary.matched_count == 2  # 10→11, 11→12
+    assert summary.total_count == 2
+    # 시작★=10(필터 후 첫·가장 이른), 최종★=12.
+    assert summary.expected == pytest.approx(expected_meso(200, 10, 12))
 
 
-def test_aggregate_all_below_11_star_is_empty() -> None:
-    # 저성만 강화 → 집계 대상 0(기록없음 분기는 커맨드 계층에서 처리).
+def test_aggregate_all_below_10_star_is_empty() -> None:
+    # 저성만 강화(9→10 포함) → 집계 대상 0(기록없음 분기는 커맨드 계층에서 처리).
     attempts = [
         _attempt("itemA", 0, 1, "2026-05-01T10:00:00+09:00"),
-        _attempt("itemA", 5, 6, "2026-05-01T11:00:00+09:00"),
+        _attempt("itemA", 9, 10, "2026-05-01T11:00:00+09:00"),  # 9→10 도 제외
     ]
     summary = aggregate_starforce(attempts, lambda item: 200)
     assert summary.matched_count == 0 and summary.total_count == 0
@@ -279,13 +283,13 @@ def test_aggregate_all_below_11_star_is_empty() -> None:
     assert summary.luck_score is None
 
 
-def test_aggregate_unmatched_only_includes_11_star_items() -> None:
-    # 11성 미만 미상은 필터로 진입 차단, 11성+ 미상만 unmatched 에 담긴다(시드 보강 신호).
+def test_aggregate_unmatched_only_includes_10_star_items() -> None:
+    # 10성 미만 미상은 필터로 진입 차단, 10성+ 미상만 unmatched 에 담긴다(시드 보강 신호).
     attempts = [
         _attempt(
             "저성미상", 0, 1, "2026-05-01T10:00:00+09:00"
-        ),  # <11 → 미상 제보 안 됨
-        _attempt("고성미상", 15, 16, "2026-05-01T11:00:00+09:00"),  # 11+ 미상 → 제보
+        ),  # <10 → 미상 제보 안 됨
+        _attempt("고성미상", 15, 16, "2026-05-01T11:00:00+09:00"),  # 10+ 미상 → 제보
     ]
     summary = aggregate_starforce(attempts, lambda item: None)
     assert summary.unmatched_items == ("고성미상",)
