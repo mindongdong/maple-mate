@@ -6,10 +6,11 @@
 
 집계는 순수함수 `aggregate_potential`:
   - 사용 큐브/재설정 횟수.
-  - 등업: cube+reset 합쳐 `result == "성공"` 인 레코드를 from-등급별 카운트(레전드리·미상 from 제외).
-    from-등급 = before 잠재옵션 최고 등급(= before_potential_option[0].grade, 배열은 등급 내림차순).
-    ⚠️ "성공"=등급 상승 가정은 G1 미니스파이크 전엔 미검증(potential-handoff.md). 레전드리(종착)
-       from 은 버킷에서 빠지므로 엔드게임 메소 재설정의 동급 재롤은 자연히 등업에서 제외된다.
+  - 등업: cube+reset 합쳐 `result == "성공"` 인 레코드를 **종류별(잠재/에디)** from-등급 카운트
+    (레전드리·미상 from 제외). 종류는 `_kind_of` 로 가르고 from-등급은 그 종류의 before 최고 등급
+    (잠재=before_pot·에디=before_add) — 종류 무시하고 before_pot 만 보면 에디 등업이 잠재로
+    오집계된다(ADR-0015). ⚠️ "성공"=등급 상승 가정은 G1 미니스파이크 전엔 미검증(potential-handoff.md).
+    레전드리(종착) from 은 버킷에서 빠지므로 엔드게임 동급 재롤은 자연히 등업에서 제외된다.
   - 메소: meso_cost(단가표, G2) 주입 시만 합산. 미주입이면 None('사용 메소' 컬럼 숨김, D3).
   - 단일 대상 보조: 큐브종류 분포·등급별 재설정 횟수(잠재/에디).
 """
@@ -21,13 +22,12 @@ from collections import Counter
 from collections.abc import Sequence
 from dataclasses import dataclass
 from datetime import date, datetime, timezone
-from typing import Protocol, TypeVar
+from typing import Protocol
 
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..dependencies import Deps
-from ..registration.realm import Realm
 from .cache import is_cache_fresh
 from .models import HistoryCache
 
@@ -95,6 +95,23 @@ class ResetRecord:
     after_pot_values: tuple[str, ...] = ()
     after_add_values: tuple[str, ...] = ()
     character_name: str = ""  # 계정 전체화 — /비틱만 대표 닉으로 필터
+
+
+# ── 잠재 종류 판정 (단일 출처 — /비틱·/잠재 공유, ADR-0015) ─────────────────
+#
+# 잠재는 잠재능력(pot)/에디셔널 잠재능력(add) 두 종류다. 큐브는 cube_type, 메소 재설정은
+# potential_type 에 종류가 담긴다. 이력류 도메인이 자연 거처라 여기 두고 /비틱이 import 한다.
+
+POTENTIAL_KIND = "잠재능력"
+ADDITIONAL_KIND = "에디셔널 잠재능력"
+
+
+def _kind_of(record: "CubeRecord | ResetRecord") -> str:
+    """레코드가 굴린 잠재 종류. 큐브는 cube_type, 메소 재설정은 potential_type 으로 판정."""
+    label = (
+        record.cube_type if isinstance(record, CubeRecord) else record.potential_type
+    )
+    return ADDITIONAL_KIND if "에디" in label else POTENTIAL_KIND
 
 
 def _grades(options: object) -> tuple[str, ...]:
@@ -168,26 +185,6 @@ def parse_reset_records(records: Sequence[dict]) -> list[ResetRecord]:
             )
         )
     return out
-
-
-# ── realm 필터 (등록 닉맵 — cube/potential 엔 world_name 부재, 결정 6 비대칭) ──
-
-_HasCharacterName = TypeVar("_HasCharacterName", CubeRecord, ResetRecord)
-
-
-def records_in_realm(
-    records: Sequence[_HasCharacterName],
-    realm_by_nick: dict[str, Realm],
-    realm: Realm,
-) -> list[_HasCharacterName]:
-    """character_name 을 등록 닉맵으로 realm 해석해 필터(순수, ADR-0009).
-
-    미상 닉(미등록 챌린저스 부캐·닉 변경 잔류)은 본서버로 폴백 → 챌린저스 모드에서 누락(수용된
-    한계: '미등록 챌린저스 부캐의 잠재 공백', 결정 6). 본서버 모드는 등록된 챌린저스 닉만 배제.
-    """
-    return [
-        r for r in records if realm_by_nick.get(r.character_name, Realm.MAIN) is realm
-    ]
 
 
 # ── 페치 + 캐시 (type 둘: cube / potential_reset) ──────────────────────────
@@ -309,7 +306,9 @@ class MesoCostModel(Protocol):
 class PotentialSummary:
     """대상 1명의 잠재 집계 결과.
 
-    tierups = from-등급별 등업 횟수(레어/에픽/유니크, 0건 제외, 등급 오름차순).
+    tierups_pot/tierups_add = 종류별(잠재/에디) from-등급별 등업 횟수(레어/에픽/유니크,
+      0건 제외, 등급 오름차순). 종류마다 자기 before 배열(잠재=before_pot, 에디=before_add)에서
+      from-등급을 뽑는다 — 이전엔 항상 before_pot 만 봐 에디 등업이 잠재로 오집계됐다(ADR-0015).
     메소(total/appraisal/reset) = cost 모델 주입 시만 산출(G2). 미주입이면 None('사용 메소' 숨김).
       total_meso = appraisal_meso(큐브 감정비 합) + reset_meso(메소 재설정비 합).
     by_cube_type/by_grade = 단일 대상 보조 노출용(다인 비교 시 미사용).
@@ -317,8 +316,8 @@ class PotentialSummary:
 
     cube_count: int
     reset_count: int
-    tierups: tuple[tuple[str, int], ...]
-    tierup_total: int
+    tierups_pot: tuple[tuple[str, int], ...]
+    tierups_add: tuple[tuple[str, int], ...]
     total_meso: int | None
     appraisal_meso: int | None  # 큐브 감정비 합
     reset_meso: int | None  # 메소 잠재/에디 재설정비 합
@@ -330,6 +329,11 @@ class PotentialSummary:
         """잠재 재설정 전체 횟수 = 큐브 사용 + 메소 직접 재설정(둘 다 재설정 행위라 합산)."""
         return self.cube_count + self.reset_count
 
+    @property
+    def tierup_total(self) -> int:
+        """잠재+에디 등업 총 횟수."""
+        return sum(c for _, c in self.tierups_pot) + sum(c for _, c in self.tierups_add)
+
 
 def _from_grade(before_pot: tuple[str, ...]) -> str | None:
     """등업 전 등급(from) = before 잠재옵션의 최고 등급. 알 수 없으면 None."""
@@ -339,15 +343,16 @@ def _from_grade(before_pot: tuple[str, ...]) -> str | None:
     return max(valid, key=lambda g: GRADE_ORDER[g])
 
 
-def _tierup_from(result: str, before_pot: tuple[str, ...]) -> str | None:
+def _tierup_from(result: str, before: tuple[str, ...]) -> str | None:
     """등업으로 카운트할 from-등급(레어/에픽/유니크). 등업 아님/레전드리 from 이면 None.
 
-    'result == 성공' 가정(G1 미검증). 레전드리(종착) from 은 등업이 불가하므로 자연 제외 —
-    엔드게임 메소 재설정의 동급(레전드리) 재롤 '성공' 은 등업에 포함되지 않는다.
+    before = 해당 종류의 before 등급 배열(잠재=before_pot, 에디=before_add) — 호출자가 종류에
+    맞는 배열을 넘긴다(ADR-0015 종류 분리). 'result == 성공' 가정(G1 미검증). 레전드리(종착)
+    from 은 등업이 불가하므로 자연 제외 — 엔드게임 동급 재롤 '성공' 은 등업에 포함되지 않는다.
     """
     if result != "성공":
         return None
-    g = _from_grade(before_pot)
+    g = _from_grade(before)
     return g if g in TIERUP_FROM_GRADES else None
 
 
@@ -367,14 +372,22 @@ def aggregate_potential(
     cube_count = len(cubes)
     reset_count = len(resets)
 
-    # 등업: cube+reset 합쳐 성공·등급상승만 from-등급별 카운트.
-    bucket: Counter[str] = Counter()
+    # 등업: cube+reset 합쳐 성공·등급상승만 종류별(잠재/에디) from-등급 카운트.
+    # 종류는 _kind_of 로 가르고, 잠재는 before_pot·에디는 before_add 에서 from 을 뽑는다
+    # (이전엔 항상 before_pot 만 봐 에디 등업이 잠재로 샜다, ADR-0015).
+    bucket_pot: Counter[str] = Counter()
+    bucket_add: Counter[str] = Counter()
     for rec in (*cubes, *resets):
-        g = _tierup_from(rec.result, rec.before_pot)
-        if g is not None:
-            bucket[g] += 1
-    tierups = tuple((g, bucket[g]) for g in TIERUP_FROM_GRADES if bucket[g] > 0)
-    tierup_total = sum(c for _, c in tierups)
+        if _kind_of(rec) == ADDITIONAL_KIND:
+            g = _tierup_from(rec.result, rec.before_add)
+            if g is not None:
+                bucket_add[g] += 1
+        else:
+            g = _tierup_from(rec.result, rec.before_pot)
+            if g is not None:
+                bucket_pot[g] += 1
+    tierups_pot = tuple((g, bucket_pot[g]) for g in TIERUP_FROM_GRADES if bucket_pot[g])
+    tierups_add = tuple((g, bucket_add[g]) for g in TIERUP_FROM_GRADES if bucket_add[g])
 
     # 메소(G2): cost 모델 주입 시만. 큐브=감정비(레벨), 재설정=단가(레벨 구간×등급, 잠재/에디).
     total_meso: int | None
@@ -414,8 +427,8 @@ def aggregate_potential(
     return PotentialSummary(
         cube_count=cube_count,
         reset_count=reset_count,
-        tierups=tierups,
-        tierup_total=tierup_total,
+        tierups_pot=tierups_pot,
+        tierups_add=tierups_add,
         total_meso=total_meso,
         appraisal_meso=appraisal_meso,
         reset_meso=reset_meso,

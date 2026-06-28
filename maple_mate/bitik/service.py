@@ -18,10 +18,13 @@ from datetime import datetime
 
 from ..history.expected_cost import actual_meso, expected_meso
 from ..history.potential_service import (
+    ADDITIONAL_KIND,
     GRADE_ORDER,
+    POTENTIAL_KIND,
     CubeRecord,
     MesoCostModel,
     ResetRecord,
+    _kind_of,
 )
 
 # ── 스타포스 ────────────────────────────────────────────────────────────────
@@ -121,9 +124,9 @@ def group_starforce(
 
 
 # ── 잠재 ───────────────────────────────────────────────────────────────────
-
-POTENTIAL_KIND = "잠재능력"
-ADDITIONAL_KIND = "에디셔널 잠재능력"
+#
+# 종류 판정(_kind_of)·종류 상수(POTENTIAL_KIND/ADDITIONAL_KIND)는 potential_service 가 단일
+# 출처(ADR-0015) — /잠재 등업 분리와 공유. 여기선 import 해 쓴다(중복 제거, 동작 불변).
 
 
 @dataclass(frozen=True)
@@ -156,14 +159,6 @@ def _top_grade(grades: tuple[str, ...]) -> str:
     if not valid:
         return ""
     return max(valid, key=lambda g: GRADE_ORDER[g])
-
-
-def _kind_of(record: CubeRecord | ResetRecord) -> str:
-    """레코드가 굴린 잠재 종류. 큐브는 cube_type, 메소 재설정은 potential_type 으로 판정."""
-    label = (
-        record.cube_type if isinstance(record, CubeRecord) else record.potential_type
-    )
-    return ADDITIONAL_KIND if "에디" in label else POTENTIAL_KIND
 
 
 def _section(kind: str, records: list[CubeRecord | ResetRecord]) -> PotentialSection:
