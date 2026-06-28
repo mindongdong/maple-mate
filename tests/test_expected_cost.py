@@ -10,7 +10,9 @@ from __future__ import annotations
 import pytest
 
 from maple_mate.history.expected_cost import (
+    ClimbItem,
     actual_meso,
+    actual_paid_meso,
     expected_meso,
     meso_luck_percentile,
     net_meso,
@@ -88,10 +90,10 @@ def test_meso_luck_none_when_no_items() -> None:
 
 
 def test_meso_luck_mc_mean_approximates_markov_expected() -> None:
-    # 시뮬 평균이 마르코프 기대값과 ±5% 이내(엔진 일관성). 0→18(파괴 구간 포함).
+    # 시뮬 평균이 마르코프 기대값과 ±5% 이내(엔진 일관성). 0→18(파괴 구간 포함). 무이벤트 마스크.
     from maple_mate.history.expected_cost import _item_meso_samples
 
-    samples = _item_meso_samples(200, 0, 18, 2000)
+    samples = _item_meso_samples(200, 0, 18, frozenset(), frozenset(), 2000)
     mc_mean = sum(samples) / len(samples)
     assert mc_mean == pytest.approx(expected_meso(200, 0, 18), rel=0.05)
 
@@ -136,3 +138,66 @@ def test_meso_luck_null_climb_with_spend_is_worst() -> None:
 
 def test_meso_luck_null_climb_no_spend_is_neutral() -> None:
     assert meso_luck_percentile([(200, 17, 17, 0)]) == 50.0
+
+
+# ── 이벤트 보정 (ADR-0016) ─────────────────────────────────────────────────
+
+
+def test_no_event_masks_match_legacy_values() -> None:
+    # 빈 마스크 = 정가·무이벤트 회귀: 기대값/분포 모두 현행 값과 동일.
+    assert expected_meso(200, 15, 18, frozenset(), frozenset()) == expected_meso(
+        200, 15, 18
+    )
+    assert meso_luck_percentile(
+        [ClimbItem(200, 0, 18, 5_000_000_000)]
+    ) == meso_luck_percentile([(200, 0, 18, 5_000_000_000)])
+
+
+def test_destroy_reduction_lowers_expected_in_destroy_region() -> None:
+    # 파괴감소(d↓ → 재등반↓)는 파괴 구간 기대값을 낮춘다.
+    destroy = frozenset(range(15, 22))
+    assert expected_meso(200, 15, 21, destroy, frozenset()) < expected_meso(200, 15, 21)
+
+
+def test_destroy_reduction_below_destroy_floor_has_no_effect() -> None:
+    # 파괴 없는 성수(d=0)는 파괴감소 마스크가 무영향(11→13 구간).
+    destroy = frozenset({11, 12})
+    assert expected_meso(200, 11, 13, destroy, frozenset()) == expected_meso(
+        200, 11, 13
+    )
+
+
+def test_event_adjustment_pulls_inflated_luck_toward_median() -> None:
+    # 핵심: 파괴감소 이벤트 중 강화한 실지불을 *무이벤트* 분포로 재면 과대평가(운 좋아 보임).
+    # 같은 actual 을 *이벤트 조건* 분포로 재면 백분위가 낮아진다(50%쪽 회귀). 분포가 더 싸지므로
+    # 고정 actual 대비 '더 비싼 표본 비율'이 줄어 L 가 작아진다(수학적으로 naive ≥ adjusted).
+    destroy = frozenset(range(15, 22))
+    actual = int(expected_meso(200, 15, 21, destroy, frozenset()))
+    naive = meso_luck_percentile([ClimbItem(200, 15, 21, actual)])
+    adjusted = meso_luck_percentile(
+        [ClimbItem(200, 15, 21, actual, destroy, frozenset())]
+    )
+    assert naive is not None and adjusted is not None
+    assert naive > adjusted
+
+
+def test_uniform_discount_is_percentile_neutral() -> None:
+    # 할인을 actual·분포 양쪽에 동일 적용(모든 성수)하면 백분위는 불변 — 0.7 균일 스케일은
+    # 순서를 보존한다(손익도 0.7배일 뿐 부호·정렬 동일 = 할인 중립, CONTEXT §165).
+    all_stars = frozenset(range(30))
+    actual = int(expected_meso(200, 0, 18) * 0.8)
+    base = meso_luck_percentile([ClimbItem(200, 0, 18, actual)])
+    discounted = meso_luck_percentile(
+        [ClimbItem(200, 0, 18, actual * 0.7, frozenset(), all_stars)]
+    )
+    assert base is not None and discounted is not None
+    assert discounted == pytest.approx(base, abs=0.5)
+
+
+def test_actual_paid_meso_applies_discount_per_attempt() -> None:
+    # 실지불 = 시도별 실제 할인 플래그. 할인 시도는 0.7배, 정가 시도는 그대로.
+    cost_11, cost_12 = 20_891_500, 38_048_200  # cost(200,11)·cost(200,12)
+    full = actual_paid_meso(200, [(11, False), (12, False)])
+    assert full == float(actual_meso(200, [11, 12]))
+    half_disc = actual_paid_meso(200, [(11, True), (12, False)])
+    assert half_disc == pytest.approx(cost_11 * 0.7 + cost_12)

@@ -96,3 +96,59 @@ def reachable_star(level: int) -> int:
     if level <= 137:
         return 20
     return 30
+
+
+# ── 이벤트 보정 (ADR-0016) ──────────────────────────────────────────────────
+# 강화 당시 달력 이벤트를 기대값·분포·비용에 중립화해 "같은 조건 대비 운"만 남긴다.
+# 데이터의 파괴감소·할인은 항상 30% (docs/api/history.md 실측). 적용 성수는 호출자가 결정.
+
+DESTROY_REDUCE_RATE = 0.30  # 파괴확률 감소 이벤트율 (destroy_decrease_rate 실측 = "30")
+COST_DISCOUNT_RATE = 0.30  # 강화비용 할인 이벤트율 (cost_discount_rate 실측 = "30")
+
+
+def apply_destroy_reduction(
+    prob_row: tuple[float, float, float], rate: float = DESTROY_REDUCE_RATE
+) -> tuple[float, float, float]:
+    """파괴확률 감소 이벤트 적용 1행. d'=d×(1−rate), 줄어든 분(rate·d)은 유지로, 성공 불변.
+
+    공식 메커니즘(ADR-0016 §3-1): p'+m'+d' = p+m+d = 1 보존. d=0(파괴 없는 성수)은 무영향.
+    """
+    p, m, d = prob_row
+    reduced = d * rate
+    return (p, m + reduced, d - reduced)
+
+
+def discounted_cost(level: int, star: int, rate: float = COST_DISCOUNT_RATE) -> float:
+    """강화비용 할인 이벤트 적용 비용(float). 정가 × (1−rate). 집계 내부 float 유지·표시에서 정수화."""
+    return cost(level, star) * (1.0 - rate)
+
+
+def parse_event_range(raw: str | None) -> frozenset[int]:
+    """이벤트 적용 성수 범위 문자열 → 성수 집합(순수). 실측 두 포맷 모두 처리:
+
+    - 범위형 ``"0~29"`` → {0,1,...,29}
+    - 목록형 ``"15,16,17,18,19,20,21"`` → {15,...,21}
+    None·빈값·파싱 불가 토큰은 조용히 제외(공집합/부분집합) — 미상은 이벤트 미적용으로 폴백.
+    """
+    if not raw:
+        return frozenset()
+    text = raw.strip()
+    if "~" in text:
+        lo_s, hi_s = text.split("~", 1)
+        try:
+            lo, hi = int(lo_s.strip()), int(hi_s.strip())
+        except ValueError:
+            return frozenset()
+        if lo > hi:
+            lo, hi = hi, lo
+        return frozenset(range(lo, hi + 1))
+    stars: set[int] = set()
+    for part in text.split(","):
+        part = part.strip()
+        if not part:
+            continue
+        try:
+            stars.add(int(part))
+        except ValueError:
+            continue
+    return frozenset(stars)
