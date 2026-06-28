@@ -80,7 +80,7 @@ Render에서 1번 실행되고, 사용자는 **OAuth2 초대링크 클릭**으�
   *→ `FERNET_MASTER_KEY` 분실 시 등록된 개인키 전부 복호화 불가 — 안전 보관 필수*
 - 배포 파이프라인에 `uv run alembic upgrade head`
 - 헬스체크 경로 `/health`([api/core.py:23-25](../maple_mate/api/core.py#L23-L25)) · **인스턴스 1개**(오토스케일 off)
-- Discord 개발자 포털: **Public Bot** + 초대링크 스코프 `bot`+`applications.commands`(권한 최소: Send Messages·Embed Links). 특권 인텐트 불필요([bot/core.py:23](../maple_mate/bot/core.py#L23))
+- Discord 개발자 포털: **Public Bot** + 초대링크 스코프 `bot`+`applications.commands`(권한 최소: Send Messages·Embed Links). ⚠️ **Server Members Intent 토글 필수**(`/스타포스`·`/잠재` 서버 표시명 해석, ADR-0015 — 미설정 시 표시명 미해석·등록자 제외). [bot/core.py](../maple_mate/bot/core.py) `intents.members=True` 와 짝.
 
 **라이브 검증 (work-plan 잔여)**
 

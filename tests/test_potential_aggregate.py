@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 from maple_mate.history.potential_service import (
+    ADDITIONAL_KIND,
+    POTENTIAL_KIND,
     CubeRecord,
     ResetRecord,
+    _kind_of,
     aggregate_potential,
     parse_cube_records,
     parse_reset_records,
@@ -18,6 +21,7 @@ def _cube(
     cube_type: str = "수상한 큐브",
     result: str = "실패",
     before: tuple[str, ...] = ("레전드리", "유니크", "유니크"),
+    before_add: tuple[str, ...] = (),
     pot_grade: str = "레전드리",
     add_grade: str = "유니크",
     level: int = 200,
@@ -33,8 +37,8 @@ def _cube(
         add_grade=add_grade,
         before_pot=before,
         after_pot=before,
-        before_add=(),
-        after_add=(),
+        before_add=before_add,
+        after_add=before_add,
         date_create=WHEN,
     )
 
@@ -44,6 +48,7 @@ def _reset(
     potential_type: str = "잠재능력",
     result: str = "실패",
     before: tuple[str, ...] = ("유니크",),
+    before_add: tuple[str, ...] = (),
     pot_grade: str = "레전드리",
     add_grade: str = "유니크",
     level: int = 200,
@@ -59,8 +64,8 @@ def _reset(
         add_grade=add_grade,
         before_pot=before,
         after_pot=before,
-        before_add=(),
-        after_add=(),
+        before_add=before_add,
+        after_add=before_add,
         date_create=WHEN,
     )
 
@@ -115,28 +120,52 @@ def test_counts_cube_and_reset() -> None:
     assert summary.total_resets == 3
 
 
-# ── 집계: 등업 버킷(성공·from-등급·레전드리 제외·0건 제외) ────────────────────
+# ── 종류 판정 (_kind_of 단일 출처, ADR-0015) ──────────────────────────────
+
+
+def test_kind_of_cube_by_cube_type() -> None:
+    assert _kind_of(_cube(cube_type="수상한 큐브")) == POTENTIAL_KIND
+    assert _kind_of(_cube(cube_type="에디셔널 큐브")) == ADDITIONAL_KIND
+
+
+def test_kind_of_reset_by_potential_type() -> None:
+    assert _kind_of(_reset(potential_type="잠재능력")) == POTENTIAL_KIND
+    assert _kind_of(_reset(potential_type="에디셔널 잠재능력")) == ADDITIONAL_KIND
+
+
+# ── 집계: 등업 버킷(성공·from-등급·레전드리 제외·0건 제외·잠재/에디 분리) ──────
 
 
 def test_tierup_success_bucketed_by_from_grade() -> None:
-    # before 최고=에픽 → 에픽에서 등업.
+    # before 최고=에픽 → 에픽에서 등업. 잠재 큐브라 잠재 버킷.
     summary = aggregate_potential([_cube(result="성공", before=("에픽", "레어"))], [])
-    assert summary.tierups == (("에픽", 1),)
+    assert summary.tierups_pot == (("에픽", 1),)
+    assert summary.tierups_add == ()
     assert summary.tierup_total == 1
 
 
 def test_tierup_only_counts_success() -> None:
     summary = aggregate_potential([_cube(result="실패", before=("에픽",))], [])
-    assert summary.tierups == ()
+    assert summary.tierups_pot == ()
+    assert summary.tierups_add == ()
     assert summary.tierup_total == 0
 
 
 def test_tierup_excludes_legendary_from() -> None:
-    # 레전드리(종착)는 from 이 될 수 없음 → 성공이어도 등업에서 제외(엔드게임 동급 재롤).
+    # 레전드리(종착)는 from 이 될 수 없음 → 성공이어도 등업에서 제외(양쪽 버킷).
     summary = aggregate_potential(
-        [_cube(result="성공", before=("레전드리", "유니크"))], []
+        [
+            _cube(result="성공", before=("레전드리", "유니크")),
+            _cube(
+                cube_type="에디셔널 큐브",
+                result="성공",
+                before_add=("레전드리", "유니크"),
+            ),
+        ],
+        [],
     )
-    assert summary.tierups == ()
+    assert summary.tierups_pot == ()
+    assert summary.tierups_add == ()
 
 
 def test_tierup_orders_and_drops_zero_buckets() -> None:
@@ -147,7 +176,7 @@ def test_tierup_orders_and_drops_zero_buckets() -> None:
     ]
     summary = aggregate_potential(cubes, [])
     # 등급 오름차순(레어→유니크), 에픽(0건)은 생략.
-    assert summary.tierups == (("레어", 1), ("유니크", 2))
+    assert summary.tierups_pot == (("레어", 1), ("유니크", 2))
     assert summary.tierup_total == 3
 
 
@@ -156,7 +185,7 @@ def test_tierup_combines_cube_and_reset() -> None:
         [_cube(result="성공", before=("에픽",))],
         [_reset(result="성공", before=("에픽",))],
     )
-    assert summary.tierups == (("에픽", 2),)
+    assert summary.tierups_pot == (("에픽", 2),)
 
 
 def test_from_grade_uses_highest_before_grade_regardless_of_order() -> None:
@@ -164,7 +193,52 @@ def test_from_grade_uses_highest_before_grade_regardless_of_order() -> None:
     summary = aggregate_potential(
         [_cube(result="성공", before=("레어", "유니크", "에픽"))], []
     )
-    assert summary.tierups == (("유니크", 1),)
+    assert summary.tierups_pot == (("유니크", 1),)
+
+
+def test_additional_cube_tierup_goes_to_add_bucket_not_pot() -> None:
+    # 에디 큐브 성공 → 에디 버킷(before_add 의 from). 잠재 버킷은 불변(이전 버그=잠재로 샘).
+    summary = aggregate_potential(
+        [
+            _cube(
+                cube_type="에디셔널 큐브",
+                result="성공",
+                before=("레전드리",),  # 잠재는 레전드리(종착) — 잠재 버킷에 새면 안 됨
+                before_add=("에픽",),
+            )
+        ],
+        [],
+    )
+    assert summary.tierups_add == (("에픽", 1),)
+    assert summary.tierups_pot == ()
+
+
+def test_potential_reset_tierup_goes_to_pot_bucket() -> None:
+    # 잠재 메소 재설정 성공 → 잠재 버킷(before_pot 의 from).
+    summary = aggregate_potential(
+        [], [_reset(potential_type="잠재능력", result="성공", before=("유니크",))]
+    )
+    assert summary.tierups_pot == (("유니크", 1),)
+    assert summary.tierups_add == ()
+
+
+def test_tierup_mixed_input_splits_into_two_buckets() -> None:
+    # 잠재 큐브(에픽 등업) + 에디 큐브(레어 등업) 혼합 → 각 버킷에 동시 집계.
+    summary = aggregate_potential(
+        [
+            _cube(result="성공", before=("에픽",)),
+            _cube(
+                cube_type="에디셔널 큐브",
+                result="성공",
+                before=("레전드리",),
+                before_add=("레어",),
+            ),
+        ],
+        [],
+    )
+    assert summary.tierups_pot == (("에픽", 1),)
+    assert summary.tierups_add == (("레어", 1),)
+    assert summary.tierup_total == 2
 
 
 # ── 집계: 메소(G2 단가표) ──────────────────────────────────────────────────
@@ -250,6 +324,7 @@ def test_empty_inputs_produce_zero_summary() -> None:
     summary = aggregate_potential([], [])
     assert summary.cube_count == 0
     assert summary.reset_count == 0
-    assert summary.tierups == ()
+    assert summary.tierups_pot == ()
+    assert summary.tierups_add == ()
     assert summary.by_cube_type == ()
     assert summary.by_grade == ()

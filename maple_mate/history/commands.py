@@ -15,12 +15,10 @@ from discord import app_commands
 
 from ..bot import comparison, cooldowns, table_image
 from ..bot.embeds import KST, append_source, defer, make_embed
-from ..bot.modes import MODE_CHOICES, MODE_DESCRIBE, parse_mode
 from ..character.service import format_eok
 from ..dependencies import Deps
 from ..error_log import service as error_log
 from ..nexon.errors import NexonAPIError, to_error_log_type
-from ..registration.realm import Realm, realm_title
 from ..registration.service import Target, TargetOutcome, classify_target_error
 from .equipment_level import (
     fetch_equipped_levels,
@@ -33,7 +31,6 @@ from .service import (
     HistoryTarget,
     StarforceSummary,
     aggregate_starforce,
-    attempts_in_realm,
     fetch_starforce_records,
     get_history_targets,
     resolve_period,
@@ -56,14 +53,34 @@ _PERIOD_CHOICES = [
 ]
 
 
-def _to_spec_target(t: HistoryTarget) -> Target:
-    """범례·부분성공 행용 스펙류 Target 으로 변환(키 제외)."""
+def _to_spec_target(t: HistoryTarget, display_name: str) -> Target:
+    """범례·부분성공 행용 스펙류 Target 으로 변환(닉=디스코드 서버 표시명, 키 제외, ADR-0015)."""
     return Target(
         guild_id=t.guild_id,
         discord_user_id=t.discord_user_id,
-        nickname=t.nickname,
+        nickname=display_name,
         ocid=t.ocid,
     )
+
+
+def resolve_member_displays(
+    guild: discord.Guild | None, targets: list[HistoryTarget]
+) -> tuple[dict[int, str], list[HistoryTarget]]:
+    """등록자 → {discord_user_id: 서버 표시명} 맵 + 현재 서버 멤버만 남긴 대상 목록(ADR-0015 결정 3).
+
+    이력류 표시는 캐릭터 닉이 아니라 디스코드 유저(계정)다 — `get_member`(members 인텐트 필요)로
+    서버 표시명을 해석한다. 서버를 떠난 등록자(get_member=None, 길드 미캐시 포함)는 표시명이
+    없어 결과에서 제외한다(표·범례·실패 모두 미표시). `/스타포스`·`/잠재` 가 공유한다.
+    """
+    display_by_uid: dict[int, str] = {}
+    present: list[HistoryTarget] = []
+    for t in targets:
+        member = guild.get_member(t.discord_user_id) if guild is not None else None
+        if member is None:
+            continue
+        display_by_uid[t.discord_user_id] = member.display_name
+        present.append(t)
+    return display_by_uid, present
 
 
 def _parse_date(raw: str | None) -> tuple[date | None, bool]:
@@ -117,14 +134,13 @@ async def _process_target(
     target: HistoryTarget,
     dates: list[date],
     learned: dict[str, int],
-    realm: Realm = Realm.MAIN,
+    display_name: str,
 ) -> tuple[Target, StarforceSummary] | TargetOutcome:
     """대상 1명 처리. 성공 시 (Target, summary), 실패 시 TargetOutcome(error).
 
-    realm 으로 레코드 world_name 을 필터한다(결정 6 — 정밀 분리). 본서버 모드는 챌린저스 강화
-    제외, 챌린저스 모드는 챌린저스 강화만. 필터 후 비면 '기록 없음'(realm 별 기록 없음).
+    개인 키가 반환하는 계정 전체(본서버+챌린저스)를 한 값으로 합산한다(realm 무필터, ADR-0015).
     """
-    spec_target = _to_spec_target(target)
+    spec_target = _to_spec_target(target, display_name)
     try:
         attempts = await fetch_starforce_records(deps, target, dates)
     except NexonAPIError as exc:
@@ -141,12 +157,7 @@ async def _process_target(
             )
         return TargetOutcome(target=spec_target, error=classify_target_error(exc))
 
-    attempts = attempts_in_realm(
-        attempts, realm
-    )  # 레코드 world_name realm 필터(결정 6)
-    if (
-        not attempts
-    ):  # 키는 있으나 (이 realm) 기간 내 강화 없음 = 기록 없음(키 미등록과 구분)
+    if not attempts:  # 키는 있으나 기간 내 강화 없음 = 기록 없음(키 미등록과 구분)
         return TargetOutcome(target=spec_target, error="기간 내 강화 기록이 없어요.")
 
     # (A) 현재 장착 레벨 — best effort. 실패해도 학습/시드로 매칭 시도.
@@ -189,9 +200,8 @@ def _build_table(
     results: list[tuple[Target, StarforceSummary]],
     outcomes: list[TargetOutcome],
     footer: str,
-    realm: Realm = Realm.MAIN,
 ) -> tuple[discord.Embed, discord.File]:
-    """운빨수치 내림차순(높을수록 운 좋음) 표. 최상위 운빨 행 강조. 챌린저스는 🏆 제목."""
+    """운빨수치 내림차순(높을수록 운 좋음) 표. 최상위 운빨 행 강조."""
     ranked = sorted(
         results, key=lambda rs: (rs[1].luck_score is None, -(rs[1].luck_score or 0.0))
     )
@@ -200,7 +210,7 @@ def _build_table(
 
     headers = [
         "순위",
-        "대상",  # 계정 전체 합산 — 대표 닉으로 표기(부캐 포함, 멀티 캐릭터 작업지시서 Phase 4)
+        "대상",  # 디스코드 유저(서버 표시명) — 이력은 계정 전체 합산이라 캐릭터 닉을 안 쓴다(ADR-0015)
         "운빨수치",
         "총 사용 메소",
         "기댓값 대비 손익",
@@ -220,7 +230,7 @@ def _build_table(
             ]
         )
     embed, file = comparison.table_image_message(
-        realm_title("스타포스 운빨 비교", realm),
+        "스타포스 운빨 비교",
         headers,
         rows,
         [t for t, _ in ranked],
@@ -250,7 +260,6 @@ async def handle_starforce(
     preset: str,
     start_raw: str | None,
     end_raw: str | None,
-    realm: Realm = Realm.MAIN,
 ) -> None:
     await defer(interaction)
     if interaction.guild_id is None:
@@ -271,6 +280,9 @@ async def handle_starforce(
     targets = await get_history_targets(
         deps.session_factory, interaction.guild_id, user_ids
     )
+
+    # 표시명 해석(디스코드 서버 표시명) — 서버 이탈(get_member=None) 등록자는 제외(ADR-0015 결정 3).
+    display_by_uid, targets = resolve_member_displays(interaction.guild, targets)
 
     # 지정했지만 미등록인 멤버 → '미등록' 부분성공 행.
     missing: list[TargetOutcome] = []
@@ -294,7 +306,7 @@ async def handle_starforce(
     keyed = [t for t in targets if t.api_key_encrypted is not None]
     no_key = [
         TargetOutcome(
-            target=_to_spec_target(t),
+            target=_to_spec_target(t, display_by_uid[t.discord_user_id]),
             error="개인 키 미등록이라 이력을 볼 수 없어요. `/키등록`으로 키를 추가해 주세요.",
         )
         for t in targets
@@ -325,7 +337,9 @@ async def handle_starforce(
     results: list[tuple[Target, StarforceSummary]] = []
     failures: list[TargetOutcome] = []
     for target in keyed:
-        processed = await _process_target(deps, target, dates, learned, realm)
+        processed = await _process_target(
+            deps, target, dates, learned, display_by_uid[target.discord_user_id]
+        )
         if isinstance(processed, TargetOutcome):
             failures.append(processed)
         else:
@@ -337,7 +351,7 @@ async def handle_starforce(
     if not results:
         await interaction.followup.send(
             embed=comparison.all_failed_embed(
-                realm_title("스타포스 운지수 비교", realm), outcomes, footer=footer
+                "스타포스 운지수 비교", outcomes, footer=footer
             )
         )
         return
@@ -345,7 +359,7 @@ async def handle_starforce(
     # 데이터 임베드(성공 표)에만 넥슨 출처표시 — 전체실패 에러 임베드(위)는 결과데이터 아님.
     # 표 PNG 렌더(CPU)는 워커 스레드로 — 이벤트루프 비차단(D6).
     embed, file = await asyncio.to_thread(
-        _build_table, results, outcomes, append_source(footer), realm
+        _build_table, results, outcomes, append_source(footer)
     )
     await interaction.followup.send(embed=embed, file=file)
 
@@ -357,7 +371,7 @@ def setup(bot: discord.Client) -> None:
         name="스타포스",
         description="스타포스 운지수·손익메소를 비교합니다 (개인 키 등록자 대상, 대상 미지정 시 서버 전체).",
     )
-    @app_commands.choices(period=_PERIOD_CHOICES, mode=MODE_CHOICES)
+    @app_commands.choices(period=_PERIOD_CHOICES)
     @app_commands.rename(
         period="기간",
         start="시작일",
@@ -367,7 +381,6 @@ def setup(bot: discord.Client) -> None:
         member3="대상3",
         member4="대상4",
         member5="대상5",
-        mode="모드",
     )
     @app_commands.describe(
         period="조회 기간 프리셋 (기본 최근7일, 시작/종료일 지정 시 무시)",
@@ -378,7 +391,6 @@ def setup(bot: discord.Client) -> None:
         member3="추가 비교 대상",
         member4="추가 비교 대상",
         member5="추가 비교 대상",
-        mode=MODE_DESCRIBE,
     )
     @cooldowns.history_cooldown()
     async def starforce_command(
@@ -391,12 +403,9 @@ def setup(bot: discord.Client) -> None:
         member3: discord.Member | None = None,
         member4: discord.Member | None = None,
         member5: discord.Member | None = None,
-        mode: app_commands.Choice[str] | None = None,
     ) -> None:
         members = [
             m for m in (member1, member2, member3, member4, member5) if m is not None
         ]
         preset = period.value if period is not None else DEFAULT_PRESET
-        await handle_starforce(
-            deps, interaction, members, preset, start, end, parse_mode(mode)
-        )
+        await handle_starforce(deps, interaction, members, preset, start, end)

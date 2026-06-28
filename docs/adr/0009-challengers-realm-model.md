@@ -1,6 +1,6 @@
 # ADR-0009 — 챌린저스 realm 모델: `world_name` 접두 판정 + 명령별 모드 파라미터 + 이력류 분리 비대칭
 
-- **상태:** 채택 (Accepted)
+- **상태:** 채택 (Accepted) — ⚠️ [ADR-0015](0015-history-account-identity-display.md)가 **`/스타포스`·`/잠재`에 한해 결정 2(모드 파라미터)·4(이력류 realm 분리)를 되돌림**(계정 전체=본+챌 합산, realm 무관). 나머지 명령(`/스펙`·`/아이템`·`/비틱`·`/경험치`)과 리더보드 realm 분리는 유효.
 - **일자:** 2026-06-19
 - **관련 문서:** [challengers-mode-work-order.md](../challengers-mode-work-order.md)(그릴링 10결정·빌드 6단계·realm 처리표), [CONTEXT.md](../../CONTEXT.md)(realm·모드 용어), [ADR-0005](0005-exp-leaderboard-data-source.md)(경험치 소스 = `ranking/overall`), [ADR-0006](0006-multi-character-data-model.md)(멀티 캐릭터·대표 포인터·**exp_snapshot PK 불변** — 본 ADR이 일부 되돌림), [ADR-0007](0007-history-account-wide.md)(이력류 계정 전체화)
 - **이력:** 챌린저스 서버 모드 그릴링(2026-06-19) 결정 1~10. PR #(채번 예정). fanout ADR-0008 이 미머지 브랜치를 점유해 0009 채번.
@@ -34,7 +34,8 @@
 ### 2. 모드 = 명령별 무상태 `모드` 파라미터 (본서버 기본 / 챌린저스)
 
 6개 명령(`/스펙`·`/아이템`·`/스타포스`·`/잠재`·`/비틱`·`/경험치`)에 `모드` 파라미터를 단다
-([bot/modes.py](../../maple_mate/bot/modes.py), choice value = `Realm.value`). 공개 게시 봇에서
+([bot/modes.py](../../maple_mate/bot/modes.py), choice value = `Realm.value`).
+> ⚠️ **개정([ADR-0015](0015-history-account-identity-display.md)):** `/스타포스`·`/잠재`는 계정 전체(본+챌 합산)로 정렬되며 **모드 파라미터를 제거**했다 — 현재 모드 명령은 4개(`/스펙`·`/아이템`·`/비틱`·`/경험치`). 공개 게시 봇에서
 숨은 토글 사고를 피하려 **무상태**(미지정=본서버). 쿨다운은 `(유저, 명령)` 공유(모드 미반영).
 `/유니온` 은 **모드 미부착·코드 무변경**(본서버 전용 — 챌린저스 union 은 어차피 null).
 
@@ -54,6 +55,8 @@
 | `/스타포스` | **레코드 `world_name`** 정밀 필터 | 레코드에 `world_name` 존재 → 미등록 챌린저스 부캐 강화도 정확히 분리 |
 | `/잠재` | **등록 `{닉네임→realm}` 맵** 필터 | cube/potential 레코드에 `world_name` **부재** → 등록 닉맵으로 추정, 미상 닉→본서버 |
 | `/비틱` | **챌린저스 대표 닉** 교체 | 대표 기준 유지(ADR-0007 결정 12) — 챌린저스 모드면 챌린저스 대표로 닉 필터·ocid 아이콘 |
+
+> ⚠️ **개정([ADR-0015](0015-history-account-identity-display.md)):** `/스타포스`·`/잠재` 행은 더 이상 유효하지 않다 — 두 명령은 realm 무관(본+챌 합산)으로 바뀌어 위 표는 **`/비틱` 한 줄만 유효**(대표 닉 기준 유지). 아래 "미등록 챌린저스 부캐의 잠재 공백" 한계도 `/잠재` realm 분리가 사라지며 해소(대신 챌린저스 잠재가 본서버와 합산됨).
 
 수용된 한계: **미등록 챌린저스 부캐의 잠재 공백** — cube/potential 에 `world_name` 이 없어 등록 안
 한 챌린저스 부캐의 잠재는 본서버로 떨어질 수 있다. `/스타포스` 는 `world_name` 으로 정확하고,
