@@ -105,28 +105,22 @@ def _format_luck(summary: StarforceSummary) -> str:
     """행운 백분위 → '상위 X%' (L 높을수록 = 상위 X 작을수록 운 좋음). 시도 없으면 '—'.
 
     정수 표기 — MC 표본의 실제 정밀도가 ±1%p 수준이라 소수점은 노이즈다(과대 표기 방지).
+    양극단은 클램프(ADR-0016): '상위 0%'(전원 떼몰림 착시) 금지 → '상위 1% 미만',
+    대칭으로 극단 불운은 '상위 99% 초과'.
     """
     if summary.luck_score is None:
         return "—"
-    return f"상위 {100.0 - summary.luck_score:.0f}%"
+    top = 100.0 - summary.luck_score
+    if top < 1.0:
+        return "상위 1% 미만"
+    if top > 99.0:
+        return "상위 99% 초과"
+    return f"상위 {top:.0f}%"
 
 
 def _format_count(summary: StarforceSummary) -> str:
-    if summary.matched_count < summary.total_count:
-        return f"{summary.matched_count}/{summary.total_count}건"
-    return f"{summary.total_count}건"
-
-
-def _format_profit(net_meso: int) -> str:
-    """기댓값 대비 손익을 직관 부호로. 이득(기댓값보다 덜 씀)=+, 손해(더 씀)=−.
-
-    net_meso = 실제−기대(양수면 초과지출). 표시는 절약액(기대−실제) 기준이라 부호를 뒤집어
-    이득을 +로 보여준다(가독성). 0(정확히 기댓값)이면 '0'.
-    """
-    saving = -net_meso  # 절약액(이득) = 기대 − 실제
-    if saving == 0:
-        return "0"
-    return f"{'+' if saving > 0 else '-'}{format_eok(abs(saving))}"
+    """기준건수 — 11성 필터로 미상이 사라져 분자=분모라 단일 건수로 표시(ADR-0016)."""
+    return f"{summary.matched_count}건"
 
 
 async def _process_target(
@@ -176,7 +170,12 @@ async def _process_target(
     summary = await asyncio.to_thread(
         aggregate_starforce, attempts, lambda item: match_level(item, known)
     )
-    await _report_unmatched(deps, target, summary)
+    await _report_unmatched(deps, target, summary)  # 11성+ 미상 제보(유저 비노출)
+    if summary.matched_count == 0:
+        # 강화는 했으나 11성 이상이 없거나(저성만) 전부 레벨 미상 → 보여줄 게 없음(ADR-0016).
+        return TargetOutcome(
+            target=spec_target, error="기간 내 11성 이상 강화 기록이 없어요."
+        )
     return spec_target, summary
 
 
@@ -196,15 +195,36 @@ async def _report_unmatched(
         )
 
 
+def _rank_results(
+    results: list[tuple[Target, StarforceSummary]],
+) -> list[tuple[Target, StarforceSummary]]:
+    """운빨수치 내림차순(높을수록 운 좋음) 정렬. 동점은 손익(이득) 큰 쪽이 위(ADR-0016 결정 6).
+
+    운빨 클램프('상위 1% 미만' 등)로 표시가 겹칠 때, net_meso 오름차순(가장 음수=가장 큰
+    이득)을 3차 키로 둬 이득 큰 사람이 상위에 온다.
+    """
+    return sorted(
+        results,
+        key=lambda rs: (
+            rs[1].luck_score is None,
+            -(rs[1].luck_score or 0.0),
+            rs[1].net_meso,
+        ),
+    )
+
+
 def _build_table(
     results: list[tuple[Target, StarforceSummary]],
     outcomes: list[TargetOutcome],
     footer: str,
 ) -> tuple[discord.Embed, discord.File]:
-    """운빨수치 내림차순(높을수록 운 좋음) 표. 최상위 운빨 행 강조."""
-    ranked = sorted(
-        results, key=lambda rs: (rs[1].luck_score is None, -(rs[1].luck_score or 0.0))
-    )
+    """운빨수치 내림차순(높을수록 운 좋음) 표. 최상위 운빨 행 강조.
+
+    '기댓값 대비 손익'은 표시하지 않는다(ADR-0016 개정) — 미완성·윈도우 등반에서 기댓값
+    baseline 이 무의미(무진행이면 expected=0 → 손익=−전액)해 절대 금액이 오해를 부른다.
+    표시는 사실 그대로인 총 사용 메소 + 상대 지표인 운빨만. net_meso 는 동점 정렬용으로만 유지.
+    """
+    ranked = _rank_results(results)
     luck_values = [s.luck_score for _, s in ranked]
     best = comparison.highest_indices(luck_values) if len(ranked) > 1 else set()
 
@@ -213,7 +233,6 @@ def _build_table(
         "대상",  # 디스코드 유저(서버 표시명) — 이력은 계정 전체 합산이라 캐릭터 닉을 안 쓴다(ADR-0015)
         "운빨수치",
         "총 사용 메소",
-        "기댓값 대비 손익",
         "기준건수",
     ]
     rows: list[list] = []
@@ -225,7 +244,6 @@ def _build_table(
                 comparison.truncate_display(tgt.nickname, 14),
                 table_image.Highlight(luck_text) if i in best else luck_text,
                 format_eok(summary.total_meso),
-                _format_profit(summary.net_meso),
                 _format_count(summary),
             ]
         )
@@ -234,7 +252,7 @@ def _build_table(
         headers,
         rows,
         [t for t, _ in ranked],
-        aligns=["center", "left", "right", "right", "right", "right"],
+        aligns=["center", "left", "right", "right", "right"],
         footer=footer,
         outcomes=outcomes,
         filename="starforce.png",
@@ -244,12 +262,11 @@ def _build_table(
         value="이력은 등록 캐릭터 본인 계정의 **전체 캐릭터(부캐 포함)** 를 합산한 값이에요.",
         inline=False,
     )
-    if any(s.unmatched_items for _, s in ranked):
-        embed.add_field(
-            name="ℹ️ 레벨 미상 장비 제외",
-            value="일부 장비는 레벨을 확인하지 못해 기준에서 제외했어요(제보되었습니다).",
-            inline=False,
-        )
+    embed.add_field(
+        name="ℹ️ 11성 이상 강화만 집계",
+        value="저성·이벤트 장비는 빼고 **11성 이상** 강화만 비교해요. 강화 당시 이벤트(파괴 확률 감소·비용 할인)도 반영했어요.",
+        inline=False,
+    )
     return embed, file
 
 
