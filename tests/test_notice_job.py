@@ -48,13 +48,16 @@ def _deps(nexon):
 
 @pytest.fixture
 def patched(monkeypatch):
-    """notice_service DB 함수·broadcast·error_log 를 페이크로 교체하고 호출을 기록한다."""
+    """notice_service DB 함수·broadcast·error_log·DM 을 페이크로 교체하고 호출을 기록한다."""
     calls: list = []
-    state = {"channels": [(1, 100)], "last_ids": {}}
+    state = {"channels": [(1, 100)], "last_ids": {}, "dm_users": [], "dmed": []}
 
     async def enabled_notice_channels(sf):
         calls.append("channels")
         return state["channels"]
+
+    async def dm_subscriber_users(sf, kind):
+        return state["dm_users"]
 
     async def get_last_notice_id(sf, category):
         return state["last_ids"].get(category)
@@ -66,12 +69,17 @@ def patched(monkeypatch):
         calls.append(("broadcast", tuple(i.notice_id for i in items)))
         return len(channels)
 
+    async def send_dm(bot, user_id, **kwargs):
+        state["dmed"].append(user_id)
+        return True
+
     async def record(sf, **kwargs):
         calls.append(("error_log", kwargs.get("error_type")))
 
     monkeypatch.setattr(
         scheduler.notice_service, "enabled_notice_channels", enabled_notice_channels
     )
+    monkeypatch.setattr(scheduler.service, "dm_subscriber_users", dm_subscriber_users)
     monkeypatch.setattr(
         scheduler.notice_service, "get_last_notice_id", get_last_notice_id
     )
@@ -79,6 +87,7 @@ def patched(monkeypatch):
         scheduler.notice_service, "set_last_notice_id", set_last_notice_id
     )
     monkeypatch.setattr(scheduler, "broadcast_notices", broadcast_notices)
+    monkeypatch.setattr(scheduler, "send_dm", send_dm)
     monkeypatch.setattr(scheduler.error_log, "record", record)
     return calls, state
 
@@ -169,6 +178,46 @@ async def test_empty_category_does_not_mark(patched):
         ("broadcast", (21,)),
         ("mark", "notice-update", 21),
     ]
+
+
+# ── 개인 DM 팬아웃(ADR-0017): user distinct · 채널 0개라도 발송 · 실패 스킵 ──────
+
+
+async def test_dm_fanout_to_subscriber_users(patched):
+    calls, state = patched
+    state["channels"] = []  # 채널 0개라도 구독자가 있으면 폴링·DM
+    state["last_ids"] = {"notice": 100, "notice-update": 200}
+    state["dm_users"] = [10, 20]
+    nexon = _Nexon(calls, notice_raw=_raw(101), update_raw=_raw(201))
+    await scheduler.run_notice_job(bot=object(), deps=_deps(nexon))
+    # notice 신규 101 → user 10·20, update 신규 201 → user 10·20 = 4건(카테고리별 1회씩).
+    assert state["dmed"] == [10, 20, 10, 20]
+
+
+async def test_no_channels_no_subs_skips_nexon(patched):
+    calls, state = patched
+    state["channels"] = []
+    state["dm_users"] = []
+    nexon = _Nexon(calls, notice_raw=_raw(1), update_raw=_raw(2))
+    await scheduler.run_notice_job(bot=object(), deps=_deps(nexon))
+    assert calls == ["channels"]  # 채널·구독자 0 → 넥슨 호출 안 함
+
+
+async def test_dm_failure_skips_to_next_user(patched, monkeypatch):
+    calls, state = patched
+    state["channels"] = []
+    state["last_ids"] = {"notice": 100, "notice-update": 200}
+    state["dm_users"] = [10, 20]
+    attempted: list[int] = []
+
+    async def send_dm(bot, user_id, **kwargs):
+        attempted.append(user_id)
+        return user_id != 10  # 10 은 DM 차단
+
+    monkeypatch.setattr(scheduler, "send_dm", send_dm)
+    nexon = _Nexon(calls, notice_raw=_raw(101), update_raw=[])
+    await scheduler.run_notice_job(bot=object(), deps=_deps(nexon))
+    assert attempted == [10, 20]  # 차단된 10 이후에도 20 시도
 
 
 # ── build_notice_embeds: 제목 + 링크 + 등록일 (scheduler 렌더 헬퍼) ───────────

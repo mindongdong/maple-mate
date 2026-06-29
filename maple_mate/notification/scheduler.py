@@ -17,6 +17,7 @@ import discord
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from ..bot.dm import send_dm
 from ..bot.embeds import BRAND_COLOR, DATA_SOURCE
 from ..dependencies import Deps
 from ..error_log import service as error_log
@@ -97,6 +98,33 @@ async def _resolve_channel(
         return None
 
 
+async def _dm_embeds(
+    bot: discord.Client, user_ids: Sequence[int], embeds: Sequence[discord.Embed]
+) -> int:
+    """공지·썬데이 개인 구독자(distinct user)에게 임베드 DM(10개씩 배치, ADR-0017). 보낸 user 수 반환.
+
+    user_ids 는 dm_subscriber_users 가 이미 distinct(글로벌 콘텐츠 디듀프, 결정 6). DM 차단·실패는
+    send_dm 이 앱로그만 남기고 False — 한 묶음 실패 시 그 user 의 나머지 묶음은 건너뛴다(채널 패턴).
+    """
+    if not embeds or not user_ids:
+        return 0
+    batches = [
+        list(embeds[i : i + EMBEDS_PER_MESSAGE])
+        for i in range(0, len(embeds), EMBEDS_PER_MESSAGE)
+    ]
+    sent = 0
+    for user_id in user_ids:
+        delivered = False
+        for batch in batches:
+            if await send_dm(bot, user_id, embeds=batch):
+                delivered = True
+            else:
+                break
+        if delivered:
+            sent += 1
+    return sent
+
+
 async def broadcast_sunday(
     bot: discord.Client,
     channels: Sequence[tuple[int, int]],
@@ -146,7 +174,12 @@ async def manual_broadcast_sunday(
 
 
 async def run_sunday_job(bot: discord.Client, deps: Deps) -> None:
-    """정기 잡 본체: 주차 체크→스킵 / 채널 0개→스킵(넥슨 호출 안 함) / 매칭 0개→스킵 / 발송→마킹."""
+    """정기 잡: 주차 체크→스킵 / 채널·구독자 0→스킵 / 매칭 0→스킵 / 채널 발송 + 개인 DM → 마킹.
+
+    채널 발송과 병행해 개인 DM 구독자(kind=sunday)에게도 같은 이벤트를 DM 한다(ADR-0017).
+    공지·썬데이는 글로벌 콘텐츠라 user distinct(dm_subscriber_users) 로 다중 길드 중복을 막고,
+    주차 dedup 마커는 채널 기준 유지(DM 도 같은 주차에 1회 — 마킹이 전체를 게이트).
+    """
     session_factory = deps.session_factory
     week_id = service.current_week_id(datetime.now(KST))
 
@@ -155,8 +188,9 @@ async def run_sunday_job(bot: discord.Client, deps: Deps) -> None:
         return
 
     channels = await service.enabled_sunday_channels(session_factory)
-    if not channels:
-        log.info("썬데이 잡 스킵: 알림 켠 채널 없음(넥슨 호출 안 함)")
+    dm_users = await service.dm_subscriber_users(session_factory, service.KIND_SUNDAY)
+    if not channels and not dm_users:
+        log.info("썬데이 잡 스킵: 알림 켠 채널·구독자 없음(넥슨 호출 안 함)")
         return
 
     try:
@@ -176,7 +210,17 @@ async def run_sunday_job(bot: discord.Client, deps: Deps) -> None:
         return
 
     sent = await broadcast_sunday(bot, channels, events)
-    log.info("썬데이 발송: 이벤트 %d건 → 채널 %d/%d", len(events), sent, len(channels))
+    dm_sent = (
+        await _dm_embeds(bot, dm_users, build_event_embeds(events)) if dm_users else 0
+    )
+    log.info(
+        "썬데이 발송: 이벤트 %d건 → 채널 %d/%d · 개인 DM %d/%d",
+        len(events),
+        sent,
+        len(channels),
+        dm_sent,
+        len(dm_users),
+    )
     # 채널 부분 실패와 무관하게 마킹 강행(Q3③) — 같은 주 재시도 폭주 방지.
     await service.mark_week_sent(session_factory, week_id)
 
@@ -331,13 +375,15 @@ async def _poll_notice_category(
     bot: discord.Client,
     deps: Deps,
     channels: Sequence[tuple[int, int]],
+    dm_users: Sequence[int],
     category: str,
     fetch: Callable[[], Awaitable[list[dict]]],
 ) -> None:
-    """한 카테고리(공지 또는 업데이트) 1회 폴링: 페치→파싱→신규선별→발송→마킹.
+    """한 카테고리(공지 또는 업데이트) 1회 폴링: 페치→파싱→신규선별→채널 발송 + 개인 DM→마킹.
 
     페치 실패는 error_log 적재 후 마킹 없이 반환(다음 폴링 재시도). baseline(last_id None)은
-    발송 없이 최대 id 만 마킹해 과거 공지 폭주를 막는다(design §3.6).
+    발송 없이 최대 id 만 마킹해 과거 공지 폭주를 막는다(design §3.6). 마커는 채널·DM 공유라
+    DM 도 같은 신규분을 1회만 받는다(ADR-0017).
     """
     try:
         raw = await fetch()
@@ -359,12 +405,19 @@ async def _poll_notice_category(
     new_items = notice_service.select_new(items, last_id)
     if new_items:
         sent = await broadcast_notices(bot, channels, new_items)
+        dm_sent = (
+            await _dm_embeds(bot, dm_users, build_notice_embeds(new_items))
+            if dm_users
+            else 0
+        )
         log.info(
-            "공지 발송(%s): 신규 %d건 → 채널 %d/%d",
+            "공지 발송(%s): 신규 %d건 → 채널 %d/%d · 개인 DM %d/%d",
             category,
             len(new_items),
             sent,
             len(channels),
+            dm_sent,
+            len(dm_users),
         )
     # 마커는 전진만(절대 후퇴 금지). 페이지가 일시적으로 짧게 와 max id 가 last_id 보다 작아도
     # 마커를 낮추지 않는다 — 낮추면 이미 보낸 공지를 다음 폴링에 중복 재발송하게 됨.
@@ -375,19 +428,26 @@ async def _poll_notice_category(
 
 
 async def run_notice_job(bot: discord.Client, deps: Deps) -> None:
-    """정기 잡 본체: 알림 켠 채널 없으면 넥슨 호출 없이 스킵, 있으면 공지·업데이트 두 카테고리 폴링."""
+    """정기 잡: 채널·구독자 0이면 넥슨 호출 없이 스킵, 있으면 공지·업데이트 두 카테고리 폴링.
+
+    채널 발송과 병행해 개인 DM 구독자(kind=notice)에게도 신규분을 보낸다(ADR-0017, user distinct).
+    """
     channels = await notice_service.enabled_notice_channels(deps.session_factory)
-    if not channels:
-        log.info("공지 잡 스킵: 알림 켠 채널 없음(넥슨 호출 안 함)")
+    dm_users = await service.dm_subscriber_users(
+        deps.session_factory, service.KIND_NOTICE
+    )
+    if not channels and not dm_users:
+        log.info("공지 잡 스킵: 알림 켠 채널·구독자 없음(넥슨 호출 안 함)")
         return
 
     await _poll_notice_category(
-        bot, deps, channels, notice_service.NOTICE_CATEGORY, deps.nexon.notice
+        bot, deps, channels, dm_users, notice_service.NOTICE_CATEGORY, deps.nexon.notice
     )
     await _poll_notice_category(
         bot,
         deps,
         channels,
+        dm_users,
         notice_service.NOTICE_UPDATE_CATEGORY,
         deps.nexon.notice_update,
     )

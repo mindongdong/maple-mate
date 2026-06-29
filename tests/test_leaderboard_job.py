@@ -17,11 +17,24 @@ def _deps():
     return SimpleNamespace(session_factory=object(), nexon=SimpleNamespace())
 
 
-async def test_no_channels_skips_nexon_call(monkeypatch):
+def _no_dm_subs(monkeypatch):
+    """개인 DM 구독 0명으로 패치(채널 경로만 검증하는 기존 테스트 공통)."""
+
+    async def dm_subscribers(sf, kind):
+        return []
+
+    monkeypatch.setattr(broadcast.channel_service, "dm_subscribers", dm_subscribers)
+
+
+async def test_no_channels_no_subs_skips_nexon_call(monkeypatch):
     calls: list[str] = []
 
     async def enabled_exp_channels(sf):
         calls.append("channels")
+        return []
+
+    async def dm_subscribers(sf, kind):
+        calls.append("dm_subs")
         return []
 
     async def get_targets(sf, guild_id, realm=None):
@@ -31,9 +44,10 @@ async def test_no_channels_skips_nexon_call(monkeypatch):
     monkeypatch.setattr(
         broadcast.channel_service, "enabled_exp_channels", enabled_exp_channels
     )
+    monkeypatch.setattr(broadcast.channel_service, "dm_subscribers", dm_subscribers)
     monkeypatch.setattr(broadcast, "get_targets", get_targets)
     await broadcast.run_leaderboard_job(bot=object(), deps=_deps())
-    assert calls == ["channels"]  # 넥슨/적재/발송 없음(Q10·#5)
+    assert calls == ["channels", "dm_subs"]  # 채널·구독자 0 → 넥슨/적재/발송 없음
 
 
 async def test_job_backfills_then_fetches_and_sends(monkeypatch):
@@ -70,6 +84,7 @@ async def test_job_backfills_then_fetches_and_sends(monkeypatch):
     monkeypatch.setattr(
         broadcast.channel_service, "enabled_exp_channels", enabled_exp_channels
     )
+    _no_dm_subs(monkeypatch)
     monkeypatch.setattr(broadcast, "get_targets", get_targets)
     monkeypatch.setattr(broadcast.service, "backfill", backfill)
     monkeypatch.setattr(broadcast.service, "fetch_and_store", fetch_and_store)
@@ -105,6 +120,7 @@ async def test_job_always_backfills_even_with_existing_data(monkeypatch):
     monkeypatch.setattr(
         broadcast.channel_service, "enabled_exp_channels", enabled_exp_channels
     )
+    _no_dm_subs(monkeypatch)
     monkeypatch.setattr(broadcast, "get_targets", get_targets)
     monkeypatch.setattr(broadcast.service, "backfill", backfill)
     monkeypatch.setattr(broadcast.service, "fetch_and_store", fetch_and_store)
@@ -150,6 +166,7 @@ async def test_per_guild_payload_built_once_per_realm_for_two_channels(monkeypat
     monkeypatch.setattr(
         broadcast.channel_service, "enabled_exp_channels", enabled_exp_channels
     )
+    _no_dm_subs(monkeypatch)
     monkeypatch.setattr(broadcast, "get_targets", get_targets)
     monkeypatch.setattr(broadcast.service, "backfill", backfill)
     monkeypatch.setattr(broadcast.service, "fetch_and_store", fetch_and_store)
@@ -160,6 +177,99 @@ async def test_per_guild_payload_built_once_per_realm_for_two_channels(monkeypat
     # (길드1, 본서버)·(길드1, 챌린저스) 각 1회만 — 채널 2개에 걸쳐 메모이제이션.
     assert build_calls == [(1, Realm.MAIN), (1, Realm.CHALLENGERS)]
     assert len(sent_files) == 2  # 채널 100, 101 각각 본서버 1장씩 발송
+
+
+# ── 개인 DM 팬아웃(ADR-0017): 구독자 0/N · 길드별 · 메모이즈 공유 ──────────────
+
+
+async def test_dm_fanout_to_subscribers(monkeypatch):
+    """채널 0개라도 개인 구독자가 있으면 적재 후 그 길드 payload 를 DM 한다(길드별, 디듀프 없음)."""
+    dmed: list[int] = []
+
+    async def enabled_exp_channels(sf):
+        return []
+
+    async def dm_subscribers(sf, kind):
+        assert kind == broadcast.channel_service.KIND_EXP
+        return [(1, 10), (1, 11)]  # 같은 길드 두 구독자
+
+    async def get_targets(sf, guild_id, realm=None):
+        return [SimpleNamespace(discord_user_id=10, nickname="손바", ocid="o1")]
+
+    async def backfill(deps, guild_id, targets):
+        pass
+
+    async def fetch_and_store(deps, guild_id, targets, date_iso):
+        return 0
+
+    build_calls: list = []
+
+    async def build_payload(bot, deps, guild_id, realm):
+        build_calls.append((guild_id, realm))
+        if realm is Realm.MAIN:
+            return SimpleNamespace(embed="e", to_files=lambda: ["f1"])
+        return None
+
+    async def fake_send_dm(bot, user_id, **kwargs):
+        dmed.append(user_id)
+        return True
+
+    monkeypatch.setattr(
+        broadcast.channel_service, "enabled_exp_channels", enabled_exp_channels
+    )
+    monkeypatch.setattr(broadcast.channel_service, "dm_subscribers", dm_subscribers)
+    monkeypatch.setattr(broadcast, "get_targets", get_targets)
+    monkeypatch.setattr(broadcast.service, "backfill", backfill)
+    monkeypatch.setattr(broadcast.service, "fetch_and_store", fetch_and_store)
+    monkeypatch.setattr(broadcast, "build_payload", build_payload)
+    monkeypatch.setattr(broadcast, "send_dm", fake_send_dm)
+
+    await broadcast.run_leaderboard_job(bot=object(), deps=_deps())
+    assert dmed == [10, 11]  # 구독자 2명 각각 본서버 1장 DM(길드별, user 디듀프 없음)
+    # payload 는 (길드,realm)당 1회만 — 두 구독자가 메모이즈 공유.
+    assert build_calls == [(1, Realm.MAIN), (1, Realm.CHALLENGERS)]
+
+
+async def test_dm_fanout_skips_blocked_dm(monkeypatch):
+    """DM 차단(False) 구독자가 있어도 다음 구독자는 계속 시도한다."""
+    attempted: list[int] = []
+
+    async def enabled_exp_channels(sf):
+        return []
+
+    async def dm_subscribers(sf, kind):
+        return [(1, 10), (1, 11)]
+
+    async def get_targets(sf, guild_id, realm=None):
+        return [SimpleNamespace(discord_user_id=10, nickname="손바", ocid="o1")]
+
+    async def backfill(deps, guild_id, targets):
+        pass
+
+    async def fetch_and_store(deps, guild_id, targets, date_iso):
+        return 0
+
+    async def build_payload(bot, deps, guild_id, realm):
+        if realm is Realm.MAIN:
+            return SimpleNamespace(embed="e", to_files=lambda: ["f1"])
+        return None
+
+    async def fake_send_dm(bot, user_id, **kwargs):
+        attempted.append(user_id)
+        return user_id != 10  # 10 은 DM 차단
+
+    monkeypatch.setattr(
+        broadcast.channel_service, "enabled_exp_channels", enabled_exp_channels
+    )
+    monkeypatch.setattr(broadcast.channel_service, "dm_subscribers", dm_subscribers)
+    monkeypatch.setattr(broadcast, "get_targets", get_targets)
+    monkeypatch.setattr(broadcast.service, "backfill", backfill)
+    monkeypatch.setattr(broadcast.service, "fetch_and_store", fetch_and_store)
+    monkeypatch.setattr(broadcast, "build_payload", build_payload)
+    monkeypatch.setattr(broadcast, "send_dm", fake_send_dm)
+
+    await broadcast.run_leaderboard_job(bot=object(), deps=_deps())
+    assert attempted == [10, 11]  # 차단된 10 이후에도 11 시도
 
 
 # ── refresh_guild: 매 실행 멱등 백필 → D-1 적재 ──────────────────────────────

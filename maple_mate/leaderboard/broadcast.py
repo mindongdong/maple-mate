@@ -2,8 +2,8 @@
 
 전달-무관 service 위에 Discord 발송과 스케줄을 얹는 얇은 어댑터. `build_payload` 는 `/경험치`
 명령과 매일 10시 잡이 공유하는 산출물 빌더(최근 7일 레벨 추이 그래프 PNG). `run_leaderboard_job` 은
-exp_alert 채널 0개면 스킵(넥슨 콜 없음) → 길드별 (첫 실행)백필 → D-1 적재 → build_payload →
-_resolve_channel 발송(부분실패 앱로그, 썬데이 패턴). prune 는 09:00 운영 잡에 편승.
+채널·개인 구독자 0이면 스킵(넥슨 콜 없음) → 길드별 멱등 백필 → D-1 적재 → build_payload →
+채널 발송 + 개인 DM(부분실패 앱로그, 썬데이 패턴, ADR-0017). prune 는 09:00 운영 잡에 편승.
 """
 
 from __future__ import annotations
@@ -18,6 +18,7 @@ from datetime import date, datetime, timedelta
 import discord
 
 from ..bot import leaderboard_image
+from ..bot.dm import send_dm
 from ..bot.embeds import DATA_SOURCE
 from ..dependencies import Deps
 from ..nexon.client import KST
@@ -196,17 +197,49 @@ async def ensure_guild_data(
         await service.backfill(deps, guild_id, targets)
 
 
+async def _ready_payloads(
+    bot: discord.Client,
+    deps: Deps,
+    guild_id: int,
+    payloads: dict[tuple[int, Realm], LeaderboardPayload | None],
+) -> list[LeaderboardPayload]:
+    """그 길드의 발송 가능한 realm payload 목록(본서버 → 챌린저스). (길드, realm)별 메모이즈.
+
+    같은 길드에 채널·구독자가 여럿이어도 DB 조회 + PNG 렌더를 realm 당 한 번만 수행한다.
+    리더보드는 realm 별 2개 완전 분리(결정 8) — 각각 MIN_RANKED 게이트를 통과한 것만 담는다.
+    """
+    ready: list[LeaderboardPayload] = []
+    for realm in (Realm.MAIN, Realm.CHALLENGERS):
+        key = (guild_id, realm)
+        if key not in payloads:
+            payloads[key] = await build_payload(bot, deps, guild_id, realm)
+        if payloads[key] is not None:
+            ready.append(payloads[key])
+    return ready
+
+
 async def run_leaderboard_job(bot: discord.Client, deps: Deps) -> None:
-    """매일 10시 잡: exp_alert 채널 0개면 스킵 / 길드별 (첫 실행)백필 → D-1 적재 → 발송."""
+    """매일 10시 잡: 채널·구독자 0이면 스킵 / 길드별 멱등 백필 → D-1 적재 → 채널 발송 + 개인 DM.
+
+    채널 발송(channel_settings.exp_alert)과 병행해 개인 DM 구독자(notification_subscription
+    kind=exp)에게도 같은 산출물을 DM 한다(ADR-0017). 경험치는 길드별 리더보드라 (guild, user)별로
+    보낸다(공지·썬데이의 글로벌 디듀프와 달리 디듀프 없음). payload 는 채널과 공유(추가 페치 0).
+    """
     session_factory = deps.session_factory
     channels = await channel_service.enabled_exp_channels(session_factory)
-    if not channels:
-        log.info("경험치 잡 스킵: 알림 켠 채널 없음(넥슨 호출 안 함)")
+    dm_subs = await channel_service.dm_subscribers(
+        session_factory, channel_service.KIND_EXP
+    )
+    if not channels and not dm_subs:
+        log.info("경험치 잡 스킵: 알림 켠 채널·구독자 없음(넥슨 호출 안 함)")
         return
 
     now = datetime.now(KST)
     ref_date = service.yesterday_kst(now)
-    guild_ids = {guild_id for guild_id, _ in channels}
+    # 적재 대상 길드 = 채널 길드 ∪ 개인 구독자 길드(구독자만 있는 길드도 신선화).
+    guild_ids = {guild_id for guild_id, _ in channels} | {
+        guild_id for guild_id, _ in dm_subs
+    }
 
     for guild_id in guild_ids:
         targets = await _all_realm_targets(session_factory, guild_id)
@@ -216,19 +249,12 @@ async def run_leaderboard_job(bot: discord.Client, deps: Deps) -> None:
         if skipped:
             log.info("경험치 적재: 길드 %s 미등재/미준비 %d명 제외", guild_id, skipped)
 
-    # (길드, realm)별 payload 를 메모이제이션: 같은 길드에 채널이 여러 개여도 DB 조회 + PNG
-    # 렌더를 realm 당 한 번만 수행한다. 리더보드는 realm 별 2개 완전 분리(결정 8) — 한 채널에
-    # 본서버·챌린저스 둘 다(각각 MIN_RANKED 게이트 통과 시) 발송한다.
     payloads: dict[tuple[int, Realm], LeaderboardPayload | None] = {}
+
+    # 채널 발송
     sent = 0
     for guild_id, channel_id in channels:
-        ready: list[LeaderboardPayload] = []
-        for realm in (Realm.MAIN, Realm.CHALLENGERS):
-            key = (guild_id, realm)
-            if key not in payloads:
-                payloads[key] = await build_payload(bot, deps, guild_id, realm)
-            if payloads[key] is not None:
-                ready.append(payloads[key])
+        ready = await _ready_payloads(bot, deps, guild_id, payloads)
         if not ready:  # 두 realm 모두 등재 2명 미만 → 그 채널 생략(Q10)
             continue
         channel = await _resolve_channel(bot, guild_id, channel_id)
@@ -245,4 +271,19 @@ async def run_leaderboard_job(bot: discord.Client, deps: Deps) -> None:
                     channel_id,
                     exc,
                 )
-    log.info("경험치 발송: %d건 (채널 %d)", sent, len(channels))
+
+    # 개인 DM 발송(길드별 — 다른 길드 = 다른 리더보드라 user 디듀프 없음).
+    dm_sent = 0
+    for guild_id, user_id in dm_subs:
+        for payload in await _ready_payloads(bot, deps, guild_id, payloads):
+            if await send_dm(
+                bot, user_id, embed=payload.embed, files=payload.to_files()
+            ):
+                dm_sent += 1
+    log.info(
+        "경험치 발송: 채널 %d건 (채널 %d) · 개인 DM %d건 (구독 %d)",
+        sent,
+        len(channels),
+        dm_sent,
+        len(dm_subs),
+    )
