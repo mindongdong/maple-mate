@@ -92,7 +92,6 @@ class MapleMateBot(discord.Client):
 
     def _register_commands(self) -> None:
         """도메인별 commands.setup 을 모아 트리에 등록. 새 명령은 도메인 commands.py 에 추가."""
-        from ..bitik.commands import setup as setup_bitik
         from ..character.commands import setup as setup_character
         from ..guide.commands import setup as setup_guide
         from ..history.commands import setup as setup_history
@@ -108,7 +107,8 @@ class MapleMateBot(discord.Client):
         setup_character(self)  # /스펙 · /아이템
         setup_history(self)  # /스타포스
         setup_potential(self)  # /잠재
-        setup_bitik(self)  # /비틱 (스타포스·잠재·득템)
+        # /비틱은 효용 낮아 봇에서 숨김(ADR-0017 작업지시서 #1). bitik/ 코드·테스트는 보존 —
+        # 부활 시 setup_bitik import + 호출 두 줄만 되돌리면 됨.
         setup_leaderboard(self)  # /경험치 · /경험치알림
         setup_scheduler(self)  # /스케줄러 · /스케줄러알림 (per-user DM 구독)
         setup_notification(self)  # /썬데이
