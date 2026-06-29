@@ -1,7 +1,8 @@
-"""`/썬데이` 디스코드 어댑터 (얇은 전달 계층, 작업지시서 빌드 단위 #4, Q5).
+"""`/공지알림`·`/썬데이알림` 디스코드 어댑터 (얇은 전달 계층, ADR-0017).
 
-단일 `/썬데이` + 필수 `상태`(켜기/끄기) 평면 구조. 서버 관리(`manage_guild`) 권한을
-인라인 체크하고 거부는 ephemeral. DM 가드. 토글은 명령이 실행된 채널 단위(design §2).
+두 알림을 `켜기`/`끄기` 서브커맨드 그룹으로 통일하고 **권한 없이** 토글한다. 각 서브커맨드는
+`대상`(채널/개인) 인자를 받아 채널 발송(channel_settings)·본인 DM 구독(notification_subscription)을
+고른다 — 켜기 기본=채널, 끄기 기본=둘 다. 토글 본체는 notification.toggle.handle_toggle 공유.
 """
 
 from __future__ import annotations
@@ -10,119 +11,71 @@ import discord
 from discord import app_commands
 
 from ..bot import cooldowns
-from ..bot.embeds import make_embed
 from ..dependencies import Deps
 from . import notice_service, service
+from .target import TARGET_CHOICES, TARGET_DESCRIBE
+from .toggle import AlertSpec, handle_toggle
+
+_NOTICE_SPEC = AlertSpec(
+    kind=service.KIND_NOTICE,
+    title="공지 알림",
+    set_channel=notice_service.set_notice_alert,
+    channel_on="이 채널에 메이플 공지사항·업데이트 소식을 보내드릴게요.",
+    channel_off="이 채널의 공지 알림을 더 이상 보내지 않아요.",
+    personal_on="메이플 공지사항·업데이트 소식을 DM으로 받을게요.",
+    personal_off="공지 DM 구독을 껐어요.",
+)
+
+_SUNDAY_SPEC = AlertSpec(
+    kind=service.KIND_SUNDAY,
+    title="썬데이 알림",
+    set_channel=service.set_sunday_alert,
+    channel_on="이 채널에 금요일 10:10(KST) 썬데이 메이플 알림을 보낼게요.",
+    channel_off="이 채널의 썬데이 알림을 더 이상 보내지 않아요.",
+    personal_on="금요일 10:10(KST) 썬데이 메이플 알림을 DM으로 받을게요.",
+    personal_off="썬데이 DM 구독을 껐어요.",
+)
 
 
-async def handle_sunday(
-    deps: Deps, interaction: discord.Interaction, enabled: bool
-) -> None:
-    if interaction.guild_id is None or interaction.channel_id is None:
-        await interaction.response.send_message(
-            embed=make_embed(
-                "썬데이 알림", "서버(길드) 채널 안에서만 설정할 수 있어요."
-            ),
-            ephemeral=True,
-        )
-        return
-
-    perms = getattr(interaction.user, "guild_permissions", None)
-    if perms is None or not perms.manage_guild:
-        await interaction.response.send_message(
-            embed=make_embed("권한 없음", "이 설정은 **서버 관리** 권한이 필요해요."),
-            ephemeral=True,
-        )
-        return
-
-    await service.set_sunday_alert(
-        deps.session_factory,
-        guild_id=interaction.guild_id,
-        channel_id=interaction.channel_id,
-        enabled=enabled,
-    )
-    state = "켜짐 🔔" if enabled else "꺼짐 🔕"
-    description = (
-        "이 채널에 금요일 10:10(KST) 썬데이 메이플 알림을 보낼게요."
-        if enabled
-        else "이 채널의 썬데이 알림을 더 이상 보내지 않아요."
-    )
-    await interaction.response.send_message(
-        embed=make_embed(f"썬데이 알림 {state}", description), ephemeral=True
+def _alert_group(
+    spec: AlertSpec, deps: Deps, name: str, what: str
+) -> app_commands.Group:
+    """`켜기`/`끄기`(각 `대상` 인자) 서브커맨드를 가진 알림 그룹을 만든다(공지·썬데이 공유)."""
+    group = app_commands.Group(
+        name=name, description=f"{what}을 채널 또는 본인 DM으로 받을지 켜거나 끕니다."
     )
 
+    @group.command(name="켜기", description=f"{what}을 켭니다 (권한 불필요).")
+    @app_commands.rename(target="대상")
+    @app_commands.describe(target=f"{TARGET_DESCRIBE} · 미지정 시 채널")
+    @app_commands.choices(target=TARGET_CHOICES)
+    @cooldowns.settings_cooldown()
+    async def on(
+        interaction: discord.Interaction,
+        target: app_commands.Choice[str] | None = None,
+    ) -> None:
+        await handle_toggle(deps, interaction, spec, enabled=True, target=target)
 
-async def handle_notice(
-    deps: Deps, interaction: discord.Interaction, enabled: bool
-) -> None:
-    if interaction.guild_id is None or interaction.channel_id is None:
-        await interaction.response.send_message(
-            embed=make_embed("공지 알림", "서버(길드) 채널 안에서만 설정할 수 있어요."),
-            ephemeral=True,
-        )
-        return
+    @group.command(name="끄기", description=f"{what}을 끕니다 (권한 불필요).")
+    @app_commands.rename(target="대상")
+    @app_commands.describe(target=f"{TARGET_DESCRIBE} · 미지정 시 둘 다 해제")
+    @app_commands.choices(target=TARGET_CHOICES)
+    @cooldowns.settings_cooldown()
+    async def off(
+        interaction: discord.Interaction,
+        target: app_commands.Choice[str] | None = None,
+    ) -> None:
+        await handle_toggle(deps, interaction, spec, enabled=False, target=target)
 
-    perms = getattr(interaction.user, "guild_permissions", None)
-    if perms is None or not perms.manage_guild:
-        await interaction.response.send_message(
-            embed=make_embed("권한 없음", "이 설정은 **서버 관리** 권한이 필요해요."),
-            ephemeral=True,
-        )
-        return
-
-    await notice_service.set_notice_alert(
-        deps.session_factory,
-        guild_id=interaction.guild_id,
-        channel_id=interaction.channel_id,
-        enabled=enabled,
-    )
-    state = "켜짐 🔔" if enabled else "꺼짐 🔕"
-    description = (
-        "이 채널에 메이플 공지사항·업데이트 소식을 보내드릴게요."
-        if enabled
-        else "이 채널의 공지 알림을 더 이상 보내지 않아요."
-    )
-    await interaction.response.send_message(
-        embed=make_embed(f"공지 알림 {state}", description), ephemeral=True
-    )
+    return group
 
 
 def setup(bot: discord.Client) -> None:
-    """봇 트리에 `/썬데이`·`/공지알림` 등록. bot.deps(Deps) 를 사용한다."""
+    """봇 트리에 `/공지알림`·`/썬데이알림`(켜기·끄기) 등록. bot.deps(Deps) 를 사용한다."""
     deps: Deps = bot.deps  # type: ignore[attr-defined]
-
-    @bot.tree.command(  # type: ignore[attr-defined]
-        name="썬데이",
-        description="이 채널의 썬데이 메이플 알림을 켜거나 끕니다 (서버 관리 권한 필요).",
+    bot.tree.add_command(  # type: ignore[attr-defined]
+        _alert_group(_NOTICE_SPEC, deps, "공지알림", "메이플 공지·업데이트 알림")
     )
-    @app_commands.rename(status="상태")
-    @app_commands.describe(status="썬데이 알림을 켤지 끌지 선택")
-    @app_commands.choices(
-        status=[
-            app_commands.Choice(name="켜기", value="on"),
-            app_commands.Choice(name="끄기", value="off"),
-        ]
+    bot.tree.add_command(  # type: ignore[attr-defined]
+        _alert_group(_SUNDAY_SPEC, deps, "썬데이알림", "썬데이 메이플 알림")
     )
-    @cooldowns.settings_cooldown()
-    async def sunday_command(
-        interaction: discord.Interaction, status: app_commands.Choice[str]
-    ) -> None:
-        await handle_sunday(deps, interaction, status.value == "on")
-
-    @bot.tree.command(  # type: ignore[attr-defined]
-        name="공지알림",
-        description="이 채널의 메이플 공지·업데이트 알림을 켜거나 끕니다 (서버 관리 권한 필요).",
-    )
-    @app_commands.rename(status="상태")
-    @app_commands.describe(status="공지 알림을 켤지 끌지 선택")
-    @app_commands.choices(
-        status=[
-            app_commands.Choice(name="켜기", value="on"),
-            app_commands.Choice(name="끄기", value="off"),
-        ]
-    )
-    @cooldowns.settings_cooldown()
-    async def notice_command(
-        interaction: discord.Interaction, status: app_commands.Choice[str]
-    ) -> None:
-        await handle_notice(deps, interaction, status.value == "on")

@@ -57,8 +57,6 @@ def _check(bot: MapleMateBot, name: str):
         ("캐릭터등록", 5.0),
         ("키등록", 5.0),
         ("대표지정", 5.0),
-        ("썬데이", 5.0),
-        ("공지알림", 5.0),
     ],
 )
 async def test_command_group_cooldown_attached(bot, name, per):
@@ -69,6 +67,21 @@ async def test_command_group_cooldown_attached(bot, name, per):
     assert exc.value.retry_after == pytest.approx(per, abs=0.01)
     # 경과 후 정상 실행.
     assert await check(_interaction(at=per + 0.1)) is True
+
+
+@pytest.mark.parametrize("group", ["경험치알림", "공지알림", "썬데이알림"])
+async def test_alert_group_subcommand_cooldowns(bot, group):
+    """통일 알림 그룹(ADR-0017)은 켜기·끄기 서브커맨드마다 설정 쿨다운(5초)을 가진다."""
+    g = bot.tree.get_command(group)
+    assert g is not None, f"/{group} 미등록"
+    for sub in ("켜기", "끄기"):
+        cmd = g.get_command(sub)
+        assert cmd is not None and len(cmd.checks) == 1, f"/{group} {sub} 쿨다운"
+        check = cmd.checks[0]
+        assert await check(_interaction(at=0.0)) is True
+        with pytest.raises(app_commands.CommandOnCooldown) as exc:
+            await check(_interaction(at=0.0))
+        assert exc.value.retry_after == pytest.approx(5.0, abs=0.01)
 
 
 async def test_guide_has_no_cooldown(bot):

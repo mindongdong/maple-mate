@@ -1,8 +1,8 @@
-"""`/경험치` · `/경험치알림` 디스코드 어댑터 (얇은 전달 계층, 작업지시서 빌드 단위 #6).
+"""`/경험치` · `/경험치알림` 디스코드 어댑터 (얇은 전달 계층, 작업지시서 빌드 단위 #6, ADR-0017).
 
 - `/경험치`: defer → build_payload(현재 길드) → 7일 레벨 추이 그래프 공개 응답(2명 미만/데이터 없음 안내).
-- `/경험치알림 [켜기|끄기]`: channel_settings.exp_alert 토글(set_exp_alert, set_sunday_alert 복제).
-  서버 관리(manage_guild) 권한 인라인 체크 + DM 가드(공지/썬데이 명령과 동일).
+- `/경험치알림 켜기·끄기`: `대상`(채널/개인) 인자로 채널 발송(channel_settings.exp_alert)·본인 DM
+  구독(notification_subscription)을 토글. 권한 불필요(공지·썬데이와 통일, notification.toggle 공유).
 """
 
 from __future__ import annotations
@@ -15,9 +15,21 @@ from ..bot.embeds import defer, make_embed
 from ..bot.modes import MODE_CHOICES, MODE_DESCRIBE, parse_mode
 from ..dependencies import Deps
 from ..notification import service as channel_service
+from ..notification.target import TARGET_CHOICES, TARGET_DESCRIBE
+from ..notification.toggle import AlertSpec, handle_toggle
 from ..registration.realm import Realm, realm_title
 from ..registration.service import get_targets
 from .broadcast import build_payload, ensure_guild_data
+
+_EXP_SPEC = AlertSpec(
+    kind=channel_service.KIND_EXP,
+    title="경험치 알림",
+    set_channel=channel_service.set_exp_alert,
+    channel_on="이 채널에 매일 10:00(KST) 경험치 리더보드를 보낼게요.",
+    channel_off="이 채널의 경험치 리더보드 알림을 더 이상 보내지 않아요.",
+    personal_on="매일 10:00(KST) 경험치 리더보드를 DM으로 받을게요.",
+    personal_off="경험치 리더보드 DM 구독을 껐어요.",
+)
 
 _MSG_NOT_ENOUGH = "경험치 리더보드는 **2명 이상 등록**해야 추이가 떠요. 친구들도 `/캐릭터등록` 하면 같이 나와요."
 _MSG_NOT_READY = (
@@ -72,46 +84,8 @@ async def handle_leaderboard(
     )  # 공개
 
 
-async def handle_exp_alert(
-    deps: Deps, interaction: discord.Interaction, enabled: bool
-) -> None:
-    """`/경험치알림` 본체: 권한·DM 가드 → exp_alert 토글(설정 명령 공통 패턴)."""
-    if interaction.guild_id is None or interaction.channel_id is None:
-        await interaction.response.send_message(
-            embed=make_embed(
-                "경험치 알림", "서버(길드) 채널 안에서만 설정할 수 있어요."
-            ),
-            ephemeral=True,
-        )
-        return
-
-    perms = getattr(interaction.user, "guild_permissions", None)
-    if perms is None or not perms.manage_guild:
-        await interaction.response.send_message(
-            embed=make_embed("권한 없음", "이 설정은 **서버 관리** 권한이 필요해요."),
-            ephemeral=True,
-        )
-        return
-
-    await channel_service.set_exp_alert(
-        deps.session_factory,
-        guild_id=interaction.guild_id,
-        channel_id=interaction.channel_id,
-        enabled=enabled,
-    )
-    state = "켜짐 🔔" if enabled else "꺼짐 🔕"
-    description = (
-        "이 채널에 매일 10:00(KST) 경험치 리더보드를 보낼게요."
-        if enabled
-        else "이 채널의 경험치 리더보드 알림을 더 이상 보내지 않아요."
-    )
-    await interaction.response.send_message(
-        embed=make_embed(f"경험치 알림 {state}", description), ephemeral=True
-    )
-
-
 def setup_leaderboard(bot: discord.Client) -> None:
-    """봇 트리에 `/경험치`·`/경험치알림` 등록. bot.deps(Deps) 를 사용한다."""
+    """봇 트리에 `/경험치`·`/경험치알림`(켜기·끄기) 등록. bot.deps(Deps) 를 사용한다."""
     deps: Deps = bot.deps  # type: ignore[attr-defined]
 
     @bot.tree.command(  # type: ignore[attr-defined]
@@ -128,20 +102,35 @@ def setup_leaderboard(bot: discord.Client) -> None:
     ) -> None:
         await handle_leaderboard(deps, interaction, parse_mode(mode))
 
-    @bot.tree.command(  # type: ignore[attr-defined]
+    group = app_commands.Group(
         name="경험치알림",
-        description="이 채널의 매일 경험치 리더보드 알림을 켜거나 끕니다 (서버 관리 권한 필요).",
+        description="매일 경험치 리더보드를 채널 또는 본인 DM으로 받을지 켜거나 끕니다.",
     )
-    @app_commands.rename(status="상태")
-    @app_commands.describe(status="경험치 알림을 켤지 끌지 선택")
-    @app_commands.choices(
-        status=[
-            app_commands.Choice(name="켜기", value="on"),
-            app_commands.Choice(name="끄기", value="off"),
-        ]
+
+    @group.command(
+        name="켜기", description="경험치 리더보드 알림을 켭니다 (권한 불필요)."
     )
+    @app_commands.rename(target="대상")
+    @app_commands.describe(target=f"{TARGET_DESCRIBE} · 미지정 시 채널")
+    @app_commands.choices(target=TARGET_CHOICES)
     @cooldowns.settings_cooldown()
-    async def exp_alert_command(
-        interaction: discord.Interaction, status: app_commands.Choice[str]
+    async def exp_alert_on(
+        interaction: discord.Interaction,
+        target: app_commands.Choice[str] | None = None,
     ) -> None:
-        await handle_exp_alert(deps, interaction, status.value == "on")
+        await handle_toggle(deps, interaction, _EXP_SPEC, enabled=True, target=target)
+
+    @group.command(
+        name="끄기", description="경험치 리더보드 알림을 끕니다 (권한 불필요)."
+    )
+    @app_commands.rename(target="대상")
+    @app_commands.describe(target=f"{TARGET_DESCRIBE} · 미지정 시 둘 다 해제")
+    @app_commands.choices(target=TARGET_CHOICES)
+    @cooldowns.settings_cooldown()
+    async def exp_alert_off(
+        interaction: discord.Interaction,
+        target: app_commands.Choice[str] | None = None,
+    ) -> None:
+        await handle_toggle(deps, interaction, _EXP_SPEC, enabled=False, target=target)
+
+    bot.tree.add_command(group)  # type: ignore[attr-defined]

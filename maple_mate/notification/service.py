@@ -12,19 +12,24 @@ import re
 from dataclasses import dataclass
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import delete, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.sql import func
 
 from ..nexon.client import KST, NexonClient
 from ..nexon.errors import NexonAPIError
-from .models import ChannelSettings, NoticeState
+from .models import ChannelSettings, NoticeState, NotificationSubscription
 
 log = logging.getLogger(__name__)
 
 # notice_state 의 썬데이 dedup 마커가 사는 카테고리 키(design §5④).
 SUNDAY_CATEGORY = "sunday"
+
+# 개인 DM 구독 종류(notification_subscription.kind, ADR-0017 결정 5).
+KIND_EXP = "exp"
+KIND_NOTICE = "notice"
+KIND_SUNDAY = "sunday"
 
 # 상세 본문(contents) HTML 에서 첫 <img src> 추출 — 단·쌍따옴표 모두 허용.
 _IMG_SRC_RE = re.compile(r'<img[^>]+src=["\']([^"\']+)["\']', re.IGNORECASE)
@@ -240,3 +245,75 @@ async def set_exp_alert(
         )
         await session.execute(stmt)
         await session.commit()
+
+
+# ── 개인 DM 구독 (notification_subscription, ADR-0017) ─────────────────────────
+
+
+async def subscribe_dm(
+    session_factory: async_sessionmaker[AsyncSession],
+    guild_id: int,
+    discord_user_id: int,
+    kind: str,
+) -> None:
+    """개인 DM 구독 켜기 — 행 삽입(이미 있으면 no-op). 멱등(중복 켜기 무해)."""
+    async with session_factory() as session:
+        stmt = (
+            pg_insert(NotificationSubscription)
+            .values(guild_id=guild_id, discord_user_id=discord_user_id, kind=kind)
+            .on_conflict_do_nothing(
+                index_elements=["guild_id", "discord_user_id", "kind"]
+            )
+        )
+        await session.execute(stmt)
+        await session.commit()
+
+
+async def unsubscribe_dm(
+    session_factory: async_sessionmaker[AsyncSession],
+    guild_id: int,
+    discord_user_id: int,
+    kind: str,
+) -> bool:
+    """개인 DM 구독 끄기 — delete. 실제로 지운 행이 있으면 True(미구독 끄기는 False → 안내 분기)."""
+    async with session_factory() as session:
+        result = await session.execute(
+            delete(NotificationSubscription).where(
+                NotificationSubscription.guild_id == guild_id,
+                NotificationSubscription.discord_user_id == discord_user_id,
+                NotificationSubscription.kind == kind,
+            )
+        )
+        await session.commit()
+    return (result.rowcount or 0) > 0
+
+
+async def dm_subscribers(
+    session_factory: async_sessionmaker[AsyncSession], kind: str
+) -> list[tuple[int, int]]:
+    """그 kind 의 개인 DM 구독 (guild_id, discord_user_id) 전체 — 경험치(길드별 리더보드)용."""
+    async with session_factory() as session:
+        stmt = select(
+            NotificationSubscription.guild_id,
+            NotificationSubscription.discord_user_id,
+        ).where(NotificationSubscription.kind == kind)
+        rows = (await session.execute(stmt)).all()
+    return [(row.guild_id, row.discord_user_id) for row in rows]
+
+
+async def dm_subscriber_users(
+    session_factory: async_sessionmaker[AsyncSession], kind: str
+) -> list[int]:
+    """그 kind 구독자의 distinct discord_user_id — 공지·썬데이(글로벌 콘텐츠) 디듀프용(결정 6).
+
+    공지·썬데이는 모든 길드 공통 콘텐츠라 다중 길드 가입 유저에게 중복 DM 이 가지 않도록
+    user_id 기준 distinct 로 1회만 보낸다(저장은 guild 별, 발송이 디듀프 책임).
+    """
+    async with session_factory() as session:
+        stmt = (
+            select(NotificationSubscription.discord_user_id)
+            .where(NotificationSubscription.kind == kind)
+            .distinct()
+        )
+        rows = (await session.execute(stmt)).all()
+    return [row.discord_user_id for row in rows]

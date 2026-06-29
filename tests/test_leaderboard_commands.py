@@ -215,75 +215,14 @@ async def test_leaderboard_command_bootstrap_fetches_when_no_snapshot(monkeypatc
     assert call["embed"] == "embed"  # 이후 정상 발송
 
 
-# ── /경험치알림 토글 (권한 가드 + upsert 호출) ──────────────────────────────
+# ── /경험치알림 스펙 배선 (대상 분기 본체는 test_notification_toggle 에서 검증) ──
 
 
-class _ToggleResponse:
-    def __init__(self) -> None:
-        self.message: dict | None = None
-
-    async def send_message(self, **kwargs) -> None:
-        self.message = kwargs
-
-
-class _ToggleInteraction:
-    def __init__(self, *, guild_id, channel_id, manage_guild: bool) -> None:
-        self.guild_id = guild_id
-        self.channel_id = channel_id
-        self.user = SimpleNamespace(
-            guild_permissions=SimpleNamespace(manage_guild=manage_guild)
-        )
-        self.response = _ToggleResponse()
-
-
-async def test_exp_alert_requires_manage_guild(monkeypatch):
-    calls: list = []
-
-    async def fake_set(sf, **kwargs):
-        calls.append(kwargs)
-
-    monkeypatch.setattr(commands.channel_service, "set_exp_alert", fake_set)
-    interaction = _ToggleInteraction(guild_id=1, channel_id=2, manage_guild=False)
-    await commands.handle_exp_alert(
-        deps=SimpleNamespace(session_factory=object()),
-        interaction=interaction,
-        enabled=True,
-    )
-    assert calls == []  # 권한 없으면 토글 안 함
-    assert "권한" in (interaction.response.message["embed"].title or "")
-
-
-async def test_exp_alert_toggles_on(monkeypatch):
-    calls: list = []
-
-    async def fake_set(sf, **kwargs):
-        calls.append(kwargs)
-
-    monkeypatch.setattr(commands.channel_service, "set_exp_alert", fake_set)
-    interaction = _ToggleInteraction(guild_id=1, channel_id=2, manage_guild=True)
-    await commands.handle_exp_alert(
-        deps=SimpleNamespace(session_factory=object()),
-        interaction=interaction,
-        enabled=True,
-    )
-    assert calls == [{"guild_id": 1, "channel_id": 2, "enabled": True}]
-    assert "켜짐" in (interaction.response.message["embed"].title or "")
-
-
-async def test_exp_alert_dm_guard(monkeypatch):
-    calls: list = []
-
-    async def fake_set(sf, **kwargs):
-        calls.append(kwargs)
-
-    monkeypatch.setattr(commands.channel_service, "set_exp_alert", fake_set)
-    interaction = _ToggleInteraction(guild_id=None, channel_id=None, manage_guild=True)
-    await commands.handle_exp_alert(
-        deps=SimpleNamespace(session_factory=object()),
-        interaction=interaction,
-        enabled=True,
-    )
-    assert calls == []
+def test_exp_alert_spec_wires_exp_kind_and_channel_setter():
+    # 경험치 알림 스펙이 exp 구독 kind·채널 토글 함수에 묶여 있는지(통일 패턴, ADR-0017).
+    assert commands._EXP_SPEC.kind == commands.channel_service.KIND_EXP
+    assert commands._EXP_SPEC.set_channel is commands.channel_service.set_exp_alert
+    assert commands._EXP_SPEC.title == "경험치 알림"
 
 
 # ── build_payload: 2명 미만 → None ───────────────────────────────────────────
