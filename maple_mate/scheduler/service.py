@@ -1,7 +1,7 @@
 """스케줄러 알리미 비즈니스 로직 (전달-무관: 순수 + DB). discord/넥슨 타입 비의존.
 
 - 순수: `parse_homework`(응답 → DTO, registration_flag 필터)·라인 빌더·`section_text`(1024 클램프).
-- DB: 구독 토글/조회(scheduler_subscription)·`resolve_self_characters`(키 + realm 캐릭터 전체).
+- DB: 구독 토글/조회(scheduler_subscription)·`resolve_self_characters`(키 + 등록 캐릭터 전부).
 DB 함수는 pg_insert/delete 통합 영역이라 단위테스트에서 제외한다(작업지시서 #5, 기존 방침).
 """
 
@@ -18,7 +18,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from sqlalchemy.sql import func
 
 from ..history.service import get_history_targets
-from ..registration.realm import CHALLENGERS_NO_TARGET, Realm, in_realm
 from ..registration.service import get_characters
 from . import category_filter
 from .category_filter import BUCKET_BOSS, BUCKET_DAILY, BUCKET_GUILD, BUCKET_WEEKLY
@@ -406,34 +405,26 @@ def boss_cycle_value(items: Sequence[BossItem]) -> str:
 
 @dataclass(frozen=True)
 class Subscription:
-    """구독 1건(전달/잡 공유). realm 은 Realm enum, excluded 는 숨김 묶음 집합(ADR-0014)."""
+    """구독 1건(전달/잡 공유). excluded 는 숨김 묶음 집합(ADR-0014). realm 제거(ADR-0017)."""
 
     guild_id: int
     discord_user_id: int
-    realm: Realm
     hour: int
     excluded: frozenset[str] = frozenset()
-
-
-def _realm_of_value(value: str) -> Realm:
-    """저장된 realm 디스크리미넌트 → Realm(예상 외 값은 본서버로 폴백)."""
-    return Realm.CHALLENGERS if value == Realm.CHALLENGERS.value else Realm.MAIN
 
 
 async def get_subscription(
     session_factory: async_sessionmaker[AsyncSession],
     guild_id: int,
     discord_user_id: int,
-    realm: Realm,
 ) -> Subscription | None:
-    """(guild, user, realm) 구독 1건 — 켜기 병합의 베이스 읽기(없으면 None=빈 제외집합)."""
+    """(guild, user) 구독 1건 — 켜기 병합의 베이스 읽기(없으면 None=빈 제외집합)."""
     async with session_factory() as session:
         row = (
             await session.execute(
                 select(SchedulerSubscription).where(
                     SchedulerSubscription.guild_id == guild_id,
                     SchedulerSubscription.discord_user_id == discord_user_id,
-                    SchedulerSubscription.realm == realm.value,
                 )
             )
         ).scalar_one_or_none()
@@ -442,7 +433,6 @@ async def get_subscription(
     return Subscription(
         guild_id=row.guild_id,
         discord_user_id=row.discord_user_id,
-        realm=_realm_of_value(row.realm),
         hour=row.hour,
         excluded=category_filter.from_csv(row.excluded_categories),
     )
@@ -453,11 +443,10 @@ async def set_subscription(
     *,
     guild_id: int,
     discord_user_id: int,
-    realm: Realm,
     hour: int,
     excluded: frozenset[str] = frozenset(),
 ) -> None:
-    """구독 켜기 upsert — (guild, user, realm) 에 hour·제외집합 저장(재호출 = 갱신)."""
+    """구독 켜기 upsert — (guild, user) 에 hour·제외집합 저장(재호출 = 갱신)."""
     excluded_csv = category_filter.to_csv(excluded)
     async with session_factory() as session:
         stmt = (
@@ -465,12 +454,11 @@ async def set_subscription(
             .values(
                 guild_id=guild_id,
                 discord_user_id=discord_user_id,
-                realm=realm.value,
                 hour=hour,
                 excluded_categories=excluded_csv,
             )
             .on_conflict_do_update(
-                index_elements=["guild_id", "discord_user_id", "realm"],
+                index_elements=["guild_id", "discord_user_id"],
                 set_={
                     "hour": hour,
                     "excluded_categories": excluded_csv,
@@ -487,7 +475,6 @@ async def clear_subscription(
     *,
     guild_id: int,
     discord_user_id: int,
-    realm: Realm,
 ) -> bool:
     """구독 끄기 delete. 실제로 지운 행이 있으면 True(없던 구독 끄기는 False → 안내 분기)."""
     async with session_factory() as session:
@@ -495,7 +482,6 @@ async def clear_subscription(
             delete(SchedulerSubscription).where(
                 SchedulerSubscription.guild_id == guild_id,
                 SchedulerSubscription.discord_user_id == discord_user_id,
-                SchedulerSubscription.realm == realm.value,
             )
         )
         await session.commit()
@@ -505,7 +491,7 @@ async def clear_subscription(
 async def subscriptions_at_hour(
     session_factory: async_sessionmaker[AsyncSession], hour: int
 ) -> list[Subscription]:
-    """그 시각(hour) 구독 전체(cron 디스패치 조회). realm 별 독립 행."""
+    """그 시각(hour) 구독 전체(cron 디스패치 조회). (guild, user)별 1행."""
     async with session_factory() as session:
         rows = (
             await session.execute(
@@ -516,7 +502,6 @@ async def subscriptions_at_hour(
             Subscription(
                 guild_id=r.guild_id,
                 discord_user_id=r.discord_user_id,
-                realm=_realm_of_value(r.realm),
                 hour=r.hour,
                 excluded=category_filter.from_csv(r.excluded_categories),
             )
@@ -525,20 +510,19 @@ async def subscriptions_at_hour(
     return subs
 
 
-# ── 본인 키 + realm 캐릭터 전체 해석 (DB, bitik _self_target 패턴) ─────────────
+# ── 본인 키 + 등록 캐릭터 전체 해석 (DB, bitik _self_target 패턴) ──────────────
 
 
 async def resolve_self_characters(
     session_factory: async_sessionmaker[AsyncSession],
     guild_id: int,
     discord_user_id: int,
-    realm: Realm,
 ) -> tuple[str | None, list[tuple[str, str]], str | None]:
-    """(개인 키 암호문, [(ocid, 닉네임) … 그 realm 캐릭터 전부], 에러 메시지).
+    """(개인 키 암호문, [(ocid, 닉네임) … 등록 캐릭터 전부], 에러 메시지).
 
-    성공이면 에러 None, 실패면 앞 둘이 None/빈 리스트. 개인 키는 계정 단위(realm 무관), 캐릭터는
-    그 realm 전체(레벨 내림차순). 대표 1캐릭이 아니라 **등록 캐릭터 전부**로 확장(ADR-0012 개정).
-    가드 순서: 미등록 → 키 미등록 → realm 캐릭터 0개(fail fast 구독 가드·온디맨드 공통, 결정 7).
+    성공이면 에러 None, 실패면 앞 둘이 None/빈 리스트. 개인 키는 계정 단위, 캐릭터는 등록한
+    전부(본+챌, realm 무관 — ADR-0017, 레벨 내림차순). 가드 순서: 미등록 → 키 미등록 →
+    캐릭터 0개(fail fast 구독 가드·온디맨드 공통, 결정 7).
     """
     history_targets = await get_history_targets(
         session_factory, guild_id, [discord_user_id]
@@ -553,14 +537,7 @@ async def resolve_self_characters(
             "개인 키 미등록이라 스케줄러를 볼 수 없어요. `/키등록`으로 키를 추가해 주세요.",
         )
     characters = await get_characters(session_factory, guild_id, discord_user_id)
-    in_realm_chars = [
-        (c.ocid, c.nickname) for c in characters if in_realm(c.world, realm)
-    ]
-    if not in_realm_chars:
-        msg = (
-            CHALLENGERS_NO_TARGET
-            if realm is Realm.CHALLENGERS
-            else "등록된 본서버 캐릭터가 없어요. `/캐릭터등록` 먼저 해주세요."
-        )
-        return None, [], msg
-    return key_encrypted, in_realm_chars, None
+    if not characters:
+        return None, [], "등록된 캐릭터가 없어요. `/캐릭터등록` 먼저 해주세요."
+    chars = [(c.ocid, c.nickname) for c in characters]
+    return key_encrypted, chars, None

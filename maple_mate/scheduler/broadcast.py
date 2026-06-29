@@ -14,11 +14,12 @@ from datetime import datetime
 
 import discord
 
+from ..bot.dm import send_dm
 from ..bot.embeds import BRAND_COLOR, append_source, format_footer, make_embed
 from ..dependencies import Deps
 from ..nexon.client import KST
 from ..nexon.errors import NexonAPIError
-from ..registration.realm import Realm
+from ..registration.realm import is_challengers
 from . import service
 from .category_filter import BUCKET_BOSS, BUCKET_DAILY, BUCKET_GUILD, BUCKET_WEEKLY
 from .service import Homework
@@ -26,9 +27,9 @@ from .service import Homework
 log = logging.getLogger(__name__)
 
 
-def _embed_title(name: str, realm: Realm) -> str:
-    """임베드 제목 — 본서버 '🗓', 챌린저스 '🏆 챌린저스'(리더보드 _embed_title 패턴)."""
-    prefix = "🏆 챌린저스" if realm is Realm.CHALLENGERS else "🗓"
+def _embed_title(name: str, world: str | None) -> str:
+    """임베드 제목 뱃지 — 캐릭터 world 로 per-character 파생(ADR-0017). 챌린저스 '🏆 챌린저스', 그 외 '🗓'."""
+    prefix = "🏆 챌린저스" if is_challengers(world) else "🗓"
     return f"{prefix} {name} 의 스케줄러 숙제"
 
 
@@ -94,7 +95,6 @@ def _boss_field(
 
 def build_embed(
     hw: Homework,
-    realm: Realm,
     now: datetime,
     excluded: frozenset[str] = frozenset(),
 ) -> discord.Embed:
@@ -102,12 +102,13 @@ def build_embed(
 
     일일/주간을 퀘스트·회수·완료미완료·점수로 가르고, 보스는 cycle(일/주/월)별로 나눈다. excluded
     (ADR-0014)에 든 사용자 묶음(일일·주간·보스·길드)의 필드는 통째로 가리며, 부제 잔여·상태색은
-    보이는 묶음만 재집계(visible_remaining)해 화면과 일치시킨다. 페치는 불변(표시 전용).
+    보이는 묶음만 재집계(visible_remaining)해 화면과 일치시킨다. 제목 뱃지는 캐릭터 world 로 파생
+    (ADR-0017 — 한 구독에 본+챌 혼재 가능). 페치는 불변(표시 전용).
     """
     done, total = service.visible_remaining(hw, excluded)
     color = _DONE_COLOR if (total > 0 and done >= total) else BRAND_COLOR
     embed = make_embed(
-        _embed_title(hw.character_name, realm),
+        _embed_title(hw.character_name, hw.world_name),
         _subtitle(hw, done, total),
         color=color,
     )
@@ -166,16 +167,16 @@ def build_embed(
 
 
 async def build_homeworks(
-    deps: Deps, guild_id: int, user_id: int, realm: Realm
+    deps: Deps, guild_id: int, user_id: int
 ) -> tuple[list[Homework], str | None]:
-    """본인 키 + realm 캐릭터 전부 → 각 캐릭터 오늘 스케줄러 페치 → 파싱. 온디맨드·DM 잡 공유.
+    """본인 키 + 등록 캐릭터 전부 → 각 캐릭터 오늘 스케줄러 페치 → 파싱. 온디맨드·DM 잡 공유.
 
     성공이면 (homeworks, None) — 캐릭터별 Homework 리스트(is_empty 포함 가능, 캐릭터 4xx 는
-    조용히 스킵하고 나머지는 계속). 가드 실패(미등록·키없음·realm 캐릭터 0)면 ([], 사용자메시지).
+    조용히 스킵하고 나머지는 계속). 가드 실패(미등록·키없음·캐릭터 0)면 ([], 사용자메시지).
     개인 키 4xx(비대상·저활동)는 raise 하지 않고 error_log 미적재(결정 7 — 운영 요약 제외 철학).
     """
     key_encrypted, chars, error = await service.resolve_self_characters(
-        deps.session_factory, guild_id, user_id, realm
+        deps.session_factory, guild_id, user_id
     )
     if error is not None:
         return [], error
@@ -188,10 +189,9 @@ async def build_homeworks(
             )  # 오늘=무지정
         except NexonAPIError as exc:
             log.warning(
-                "스케줄러 조회 실패 (guild=%s user=%s realm=%s ocid=%s): %s",
+                "스케줄러 조회 실패 (guild=%s user=%s ocid=%s): %s",
                 guild_id,
                 user_id,
-                realm.value,
                 ocid,
                 exc,
             )
@@ -200,33 +200,8 @@ async def build_homeworks(
     return homeworks, None
 
 
-async def _fetch_user(bot: discord.Client, user_id: int) -> discord.User | None:
-    """DM 대상 유저 해석: 캐시(get_user) → fetch 폴백. 실패는 앱로그만."""
-    user = bot.get_user(user_id)
-    if user is not None:
-        return user
-    try:
-        return await bot.fetch_user(user_id)
-    except discord.HTTPException as exc:
-        log.warning("스케줄러 알리미 유저 해석 실패 (user=%s): %s", user_id, exc)
-        return None
-
-
-async def _send_dm(bot: discord.Client, user_id: int, embed: discord.Embed) -> bool:
-    """본인 DM 발송. DM 차단(Forbidden)·기타 HTTP 실패는 앱로그만 남기고 False(결정 7)."""
-    user = await _fetch_user(bot, user_id)
-    if user is None:
-        return False
-    try:
-        await user.send(embed=embed)
-        return True
-    except discord.HTTPException as exc:  # Forbidden(DM 차단) 포함
-        log.warning("스케줄러 알리미 DM 실패 (user=%s): %s", user_id, exc)
-        return False
-
-
 async def run_scheduler_reminder_job(bot: discord.Client, deps: Deps) -> None:
-    """매시 정각 잡: now.hour 구독 조회 → 0개면 스킵 → 구독별 realm 캐릭터 전부 빌드 → 캐릭터당 DM.
+    """매시 정각 잡: now.hour 구독 조회 → 0개면 스킵 → 구독별 등록 캐릭터 전부 빌드 → 캐릭터당 DM.
 
     캐릭터마다 임베드 1개를 별도 DM 으로 보낸다(캐릭터 4개면 DM 4개). is_empty(등록 숙제 0개)·
     실패(키없음·4xx)·DM 차단은 모두 조용히 스킵(결정 7). 한 캐릭터/구독 실패가 다음을 막지 않는다.
@@ -240,13 +215,13 @@ async def run_scheduler_reminder_job(bot: discord.Client, deps: Deps) -> None:
     sent = 0
     for sub in subs:
         homeworks, _error = await build_homeworks(
-            deps, sub.guild_id, sub.discord_user_id, sub.realm
+            deps, sub.guild_id, sub.discord_user_id
         )
         for homework in homeworks:
             if service.is_empty_filtered(homework, sub.excluded):
                 continue  # 필터 후 빈 캐릭터 스킵(빈 DM 금지)
-            embed = build_embed(homework, sub.realm, now, sub.excluded)
-            if await _send_dm(bot, sub.discord_user_id, embed):
+            embed = build_embed(homework, now, sub.excluded)
+            if await send_dm(bot, sub.discord_user_id, embed=embed):
                 sent += 1
     log.info(
         "스케줄러 알리미: %d시 구독 %d건, 캐릭터 %d개 DM 발송",
