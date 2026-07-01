@@ -1,0 +1,144 @@
+/* ============================================================
+   메이트 디자인 토큰 (D11 팔레트 · AA 검증 완료)
+   - 라이트=정본, 다크=1급. Nextra/next-themes 는 <html class="dark"> 사용.
+   - AA 조정: teal 링크 #0E8C92→#0B7C82, muted #94A3B8→#64748B,
+     CTA 는 브랜드 오렌지(#E0700A, 그래픽 전용)와 분리한 --cta(#B85906,
+     흰 텍스트 4.7:1, 크기 무관 AA). 근거: docs/website-design-decisions.md D4·D6·D11.
+   ============================================================ */
+
+@import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+@import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600&display=swap');
+
+:root {
+  /* 기능 액센트 (틸) — 링크·활성·포커스·섹션 */
+  --teal:        #0B7C82;   /* AA: white 4.98 / subtle 4.76 */
+  --teal-hover:  #096a6f;
+
+  /* 브랜드 액센트 (오렌지) — 마스코트·워시·스트라이프·글로우 (그래픽 전용, ≥3:1) */
+  --orange:      #E0700A;
+  --orange-soft: rgba(224,112,10,.12);
+
+  /* CTA 솔리드 버튼 (흰 텍스트 4.7:1 · 양 테마 고정 · 크기 무관 AA) */
+  --cta:         #B85906;
+  --cta-hover:   #A85206;
+  --cta-glow:    rgba(224,112,10,.38);
+
+  /* 중립 — 쿨 슬레이트 */
+  --bg-base:     #FFFFFF;
+  --bg-subtle:   #F8FAFC;
+  --bg-elevated: #FFFFFF;
+  --tx-primary:  #1E293B;
+  --tx-secondary:#475569;
+  --tx-muted:    #64748B;   /* AA: white 4.76 */
+  --border:      #E2E8F0;
+
+  /* 전제조건 배지 (green/indigo/amber-gold) */
+  --badge-green-bg:  #E5F5EC;  --badge-green-tx:  #1E7A44;
+  --badge-indigo-bg: #ECEEFB;  --badge-indigo-tx: #3A45B0;
+  --badge-amber-bg:  #FBF3DD;  --badge-amber-tx:  #8A6209;
+
+  /* 명령 칩 (Pretendard pill · 틸 틴트) */
+  --cmd-chip-bg:     #E0F4F5;  --cmd-chip-tx:     #0a5c60;
+  --cmd-chip-border: #b0dfe0;
+
+  /* 히어로 오렌지 warm wash 밴드 (hero-3) */
+  --hero-band-bg:   #FFF5EC;   --hero-band-text: #7A3800;
+
+  /* 스크린샷 틴트 프레임 (테마 인식) */
+  --screenshot-bg:     #F0F9F9;
+  --screenshot-border: transparent;
+
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.08);
+  --shadow-md: 0 4px 16px rgba(0,0,0,.10);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,.12);
+
+  --radius-sm: 6px;  --radius-md: 12px;  --radius-lg: 20px;  --radius-pill: 999px;
+
+  --font-base: 'Pretendard', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+}
+
+.dark {
+  --teal:        #5EC8C8;   /* AA: 8.99 on #0F172A */
+  --teal-hover:  #7ad4d4;
+
+  --orange:      #F5883A;
+  --orange-soft: rgba(245,136,58,.14);
+
+  --cta:         #B85906;   /* 버튼 색은 테마 무관 고정 (흰 텍스트 4.7) */
+  --cta-hover:   #A85206;
+  --cta-glow:    rgba(245,136,58,.30);
+
+  --bg-base:     #0F172A;
+  --bg-subtle:   #1E293B;
+  --bg-elevated: #1E293B;
+  --tx-primary:  #E2E8F0;
+  --tx-secondary:#94A3B8;
+  --tx-muted:    #8695AA;   /* AA on dark navy */
+  --border:      #24324A;
+
+  --badge-green-bg:  #16311F;  --badge-green-tx:  #5FD08A;
+  --badge-indigo-bg: #20233F;  --badge-indigo-tx: #8A93F0;
+  --badge-amber-bg:  #33290C;  --badge-amber-tx:  #E8C15A;
+
+  --cmd-chip-bg:     #0d3a3b;  --cmd-chip-tx:     #5EC8C8;
+  --cmd-chip-border: #1a5e60;
+
+  --hero-band-bg:   #1C1008;   --hero-band-text: #F5883A;
+
+  --screenshot-bg:     #162030;
+  --screenshot-border: #2d3f55;
+
+  --shadow-sm: 0 1px 3px rgba(0,0,0,.3);
+  --shadow-md: 0 4px 16px rgba(0,0,0,.4);
+  --shadow-lg: 0 8px 32px rgba(0,0,0,.5);
+}
+
+/* ---- Pretendard 를 사이트 본문 폰트로 (Nextra 기본 위에) ---- */
+html,
+body {
+  font-family: var(--font-base);
+}
+/* 랜딩 100vw full-bleed 섹션의 가로 스크롤 방지. clip 은 scroll container 를
+   만들지 않아 Nextra sticky 네비를 깨지 않는다(overflow:hidden 과 다름). */
+html {
+  overflow-x: clip;
+}
+:root {
+  --nextra-font-sans: var(--font-base);
+}
+code,
+kbd,
+pre,
+.nextra-code {
+  font-family: var(--font-mono);
+}
+
+/* ---- Nextra 크롬을 브랜드 틸에 정렬 (링크·활성 상태) ---- */
+:root {
+  --nextra-primary-hue: 184deg;
+  --nextra-primary-saturation: 82%;
+  --nextra-primary-lightness: 28%;
+}
+.dark {
+  --nextra-primary-hue: 180deg;
+  --nextra-primary-saturation: 50%;
+  --nextra-primary-lightness: 58%;
+}
+
+/* ---- 마케팅(랜딩) 페이지는 풀폭 · 본문 여백/타이포 초기화 없이 컴포넌트가 담당 ---- */
+.mm-landing {
+  max-width: none;
+}
+
+/* 공통 유틸 */
+.mm-eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--teal);
+}
