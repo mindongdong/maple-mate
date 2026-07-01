@@ -3,6 +3,10 @@
 > `grill-with-docs` 세션 산출물. 입력 브리핑 = [website-design-handoff.md](./website-design-handoff.md).
 > 구조·스택·톤 *방향*은 이전 세션에서 확정([website-docs-plan] 메모리) — 여기서는 **구체 디자인 시스템**을 결정한다.
 > 각 결정은 잠기는 즉시 기록. 미해결 항목은 "미결" 표시.
+>
+> **✅ 구현 완료 (2026-07-01, PR #37)** — 이 결정 D1–D14 는 전부 `site/`(Nextra v4)에 as-built 로 구현됨.
+> 실제 반영·변경 사항은 §3(열린 항목 해소)·§4(리파인 백로그 해소)·§5(as-built 요약)와
+> [website-deploy-runbook](./website-deploy-runbook.md)·[website-screenshot-capture](./website-screenshot-capture.md) 참조.
 
 ---
 
@@ -182,23 +186,30 @@
 
 **배지 taxonomy 재정의(§3.5·9 관통)**: 구 권한기반 {🔓/📜/🛡} → **전제조건 funnel {등록없이(green)/캐릭터(indigo)/API키(gold)}**. 온보딩 흐름과 일치, 🛡 관리권한 티어 소멸(#36).
 
-## 3. 열린 항목 / 의존성
+## 3. 열린 항목 / 의존성 — 해소 현황
 
-- ⚠️ **#36 배포 조율(D5)**: 웹은 post-#36 상태 문서화 → **사이트 공개 = #36 배포 이후**(비틱 숨김·권한제거·알림통일이 라이브여야 안산 서술 방지). PR #36 = 구현완료·머지대기([[notification-unification-decisions]]).
-- **정확한 hex 확정**: D11 스타터 팔레트를 구현 시 대비(AA) 검증 후 토큰화.
-- **마스코트 2폼 제작(D2)**: 풀 렌더 폼(히어로/OG/404) + 플랫 파비콘 마크(스템 힌트/갓 오버행으로 실루엣 명확).
-- **다음 단계**: 프레임(D10)·컬러(D11) 확정됨 → `designer`로 **히어로 + 명령어 페이지 목업 2–3안** 생성 → 데모 서버 재캡처 스샷 적용.
+- ⚠️ **#36 배포 조율(D5)**: **여전히 유효**. 웹은 post-#36 상태 문서화 → **사이트 공개 = 봇의 #36 실제 배포 이후**(비틱 숨김·권한제거·알림통일 라이브 전제). #36 은 저장소에 머지됨(커밋 `771db88`).
+- ✅ **정확한 hex 확정**: `site/app/globals.css` 에 토큰화. **AA 검증 후 3건 조정** — teal 링크 `#0E8C92→#0B7C82`(white 4.98), muted `#94A3B8→#64748B`(4.76), CTA 는 브랜드 오렌지(`#E0700A`, 그래픽 전용)와 분리한 `--cta #B85906`(흰 텍스트 4.7:1, 크기 무관 AA).
+- ✅ **마스코트 2폼 제작(D2)**: 최종 자산 = **`icon_2.png`(주황버섯 갓+스팟+카와이 얼굴) 기반 래스터**(흰 배경 flood-fill 제거) → `site/public/mascot.png`(512² 투명)·`favicon.png`·`apple-touch-icon.png`. `MushroomFull`/`MushroomMark` 두 폼 모두 동일 자산을 크기만 달리 렌더. 초기 SVG placeholder 는 폐기.
+- ✅ **다음 단계(구현)**: `designer` 목업 단계 없이 **채택 목업(hero-3·commands)을 Nextra `site/` 로 직접 구현**. 데모 서버 재캡처 스샷은 **미완**(실데이터 금지 → 현재 CSS 임베드 목업, 교체 런북 = [website-screenshot-capture](./website-screenshot-capture.md)).
 
-## 4. 목업 & 리파인 백로그 (구현 후 처리 — 이번 세션 범위 밖)
+## 4. 목업 & 리파인 백로그 — ✅ 전부 해소
 
 **목업 산출물**: `docs/website-mockups/` — `hero-1.html`(균형 스플릿) · `hero-2.html`(텍스트 우세) · `hero-3.html`(따뜻 강조, **✅ 채택**) · `commands.html`(3컬럼 명령어 페이지). 각 파일 라이트/다크 토글 내장. 스샷·버섯은 CSS 플레이스홀더(실 에셋 아님).
 
-**리파인 백로그**(hero-3 as-built 비평 — 구현 시 반영, 세부 결정은 구현 후):
-1. **버섯 배치** — 현재 스샷 상단 정중앙 -20px 걸침 → 임베드 타이틀 가림 위험. 코너 빼꼼 유력(미확정).
-2. **스티키 nav 배경** — 오렌지 wash가 스크롤해도 유지 → 흰 pillars 위 오렌지 nav 어색. 스크롤 시 중립/blur 전환 검토.
-3. **"5분 시작 티저" 섹션 누락** — D8 흐름(3기둥 → 5분 티저 → docs)에서 티저 섹션 미구현. 추가 필요.
-4. **모바일 스택 순서** — 현재 스샷+버섯이 카피/CTA 위(`order:-1`). 카톡 첫인상엔 워드마크+태그라인+CTA 먼저 검토.
-5. **히어로 H1 락업** — 좌 H1 텍스트만(마크 없음, nav엔 락업 존재). 중복 회피 의도 확인.
+**리파인 백로그**(hero-3 as-built 비평) — 구현하며 내린 실제 결정:
+1. ✅ **버섯 배치** — 스샷 상단 중앙 걸침 → **우상단 코너 빼꼼**으로 변경(임베드 타이틀 안 가림). `.mm-hero-mushroom { position:absolute; top:-44px; right:-8px }`.
+2. ✅ **스티키 nav 배경** — 항상-오렌지 폐기, **Nextra 중립/blur 네비**를 사이트 전역으로 사용. 오렌지 warm wash 는 히어로 섹션에만 한정.
+3. ✅ **"5분 시작 티저" 섹션** — **추가**(`QuickStartTeaser`): 3기둥 → 티저(전제조건 funnel 3티어) → docs.
+4. ✅ **모바일 스택 순서** — `order:-1` 제거 → **카피+CTA 먼저, 미디어 아래**(카톡 첫인상).
+5. ✅ **히어로 H1 락업** — 의도 확정: **H1 = 워드마크 텍스트만**(마크는 네비 락업 + 우측 큰 버섯이 마스코트 존재감 담당, 삼중 버섯 회피).
 
-*이 백로그는 구현(Nextra `site/`) 착수 후, 실제 렌더 위에서 결정한다(사용자 지시: 현 단계 세부 논의 보류).*
+## 5. as-built 요약 (PR #37)
+
+- **스택**: Next 15 + Nextra 4.6.1(App Router, `content/` 컨벤션) → Vercel. KO 전용, 검색 비활성(MVP).
+- **구조**: 랜딩(히어로·3기둥·5분 티저) · 시작하기(Steps 온보딩) · 명령어(단일+우측 TOC·6그룹·전제조건 배지) · 개념 · 개인정보. 인라인 `/명령` → 명령 칩 자동 변환(D7).
+- **배지 taxonomy**: 권한기반 폐기 → **전제조건 funnel**(등록없이 green / 캐릭터 indigo / API키 amber). 비틱 제외.
+- **드리프트 가드**: `site/data/commands.json`(16명령) ↔ 봇 트리 `==` 검증(`tests/test_website_command_drift.py`) → `uv run pytest` 로 CI 자동 편입.
+- **함정**: `nextra@4.6.1` × `zod@4.4.x` 의 `z.custom()` undefined 처리 변경으로 Layout 스키마가 깨짐 → `overrides.zod = "4.1.12"` 로 고정. Nextra 전 full-layout 도 좌우 패딩 있어 랜딩은 `100vw` full-bleed + `html{overflow-x:clip}`.
+- **미완**: 데모 서버 실 스크린샷 재캡처(현재 CSS 임베드 목업), 운영자 Vercel/도메인 설정.
 
