@@ -1,0 +1,44 @@
+<!DOCTYPE html>
+<!--
+  OG 이미지 소스 템플릿 (D12 · 마스코트-forward). 1200×630.
+  재생성: headless Chrome 로 이 파일을 1200×630 캡처 → site/public/og.png
+  (명령은 docs/website-screenshot-capture.md 참조). 브랜드 정본 = 라이트.
+-->
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  html, body { width: 1200px; height: 630px; overflow: hidden; }
+  .og {
+    width: 1200px; height: 630px;
+    display: flex; flex-direction: column;
+    align-items: center; justify-content: center;
+    gap: 26px;
+    font-family: 'Pretendard', sans-serif;
+    background:
+      radial-gradient(ellipse at 72% 20%, rgba(224,112,10,.18) 0%, transparent 55%),
+      radial-gradient(ellipse at 20% 88%, rgba(14,140,146,.10) 0%, transparent 55%),
+      linear-gradient(135deg, #FFF7EF 0%, #FFEFE0 100%);
+    position: relative;
+  }
+  .lock { display: flex; align-items: center; gap: 20px; }
+  .wordmark { font-size: 96px; font-weight: 800; letter-spacing: -.04em; color: #1E293B; }
+  .divider { width: 64px; height: 5px; background: #E0700A; border-radius: 3px; }
+  .tagline { font-size: 34px; font-weight: 600; color: #7A3800; letter-spacing: -.01em; }
+  .foot { position: absolute; bottom: 40px; font-size: 22px; font-weight: 500; color: #94794f; }
+</style>
+</head>
+<body>
+<div class="og">
+  <div class="lock">
+    <img src="../public/mascot.png" width="176" height="176" alt="메이트 버섯 마스코트">
+    <div class="wordmark">메이트</div>
+  </div>
+  <div class="divider"></div>
+  <div class="tagline">메이플을 더 재밌게 즐기도록 돕는 친구 같은 디스코드 봇</div>
+  <div class="foot">MapleStory Discord Bot · 넥슨 오픈 API</div>
+</div>
+</body>
+</html>
