@@ -32,9 +32,7 @@ def tree_command_names() -> set[str]:
 def site_command_names() -> set[str]:
     """웹사이트가 문서화한 명령 이름(site/data/commands.json)."""
     data = json.loads(_COMMANDS_JSON.read_text(encoding="utf-8"))
-    return {
-        cmd["name"] for group in data["groups"] for cmd in group["commands"]
-    }
+    return {cmd["name"] for group in data["groups"] for cmd in group["commands"]}
 
 
 def test_site_documents_every_public_command(
