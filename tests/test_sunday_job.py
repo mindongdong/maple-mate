@@ -10,6 +10,7 @@ import pytest
 
 from maple_mate.nexon.errors import ErrorClass, NexonAPIError
 from maple_mate.notification import scheduler
+from maple_mate.notification.service import SundayEvent
 
 
 class _Nexon:
@@ -23,12 +24,16 @@ def _deps():
 
 @pytest.fixture
 def patched(monkeypatch):
-    """service/broadcast/error_log 를 페이크로 교체하고 호출 순서를 기록한다."""
+    """service/broadcast/error_log/DM 을 페이크로 교체하고 호출 순서를 기록한다."""
     calls: list[str] = []
     state = {
         "already_sent": False,
         "channels": [(1, 100)],
-        "events": ["evt"],  # 비어있지 않으면 발송 대상
+        "events": [
+            "evt"
+        ],  # 비어있지 않으면 발송 대상(DM 미사용 테스트는 문자열로 충분)
+        "dm_users": [],
+        "dmed": [],
         "raise": None,
     }
 
@@ -39,6 +44,9 @@ def patched(monkeypatch):
     async def enabled_sunday_channels(sf):
         calls.append("channels")
         return state["channels"]
+
+    async def dm_subscriber_users(sf, kind):
+        return state["dm_users"]
 
     async def select_sunday_events(nexon):
         calls.append("fetch")
@@ -53,6 +61,10 @@ def patched(monkeypatch):
         calls.append("broadcast")
         return len(channels)
 
+    async def send_dm(bot, user_id, **kwargs):
+        state["dmed"].append(user_id)
+        return True
+
     async def record(sf, **kwargs):
         calls.append(f"error_log:{kwargs.get('error_type')}")
 
@@ -62,9 +74,11 @@ def patched(monkeypatch):
     monkeypatch.setattr(
         scheduler.service, "enabled_sunday_channels", enabled_sunday_channels
     )
+    monkeypatch.setattr(scheduler.service, "dm_subscriber_users", dm_subscriber_users)
     monkeypatch.setattr(scheduler.service, "select_sunday_events", select_sunday_events)
     monkeypatch.setattr(scheduler.service, "mark_week_sent", mark_week_sent)
     monkeypatch.setattr(scheduler, "broadcast_sunday", broadcast_sunday)
+    monkeypatch.setattr(scheduler, "send_dm", send_dm)
     monkeypatch.setattr(scheduler.error_log, "record", record)
     return calls, state
 
@@ -109,3 +123,30 @@ async def test_nexon_failure_records_error_and_does_not_mark(patched):
     await scheduler.run_sunday_job(bot=object(), deps=_deps())
     assert calls == ["already_sent", "channels", "fetch", "error_log:nexon_api"]
     assert "broadcast" not in calls and "mark" not in calls
+
+
+# ── 개인 DM 팬아웃(ADR-0017): user distinct · 채널 0개라도 발송 · 마킹 게이트 ────
+
+
+def _event() -> SundayEvent:
+    return SundayEvent(
+        title="썬데이 메이플", url="u", thumbnail_url=None, period_text="기간"
+    )
+
+
+async def test_dm_fanout_to_subscriber_users(patched):
+    calls, state = patched
+    state["channels"] = []  # 채널 0개라도 구독자가 있으면 페치·DM
+    state["events"] = [_event()]
+    state["dm_users"] = [10, 20]
+    await scheduler.run_sunday_job(bot=object(), deps=_deps())
+    assert state["dmed"] == [10, 20]  # distinct user 각 1건
+    assert "mark" in calls  # DM 만으로도 주차 마킹(같은 주 1회)
+
+
+async def test_no_channels_no_subs_skips_nexon(patched):
+    calls, state = patched
+    state["channels"] = []
+    state["dm_users"] = []
+    await scheduler.run_sunday_job(bot=object(), deps=_deps())
+    assert calls == ["already_sent", "channels"]  # 채널·구독자 0 → 넥슨 호출 안 함

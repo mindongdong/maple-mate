@@ -9,7 +9,6 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 from maple_mate.nexon.errors import ErrorClass, NexonAPIError
-from maple_mate.registration.realm import Realm
 from maple_mate.scheduler import broadcast
 from maple_mate.scheduler.service import Subscription
 
@@ -26,16 +25,16 @@ def _deps(**over):
 
 
 async def test_build_homeworks_returns_error_when_resolve_fails(monkeypatch):
-    async def resolve(sf, g, u, realm):
+    async def resolve(sf, g, u):
         return None, [], "개인 키 미등록"
 
     monkeypatch.setattr(broadcast.service, "resolve_self_characters", resolve)
-    hws, error = await broadcast.build_homeworks(_deps(), 1, 10, Realm.MAIN)
+    hws, error = await broadcast.build_homeworks(_deps(), 1, 10)
     assert hws == [] and error == "개인 키 미등록"
 
 
 async def test_build_homeworks_fetches_each_character(monkeypatch):
-    async def resolve(sf, g, u, realm):
+    async def resolve(sf, g, u):
         return "enc", [("ocid1", "캐릭A"), ("ocid2", "캐릭B")], None
 
     async def scheduler_character_state(api_key, ocid, date_iso=None):
@@ -47,13 +46,13 @@ async def test_build_homeworks_fetches_each_character(monkeypatch):
         cipher=SimpleNamespace(decrypt=lambda enc: "decrypted"),
     )
     monkeypatch.setattr(broadcast.service, "resolve_self_characters", resolve)
-    hws, error = await broadcast.build_homeworks(deps, 1, 10, Realm.MAIN)
+    hws, error = await broadcast.build_homeworks(deps, 1, 10)
     assert error is None
     assert [hw.character_name for hw in hws] == ["캐릭A", "캐릭B"]  # 캐릭터 전부
 
 
 async def test_build_homeworks_skips_4xx_character(monkeypatch):
-    async def resolve(sf, g, u, realm):
+    async def resolve(sf, g, u):
         return "enc", [("bad", "저활동"), ("ok", "정상")], None
 
     async def scheduler_character_state(api_key, ocid, date_iso=None):
@@ -71,7 +70,7 @@ async def test_build_homeworks_skips_4xx_character(monkeypatch):
         cipher=SimpleNamespace(decrypt=lambda enc: "k"),
     )
     monkeypatch.setattr(broadcast.service, "resolve_self_characters", resolve)
-    hws, error = await broadcast.build_homeworks(deps, 1, 10, Realm.MAIN)
+    hws, error = await broadcast.build_homeworks(deps, 1, 10)
     assert error is None  # 캐릭터별 4xx 는 raise/error 아님(조용히 스킵)
     assert [hw.character_name for hw in hws] == ["정상"]  # bad 캐릭터만 빠짐
 
@@ -86,7 +85,7 @@ async def test_job_skips_when_no_subscriptions(monkeypatch):
         calls.append("subs")
         return []
 
-    async def build_homeworks(deps, g, u, realm):
+    async def build_homeworks(deps, g, u):
         calls.append("build")
         return [], None
 
@@ -99,13 +98,13 @@ async def test_job_skips_when_no_subscriptions(monkeypatch):
 
 
 async def test_job_dms_each_character(monkeypatch):
-    subs = [Subscription(1, 10, Realm.MAIN, 21)]
+    subs = [Subscription(1, 10, 21)]
     dmed: list[int] = []
 
     async def subscriptions_at_hour(sf, hour):
         return subs
 
-    async def build_homeworks(deps, g, u, realm):
+    async def build_homeworks(deps, g, u):
         return [SimpleNamespace(is_empty=False) for _ in range(3)], None  # 캐릭터 3개
 
     async def send_dm(bot, user_id, embed):
@@ -116,23 +115,23 @@ async def test_job_dms_each_character(monkeypatch):
         broadcast.service, "subscriptions_at_hour", subscriptions_at_hour
     )
     monkeypatch.setattr(broadcast, "build_homeworks", build_homeworks)
-    monkeypatch.setattr(broadcast, "build_embed", lambda hw, realm, now, excluded: "e")
+    monkeypatch.setattr(broadcast, "build_embed", lambda hw, now, excluded: "e")
     monkeypatch.setattr(
         broadcast.service, "is_empty_filtered", lambda hw, excluded: hw.is_empty
     )
-    monkeypatch.setattr(broadcast, "_send_dm", send_dm)
+    monkeypatch.setattr(broadcast, "send_dm", send_dm)
     await broadcast.run_scheduler_reminder_job(bot=object(), deps=_deps())
     assert dmed == [10, 10, 10]  # 캐릭터 3개 → 본인 DM 3개(캐릭터당 메시지 1개)
 
 
 async def test_job_skips_empty_characters(monkeypatch):
-    subs = [Subscription(1, 10, Realm.MAIN, 21)]
+    subs = [Subscription(1, 10, 21)]
     sent: list = []
 
     async def subscriptions_at_hour(sf, hour):
         return subs
 
-    async def build_homeworks(deps, g, u, realm):
+    async def build_homeworks(deps, g, u):
         return [
             SimpleNamespace(is_empty=False),
             SimpleNamespace(is_empty=True),  # 빈 캐릭터 → 스킵
@@ -147,23 +146,23 @@ async def test_job_skips_empty_characters(monkeypatch):
         broadcast.service, "subscriptions_at_hour", subscriptions_at_hour
     )
     monkeypatch.setattr(broadcast, "build_homeworks", build_homeworks)
-    monkeypatch.setattr(broadcast, "build_embed", lambda hw, realm, now, excluded: "e")
+    monkeypatch.setattr(broadcast, "build_embed", lambda hw, now, excluded: "e")
     monkeypatch.setattr(
         broadcast.service, "is_empty_filtered", lambda hw, excluded: hw.is_empty
     )
-    monkeypatch.setattr(broadcast, "_send_dm", send_dm)
+    monkeypatch.setattr(broadcast, "send_dm", send_dm)
     await broadcast.run_scheduler_reminder_job(bot=object(), deps=_deps())
     assert len(sent) == 2  # 빈 캐릭터 1개 스킵(빈 DM 금지)
 
 
 async def test_job_continues_when_dm_blocked(monkeypatch):
-    subs = [Subscription(1, 10, Realm.MAIN, 21), Subscription(1, 11, Realm.MAIN, 21)]
+    subs = [Subscription(1, 10, 21), Subscription(1, 11, 21)]
     attempted: list[int] = []
 
     async def subscriptions_at_hour(sf, hour):
         return subs
 
-    async def build_homeworks(deps, g, u, realm):
+    async def build_homeworks(deps, g, u):
         return [SimpleNamespace(is_empty=False)], None
 
     async def send_dm(bot, user_id, embed):
@@ -174,10 +173,10 @@ async def test_job_continues_when_dm_blocked(monkeypatch):
         broadcast.service, "subscriptions_at_hour", subscriptions_at_hour
     )
     monkeypatch.setattr(broadcast, "build_homeworks", build_homeworks)
-    monkeypatch.setattr(broadcast, "build_embed", lambda hw, realm, now, excluded: "e")
+    monkeypatch.setattr(broadcast, "build_embed", lambda hw, now, excluded: "e")
     monkeypatch.setattr(
         broadcast.service, "is_empty_filtered", lambda hw, excluded: hw.is_empty
     )
-    monkeypatch.setattr(broadcast, "_send_dm", send_dm)
+    monkeypatch.setattr(broadcast, "send_dm", send_dm)
     await broadcast.run_scheduler_reminder_job(bot=object(), deps=_deps())
     assert attempted == [10, 11]  # 차단된 10 이후에도 11 시도(전체 계속)

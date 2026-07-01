@@ -6,7 +6,6 @@ from datetime import datetime
 
 from maple_mate.bot.embeds import BRAND_COLOR
 from maple_mate.nexon.client import KST
-from maple_mate.registration.realm import Realm
 from maple_mate.scheduler.broadcast import _DONE_COLOR, build_embed
 from maple_mate.scheduler.category_filter import (
     BUCKET_BOSS,
@@ -58,7 +57,7 @@ def _field(embed, prefix):
 
 
 def test_embed_category_fields_present():
-    names = [f.name for f in build_embed(_homework(), Realm.MAIN, _NOW).fields]
+    names = [f.name for f in build_embed(_homework(), _NOW).fields]
     assert any(n.startswith("📝 일일 퀘스트") for n in names)
     assert any(n.startswith("📋 일일 콘텐츠") for n in names)
     assert any(n.startswith("⚔️ 주간 콘텐츠") for n in names)
@@ -69,56 +68,56 @@ def test_embed_category_fields_present():
 
 
 def test_embed_no_progress_bar_anywhere():
-    embed = build_embed(_homework(), Realm.MAIN, _NOW)
+    embed = build_embed(_homework(), _NOW)
     blob = " ".join(f.name for f in embed.fields)
     assert "▰" not in blob and "▱" not in blob  # 진행바 제거
 
 
 def test_embed_daily_quest_field_todo_first():
-    f = _field(build_embed(_homework(), Realm.MAIN, _NOW), "📝 일일 퀘스트")
+    f = _field(build_embed(_homework(), _NOW), "📝 일일 퀘스트")
     assert "1/2" in f.name and "남은" not in f.name  # 리멘 완료, 소멸 미완(남은 N 제거)
     assert "⬜ 소멸" in f.value
     assert "✅ 리멘" in f.value  # 완료 한 줄씩
 
 
 def test_embed_count_field_shows_gauge():
-    f = _field(build_embed(_homework(), Realm.MAIN, _NOW), "📋 일일 콘텐츠")
+    f = _field(build_embed(_homework(), _NOW), "📋 일일 콘텐츠")
     assert "🟡 몬스터파크 `2/14`" in f.value  # 회수형이 콘텐츠 필드로 병합
 
 
 def test_embed_weekly_content_includes_epic_dungeon():
-    f = _field(build_embed(_homework(), Realm.MAIN, _NOW), "⚔️ 주간 콘텐츠")
+    f = _field(build_embed(_homework(), _NOW), "⚔️ 주간 콘텐츠")
     assert "1/2" in f.name and "남은" not in f.name  # 에르다 미완, 에픽 완료
     assert "⬜ 에르다 스펙트럼" in f.value
     assert "✅ 에픽 던전 : 하이마운틴" in f.value  # 완료 한 줄씩
 
 
 def test_embed_guild_field_score_no_count_header():
-    f = _field(build_embed(_homework(), Realm.MAIN, _NOW), "🏰 길드 콘텐츠")
+    f = _field(build_embed(_homework(), _NOW), "🏰 길드 콘텐츠")
     assert f.name == "🏰 길드 콘텐츠"  # 점수제 → 헤더 카운트 없음
     assert "⬜ 지하 수로" in f.value
 
 
 def test_embed_weekly_boss_has_clear_counter():
-    f = _field(build_embed(_homework(), Realm.MAIN, _NOW), "🗡 주간 보스")
+    f = _field(build_embed(_homework(), _NOW), "🗡 주간 보스")
     assert "(처치 8/12)" in f.name
     assert "⬜ 스우(하드)" in f.value
 
 
 def test_embed_daily_boss_no_clear_counter():
-    f = _field(build_embed(_homework(), Realm.MAIN, _NOW), "🗡 일간 보스")
+    f = _field(build_embed(_homework(), _NOW), "🗡 일간 보스")
     assert "(처치" not in f.name  # 일간 보스엔 주간 카운터 없음
     assert "⬜ 핑크빈(카오스)" in f.value
 
 
 def test_embed_subtitle_has_level_world_and_remaining():
-    desc = build_embed(_homework(), Realm.MAIN, _NOW).description or ""
+    desc = build_embed(_homework(), _NOW).description or ""
     assert "Lv.285" in desc and "스카니아" in desc
     assert "🔥 남은 숙제 5개 (3/8 완료)" in desc  # 콘텐츠5(완2)+보스3(완1)
 
 
 def test_embed_color_orange_when_remaining():
-    assert build_embed(_homework(), Realm.MAIN, _NOW).color == BRAND_COLOR
+    assert build_embed(_homework(), _NOW).color == BRAND_COLOR
 
 
 def test_embed_color_green_and_check_mark_when_all_done():
@@ -129,31 +128,40 @@ def test_embed_color_green_and_check_mark_when_all_done():
         weekly=[],
         boss=[BossItem("검은 마법사", "hard", True, CYCLE_MONTHLY)],
     )
-    embed = build_embed(hw, Realm.MAIN, _NOW)
+    embed = build_embed(hw, _NOW)
     assert embed.color == _DONE_COLOR  # 잔여 0 → 초록
     assert "✅ 남은 숙제 0개 (2/2 완료)" in (embed.description or "")
 
 
 def test_embed_main_title_no_prefix():
-    embed = build_embed(_homework(), Realm.MAIN, _NOW)
+    embed = build_embed(_homework(), _NOW)
     assert embed.title == "🗓 내캐릭 의 스케줄러 숙제"
 
 
 def test_embed_challengers_title_prefix():
-    embed = build_embed(_homework(), Realm.CHALLENGERS, _NOW)
+    # 뱃지는 캐릭터 world 로 파생(ADR-0017) — 챌린저스 world 면 🏆 프리픽스.
+    embed = build_embed(_homework(world_name="챌린저스2"), _NOW)
     assert embed.title.startswith("🏆 챌린저스")
     assert "스케줄러 숙제" in embed.title
 
 
+def test_embed_badge_per_character_from_world():
+    # 한 구독에 본+챌 혼재 — 뱃지는 각 캐릭터 world 로 독립 파생(ADR-0017, realm 인자 없음).
+    main = build_embed(_homework(character_name="본캐", world_name="스카니아"), _NOW)
+    chal = build_embed(_homework(character_name="챌캐", world_name="챌린저스1"), _NOW)
+    assert main.title == "🗓 본캐 의 스케줄러 숙제"
+    assert chal.title == "🏆 챌린저스 챌캐 의 스케줄러 숙제"
+
+
 def test_embed_omits_empty_categories():
-    embed = build_embed(_homework(weekly=[], boss=[]), Realm.MAIN, _NOW)
+    embed = build_embed(_homework(weekly=[], boss=[]), _NOW)
     names = [f.name for f in embed.fields]
     assert all(("보스" not in n and "길드" not in n and "주간" not in n) for n in names)
     assert any(n.startswith("📝 일일 퀘스트") for n in names)
 
 
 def test_embed_footer_has_source():
-    embed = build_embed(_homework(), Realm.MAIN, _NOW)
+    embed = build_embed(_homework(), _NOW)
     assert "NEXON Open API" in (embed.footer.text or "")
 
 
@@ -161,7 +169,7 @@ def test_embed_footer_has_source():
 
 
 def test_embed_excludes_boss_bucket():
-    embed = build_embed(_homework(), Realm.MAIN, _NOW, frozenset({BUCKET_BOSS}))
+    embed = build_embed(_homework(), _NOW, frozenset({BUCKET_BOSS}))
     names = [f.name for f in embed.fields]
     assert all("보스" not in n for n in names)  # 4개 보스 필드 전부 생략
     assert any(n.startswith("📝 일일 퀘스트") for n in names)  # 나머지는 유지
@@ -170,25 +178,25 @@ def test_embed_excludes_boss_bucket():
 
 
 def test_embed_excludes_daily_bucket():
-    embed = build_embed(_homework(), Realm.MAIN, _NOW, frozenset({BUCKET_DAILY}))
+    embed = build_embed(_homework(), _NOW, frozenset({BUCKET_DAILY}))
     names = [f.name for f in embed.fields]
     assert all("일일" not in n for n in names)  # 일일 퀘스트·콘텐츠 생략
     assert any(n.startswith("🗡 주간 보스") for n in names)
 
 
 def test_embed_excludes_guild_bucket():
-    embed = build_embed(_homework(), Realm.MAIN, _NOW, frozenset({BUCKET_GUILD}))
+    embed = build_embed(_homework(), _NOW, frozenset({BUCKET_GUILD}))
     assert all("길드" not in f.name for f in embed.fields)
 
 
 def test_embed_boss_only_when_others_excluded():
     excluded = frozenset({BUCKET_DAILY, BUCKET_WEEKLY, BUCKET_GUILD})
-    embed = build_embed(_homework(), Realm.MAIN, _NOW, excluded)
+    embed = build_embed(_homework(), _NOW, excluded)
     names = [f.name for f in embed.fields]
     assert names and all(n.startswith("🗡") for n in names)  # 보스 필드만 남음
 
 
 def test_embed_all_excluded_has_no_category_fields():
     excluded = frozenset({BUCKET_DAILY, BUCKET_WEEKLY, BUCKET_BOSS, BUCKET_GUILD})
-    embed = build_embed(_homework(), Realm.MAIN, _NOW, excluded)
+    embed = build_embed(_homework(), _NOW, excluded)
     assert embed.fields == []  # 4묶음 전부 끄면 카테고리 필드 0개

@@ -1,6 +1,6 @@
 # ADR-0009 — 챌린저스 realm 모델: `world_name` 접두 판정 + 명령별 모드 파라미터 + 이력류 분리 비대칭
 
-- **상태:** 채택 (Accepted) — ⚠️ [ADR-0015](0015-history-account-identity-display.md)가 **`/스타포스`·`/잠재`에 한해 결정 2(모드 파라미터)·4(이력류 realm 분리)를 되돌림**(계정 전체=본+챌 합산, realm 무관). 나머지 명령(`/스펙`·`/아이템`·`/비틱`·`/경험치`)과 리더보드 realm 분리는 유효.
+- **상태:** 채택 (Accepted) — ⚠️ [ADR-0015](0015-history-account-identity-display.md)가 **`/스타포스`·`/잠재`에 한해 결정 2(모드 파라미터)·4(이력류 realm 분리)를 되돌림**(계정 전체=본+챌 합산, realm 무관). ⚠️ [ADR-0017](0017-notification-unification-and-dm-subscription.md)가 **`/스케줄러`·스케줄러 알림에 한해 모드·realm 구독 분리를 되돌림**(등록 캐릭터 전부, 뱃지는 캐릭터 world로 per-character 파생). 나머지 명령(`/스펙`·`/아이템`·`/경험치`)과 리더보드 realm 분리는 유효.
 - **일자:** 2026-06-19
 - **관련 문서:** [challengers-mode-work-order.md](../challengers-mode-work-order.md)(그릴링 10결정·빌드 6단계·realm 처리표), [CONTEXT.md](../../CONTEXT.md)(realm·모드 용어), [ADR-0005](0005-exp-leaderboard-data-source.md)(경험치 소스 = `ranking/overall`), [ADR-0006](0006-multi-character-data-model.md)(멀티 캐릭터·대표 포인터·**exp_snapshot PK 불변** — 본 ADR이 일부 되돌림), [ADR-0007](0007-history-account-wide.md)(이력류 계정 전체화)
 - **이력:** 챌린저스 서버 모드 그릴링(2026-06-19) 결정 1~10. PR #(채번 예정). fanout ADR-0008 이 미머지 브랜치를 점유해 0009 채번.

@@ -10,7 +10,6 @@ from types import SimpleNamespace
 
 from discord import app_commands
 
-from maple_mate.registration.realm import Realm
 from maple_mate.scheduler import commands
 from maple_mate.scheduler.category_filter import (
     BUCKET_BOSS,
@@ -89,41 +88,41 @@ def _homework(name: str = "내캐릭", empty: bool = False) -> Homework:
 
 async def test_scheduler_guild_only(monkeypatch):
     interaction = _interaction(guild_id=None)
-    await commands.handle_scheduler(_deps(), interaction, Realm.MAIN)
+    await commands.handle_scheduler(_deps(), interaction)
     [sent] = interaction.followup.sent
     assert "서버" in sent["embed"].description
 
 
 async def test_scheduler_shows_error_when_build_fails(monkeypatch):
-    async def build_homeworks(deps, g, u, realm):
+    async def build_homeworks(deps, g, u):
         return [], "개인 키 미등록이라 스케줄러를 볼 수 없어요."
 
     monkeypatch.setattr(commands, "build_homeworks", build_homeworks)
     interaction = _interaction()
-    await commands.handle_scheduler(_deps(), interaction, Realm.MAIN)
+    await commands.handle_scheduler(_deps(), interaction)
     [sent] = interaction.followup.sent
     assert "개인 키 미등록" in sent["embed"].description
     assert sent["ephemeral"] is True
 
 
 async def test_scheduler_empty_homework_message(monkeypatch):
-    async def build_homeworks(deps, g, u, realm):
+    async def build_homeworks(deps, g, u):
         return [_homework(empty=True)], None  # 전 캐릭터 빈 숙제
 
     monkeypatch.setattr(commands, "build_homeworks", build_homeworks)
     interaction = _interaction()
-    await commands.handle_scheduler(_deps(), interaction, Realm.MAIN)
+    await commands.handle_scheduler(_deps(), interaction)
     [sent] = interaction.followup.sent
     assert "등록된 숙제" in sent["embed"].description  # 빈 안내(체크리스트 아님)
 
 
 async def test_scheduler_renders_one_message_per_character(monkeypatch):
-    async def build_homeworks(deps, g, u, realm):
+    async def build_homeworks(deps, g, u):
         return [_homework(name="캐릭A"), _homework(name="캐릭B")], None
 
     monkeypatch.setattr(commands, "build_homeworks", build_homeworks)
     interaction = _interaction()
-    await commands.handle_scheduler(_deps(), interaction, Realm.MAIN)
+    await commands.handle_scheduler(_deps(), interaction)
     titles = [s["embed"].title for s in interaction.followup.sent]
     assert titles == [
         "🗓 캐릭A 의 스케줄러 숙제",
@@ -133,12 +132,12 @@ async def test_scheduler_renders_one_message_per_character(monkeypatch):
 
 
 async def test_scheduler_skips_empty_characters_renders_rest(monkeypatch):
-    async def build_homeworks(deps, g, u, realm):
+    async def build_homeworks(deps, g, u):
         return [_homework(name="캐릭A"), _homework(name="빈캐릭", empty=True)], None
 
     monkeypatch.setattr(commands, "build_homeworks", build_homeworks)
     interaction = _interaction()
-    await commands.handle_scheduler(_deps(), interaction, Realm.MAIN)
+    await commands.handle_scheduler(_deps(), interaction)
     titles = [s["embed"].title for s in interaction.followup.sent]
     assert titles == ["🗓 캐릭A 의 스케줄러 숙제"]  # 빈 캐릭터 생략, 나머지 표시
 
@@ -149,7 +148,7 @@ async def test_scheduler_skips_empty_characters_renders_rest(monkeypatch):
 async def test_reminder_on_rejects_without_key_or_character(monkeypatch):
     set_calls: list = []
 
-    async def resolve_self_characters(sf, g, u, realm):
+    async def resolve_self_characters(sf, g, u):
         return None, [], "개인 키 미등록이라 알림을 켤 수 없어요."
 
     async def set_subscription(sf, **kwargs):
@@ -160,19 +159,19 @@ async def test_reminder_on_rejects_without_key_or_character(monkeypatch):
     )
     monkeypatch.setattr(commands.service, "set_subscription", set_subscription)
     interaction = _interaction()
-    await commands.handle_reminder_on(_deps(), interaction, 21, Realm.MAIN)
+    await commands.handle_reminder_on(_deps(), interaction, 21)
     [sent] = interaction.response.sent
     assert "개인 키 미등록" in sent["embed"].description
     assert set_calls == []  # 가드 실패 → 구독 안 함(fail fast)
 
 
-async def test_reminder_on_stores_hour_and_realm(monkeypatch):
+async def test_reminder_on_stores_hour(monkeypatch):
     set_calls: list = []
 
-    async def resolve_self_characters(sf, g, u, realm):
+    async def resolve_self_characters(sf, g, u):
         return "enc", [("ocid1", "캐릭A")], None
 
-    async def get_subscription(sf, g, u, realm):
+    async def get_subscription(sf, g, u):
         return None  # 신규 구독 → baseline 빈 제외
 
     async def set_subscription(sf, **kwargs):
@@ -184,9 +183,9 @@ async def test_reminder_on_stores_hour_and_realm(monkeypatch):
     monkeypatch.setattr(commands.service, "get_subscription", get_subscription)
     monkeypatch.setattr(commands.service, "set_subscription", set_subscription)
     interaction = _interaction()
-    await commands.handle_reminder_on(_deps(), interaction, 9, Realm.CHALLENGERS)
+    await commands.handle_reminder_on(_deps(), interaction, 9)
     [kwargs] = set_calls
-    assert kwargs["hour"] == 9 and kwargs["realm"] is Realm.CHALLENGERS
+    assert kwargs["hour"] == 9
     assert kwargs["excluded"] == frozenset()  # 카테고리 미지정 → 전부 표시
     [sent] = interaction.response.sent
     assert "09:00" in sent["embed"].description
@@ -195,7 +194,7 @@ async def test_reminder_on_stores_hour_and_realm(monkeypatch):
 async def test_reminder_on_rejects_invalid_hour(monkeypatch):
     set_calls: list = []
 
-    async def resolve_self_characters(sf, g, u, realm):  # 도달하면 안 됨
+    async def resolve_self_characters(sf, g, u):  # 도달하면 안 됨
         set_calls.append("resolve")
         return "enc", [("ocid1", "캐릭A")], None
 
@@ -207,7 +206,7 @@ async def test_reminder_on_rejects_invalid_hour(monkeypatch):
     )
     monkeypatch.setattr(commands.service, "set_subscription", set_subscription)
     interaction = _interaction()
-    await commands.handle_reminder_on(_deps(), interaction, 25, Realm.MAIN)
+    await commands.handle_reminder_on(_deps(), interaction, 25)
     [sent] = interaction.response.sent
     assert "0" in sent["embed"].description and "23" in sent["embed"].description
     assert set_calls == []  # 범위 밖 → 해석·구독 모두 안 함
@@ -222,7 +221,7 @@ async def test_reminder_off_existing(monkeypatch):
 
     monkeypatch.setattr(commands.service, "clear_subscription", clear_subscription)
     interaction = _interaction()
-    await commands.handle_reminder_off(_deps(), interaction, Realm.MAIN)
+    await commands.handle_reminder_off(_deps(), interaction)
     [sent] = interaction.response.sent
     assert "껐어요" in sent["embed"].description
 
@@ -233,7 +232,7 @@ async def test_reminder_off_when_not_subscribed(monkeypatch):
 
     monkeypatch.setattr(commands.service, "clear_subscription", clear_subscription)
     interaction = _interaction()
-    await commands.handle_reminder_off(_deps(), interaction, Realm.MAIN)
+    await commands.handle_reminder_off(_deps(), interaction)
     [sent] = interaction.response.sent
     assert "없어요" in sent["embed"].description
 
@@ -242,14 +241,12 @@ async def test_reminder_off_when_not_subscribed(monkeypatch):
 
 
 async def test_scheduler_excludes_bucket_from_embed(monkeypatch):
-    async def build_homeworks(deps, g, u, realm):
+    async def build_homeworks(deps, g, u):
         return [_homework(name="캐릭A")], None  # daily 무릉도장 + boss 검은마법사
 
     monkeypatch.setattr(commands, "build_homeworks", build_homeworks)
     interaction = _interaction()
-    await commands.handle_scheduler(
-        _deps(), interaction, Realm.MAIN, frozenset({BUCKET_BOSS})
-    )
+    await commands.handle_scheduler(_deps(), interaction, frozenset({BUCKET_BOSS}))
     [sent] = interaction.followup.sent
     names = [f.name for f in sent["embed"].fields]
     assert all("보스" not in n for n in names)  # 보스 묶음 가림
@@ -259,14 +256,14 @@ async def test_scheduler_excludes_bucket_from_embed(monkeypatch):
 async def test_scheduler_all_off_guard_before_build(monkeypatch):
     calls: list[str] = []
 
-    async def build_homeworks(deps, g, u, realm):
+    async def build_homeworks(deps, g, u):
         calls.append("build")
         return [_homework()], None
 
     monkeypatch.setattr(commands, "build_homeworks", build_homeworks)
     interaction = _interaction()
     excluded = frozenset({BUCKET_DAILY, BUCKET_WEEKLY, BUCKET_BOSS, BUCKET_GUILD})
-    await commands.handle_scheduler(_deps(), interaction, Realm.MAIN, excluded)
+    await commands.handle_scheduler(_deps(), interaction, excluded)
     [sent] = interaction.followup.sent
     assert "최소 하나" in sent["embed"].description
     assert calls == []  # 빌드(페치) 전에 거부
@@ -275,11 +272,11 @@ async def test_scheduler_all_off_guard_before_build(monkeypatch):
 async def test_reminder_on_merges_with_stored_excluded(monkeypatch):
     set_calls: list = []
 
-    async def resolve_self_characters(sf, g, u, realm):
+    async def resolve_self_characters(sf, g, u):
         return "enc", [("ocid1", "캐릭A")], None
 
-    async def get_subscription(sf, g, u, realm):
-        return Subscription(1, 10, Realm.MAIN, 21, frozenset({BUCKET_GUILD}))
+    async def get_subscription(sf, g, u):
+        return Subscription(1, 10, 21, frozenset({BUCKET_GUILD}))
 
     async def set_subscription(sf, **kwargs):
         set_calls.append(kwargs)
@@ -291,7 +288,7 @@ async def test_reminder_on_merges_with_stored_excluded(monkeypatch):
     monkeypatch.setattr(commands.service, "set_subscription", set_subscription)
     interaction = _interaction()
     # 기존 {길드} + 이번에 보스 끄기 → {길드, 보스}(시각 21 유지, 미지정 묶음 보존)
-    await commands.handle_reminder_on(_deps(), interaction, 21, Realm.MAIN, boss=_off())
+    await commands.handle_reminder_on(_deps(), interaction, 21, boss=_off())
     [kwargs] = set_calls
     assert kwargs["excluded"] == frozenset({BUCKET_GUILD, BUCKET_BOSS})
     [sent] = interaction.response.sent
@@ -301,12 +298,12 @@ async def test_reminder_on_merges_with_stored_excluded(monkeypatch):
 async def test_reminder_on_rejects_merged_all_off(monkeypatch):
     set_calls: list = []
 
-    async def resolve_self_characters(sf, g, u, realm):
+    async def resolve_self_characters(sf, g, u):
         return "enc", [("ocid1", "캐릭A")], None
 
-    async def get_subscription(sf, g, u, realm):
+    async def get_subscription(sf, g, u):
         return Subscription(
-            1, 10, Realm.MAIN, 21, frozenset({BUCKET_DAILY, BUCKET_WEEKLY, BUCKET_BOSS})
+            1, 10, 21, frozenset({BUCKET_DAILY, BUCKET_WEEKLY, BUCKET_BOSS})
         )
 
     async def set_subscription(sf, **kwargs):
@@ -319,9 +316,7 @@ async def test_reminder_on_rejects_merged_all_off(monkeypatch):
     monkeypatch.setattr(commands.service, "set_subscription", set_subscription)
     interaction = _interaction()
     # 기존 {일일,주간,보스} + 길드 끄기 → 4묶음 전부 → 거부(저장 안 함)
-    await commands.handle_reminder_on(
-        _deps(), interaction, 21, Realm.MAIN, guild=_off()
-    )
+    await commands.handle_reminder_on(_deps(), interaction, 21, guild=_off())
     [sent] = interaction.response.sent
     assert "최소 하나" in sent["embed"].description
     assert set_calls == []

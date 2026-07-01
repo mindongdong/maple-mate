@@ -1,6 +1,6 @@
 # ADR-0012 — 스케줄러 알리미: per-user DM 구독 모델 (채널 알림과 분기)
 
-- **상태:** 채택 (Accepted)
+- **상태:** 채택 (Accepted) — ⚠️ [ADR-0017](0017-notification-unification-and-dm-subscription.md)가 **결정 3(realm별 독립 구독)을 되돌림**: 구독 PK에서 realm 제거, 한 구독 = 등록 캐릭터 전부(본+챌), 임베드 뱃지는 캐릭터 world로 per-character 파생, `/스케줄러`·`/스케줄러알림` 모드 인자 삭제. per-user DM 모델·시각·카테고리 필터(ADR-0014)는 유효.
 - **일자:** 2026-06-26
 - **관련 문서:** [CONTEXT.md](../../CONTEXT.md)(스케줄러 숙제·스케줄러 알리미), [docs/api/scheduler.md](../api/scheduler.md)(API 스펙·실호출 회귀), [docs/scheduler-feature-handoff.md](../scheduler-feature-handoff.md)(핸드오프), [ADR-0001](0001-nexon-personal-key-model.md)(개인 키 모델), [ADR-0009](0009-challengers-realm-model.md)(realm), [notification/scheduler.py](../../maple_mate/notification/scheduler.py)(cron 잡 등록)
 - **이력:** `/grill-with-docs` 그릴링(2026-06-26) — 핸드오프 §3 열린 결정 9건 확정.

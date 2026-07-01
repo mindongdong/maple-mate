@@ -34,6 +34,24 @@ def test_guide_registered_and_ping_removed(bot):
     assert bot.tree.get_command("핑") is None
 
 
+def test_bitik_hidden_from_tree_and_guide(bot):
+    """/비틱은 봇 트리·가이드에서 숨김(코드 보존, ADR-0017 #1)."""
+    assert bot.tree.get_command("비틱") is None
+    embed = build_guide_embed()
+    text = embed.description + "".join(f.name + f.value for f in embed.fields)
+    assert "비틱" not in text
+
+
+def test_guide_alert_groups_unified_and_sunday_renamed(bot):
+    """4종 알림 그룹(켜기·끄기)이 가이드에 통일 표기되고 썬데이→썬데이알림 개명(ADR-0017)."""
+    embed = build_guide_embed()
+    text = embed.description + "".join(f.name + f.value for f in embed.fields)
+    for name in ("경험치알림", "공지알림", "썬데이알림", "스케줄러알림"):
+        assert name in text
+    # 평면 `/썬데이`(구명)는 더 이상 트리에 없다.
+    assert bot.tree.get_command("썬데이") is None
+
+
 async def test_guide_responds_ephemeral_embed(bot):
     guide = bot.tree.get_command("가이드")
     interaction = SimpleNamespace(response=_Response())
