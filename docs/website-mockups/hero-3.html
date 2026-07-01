@@ -1,0 +1,763 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="light">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>메이트 — 히어로 안 3: 따뜻 강조 (오렌지 wash 밴드 + 버섯 존재감)</title>
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css">
+<style>
+/* ===== 디자인 토큰 ===== */
+:root {
+  --teal:        #0E8C92;
+  --teal-hover:  #0a7278;
+  --orange:      #E0700A;
+  --orange-hover:#c45f07;
+
+  --bg-base:     #FFFFFF;
+  --bg-subtle:   #F8FAFC;
+  --bg-elevated: #FFFFFF;
+  --tx-primary:  #1E293B;
+  --tx-secondary:#475569;
+  --tx-muted:    #94A3B8;
+  --border:      #E2E8F0;
+
+  --badge-green-bg:   #E5F5EC;
+  --badge-green-tx:   #1E7A44;
+  --badge-indigo-bg:  #ECEEFB;
+  --badge-indigo-tx:  #3A45B0;
+  --badge-amber-bg:   #FBF3DD;
+  --badge-amber-tx:   #8A6209;
+
+  --cmd-chip-bg:   #E0F4F5;
+  --cmd-chip-tx:   #0a5c60;
+
+  --shadow-sm:   0 1px 3px rgba(0,0,0,.08);
+  --shadow-md:   0 4px 16px rgba(0,0,0,.10);
+  --shadow-lg:   0 8px 32px rgba(0,0,0,.12);
+
+  /* 안 3 전용 — 오렌지 wash */
+  --hero-band-bg:   #FFF5EC;
+  --hero-band-text: #7A3800;
+
+  --screenshot-bg:   #F0F9F9;
+  --screenshot-border: transparent;
+
+  --radius-sm:   6px;
+  --radius-md:   12px;
+  --radius-lg:   20px;
+  --radius-pill: 999px;
+
+  --font-base: 'Pretendard', -apple-system, BlinkMacSystemFont, sans-serif;
+  --font-mono: 'JetBrains Mono', monospace;
+}
+
+[data-theme="dark"] {
+  --teal:        #5EC8C8;
+  --orange:      #F5883A;
+  --orange-hover:#e07028;
+
+  --bg-base:     #0F172A;
+  --bg-subtle:   #1E293B;
+  --bg-elevated: #1E293B;
+  --tx-primary:  #E2E8F0;
+  --tx-secondary:#94A3B8;
+  --tx-muted:    #64748B;
+  --border:      #1E293B;
+
+  --badge-green-bg:   #16311F;
+  --badge-green-tx:   #5FD08A;
+  --badge-indigo-bg:  #20233F;
+  --badge-indigo-tx:  #8A93F0;
+  --badge-amber-bg:   #33290C;
+  --badge-amber-tx:   #E8C15A;
+
+  --cmd-chip-bg:   #0d3a3b;
+  --cmd-chip-tx:   #5EC8C8;
+
+  --shadow-sm:   0 1px 3px rgba(0,0,0,.3);
+  --shadow-md:   0 4px 16px rgba(0,0,0,.4);
+  --shadow-lg:   0 8px 32px rgba(0,0,0,.5);
+
+  /* 안 3 다크 — 오렌지 wash 다크 버전 */
+  --hero-band-bg:   #1C1008;
+  --hero-band-text: #F5883A;
+
+  --screenshot-bg:   #162030;
+  --screenshot-border: #2d3f55;
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+body {
+  font-family: var(--font-base);
+  font-size: 16px;
+  line-height: 1.7;
+  background: var(--bg-base);
+  color: var(--tx-primary);
+  transition: background 0.25s, color 0.25s;
+}
+
+/* ===== 고정 UI ===== */
+.theme-toggle {
+  position: fixed;
+  top: 18px; right: 18px;
+  z-index: 1000;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  padding: 8px 16px;
+  font-family: var(--font-base);
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--tx-secondary);
+  cursor: pointer;
+  box-shadow: var(--shadow-sm);
+  transition: all 0.2s;
+  display: flex; align-items: center; gap: 6px;
+}
+.theme-toggle:hover { color: var(--teal); border-color: var(--teal); }
+
+.variant-label {
+  position: fixed;
+  top: 18px; left: 18px;
+  z-index: 1000;
+  background: var(--orange);
+  color: #fff;
+  border-radius: var(--radius-pill);
+  padding: 7px 16px;
+  font-size: 12px; font-weight: 700;
+}
+
+/* ===== 네비 ===== */
+nav {
+  position: sticky; top: 0; z-index: 900;
+  background: var(--hero-band-bg);
+  border-bottom: 1px solid rgba(224,112,10,.15);
+  padding: 0 40px; height: 60px;
+  display: flex; align-items: center; justify-content: space-between;
+  transition: background 0.25s;
+}
+[data-theme="dark"] nav {
+  border-bottom-color: rgba(245,136,58,.12);
+}
+.wordmark {
+  display: flex; align-items: center; gap: 10px;
+  text-decoration: none; font-weight: 800;
+  font-size: 20px; color: var(--tx-primary); letter-spacing: -.02em;
+}
+.nav-links {
+  display: flex; gap: 28px; list-style: none; align-items: center;
+}
+.nav-links a {
+  font-size: 14px; font-weight: 500;
+  color: var(--tx-secondary); text-decoration: none;
+  transition: color 0.18s;
+}
+.nav-links a:hover { color: var(--teal); }
+
+/* ===== 히어로 밴드 — 안 3 핵심 ===== */
+/* 오렌지 warm wash 전체 배경 밴드 */
+.hero-band {
+  background: var(--hero-band-bg);
+  transition: background 0.25s;
+  overflow: hidden;
+  position: relative;
+}
+
+/* 배경 미묘한 원형 그라데이션 */
+.hero-band::before {
+  content: '';
+  position: absolute;
+  top: -80px; right: -60px;
+  width: 600px; height: 600px;
+  background: radial-gradient(ellipse, rgba(224,112,10,.12) 0%, transparent 65%);
+  pointer-events: none;
+  z-index: 0;
+}
+[data-theme="dark"] .hero-band::before {
+  background: radial-gradient(ellipse, rgba(245,136,58,.08) 0%, transparent 65%);
+}
+
+.hero-band::after {
+  content: '';
+  position: absolute;
+  bottom: -40px; left: 20%;
+  width: 400px; height: 400px;
+  background: radial-gradient(ellipse, rgba(14,140,146,.07) 0%, transparent 65%);
+  pointer-events: none;
+  z-index: 0;
+}
+[data-theme="dark"] .hero-band::after {
+  background: radial-gradient(ellipse, rgba(94,200,200,.06) 0%, transparent 65%);
+}
+
+.hero {
+  min-height: calc(100vh - 60px);
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  align-items: center;
+  gap: 60px;
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 80px 40px;
+  position: relative;
+  z-index: 1;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .hero-left > * {
+    animation: fadeUp 0.5s ease both;
+  }
+  .hero-left > *:nth-child(1) { animation-delay: 0.05s; }
+  .hero-left > *:nth-child(2) { animation-delay: 0.13s; }
+  .hero-left > *:nth-child(3) { animation-delay: 0.21s; }
+  .hero-left > *:nth-child(4) { animation-delay: 0.29s; }
+  .hero-left > *:nth-child(5) { animation-delay: 0.37s; }
+  .hero-right { animation: fadeUp 0.6s 0.15s ease both; }
+  .mushroom-hero {
+    animation: floatIn 0.7s 0.4s ease both;
+  }
+}
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(18px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+@keyframes floatIn {
+  from { opacity: 0; transform: translateY(30px) scale(.92); }
+  to   { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.hero-left {
+  display: flex;
+  flex-direction: column;
+  gap: 22px;
+}
+
+/* 안 3: 브랜드 코어 로고 — 가로 락업 */
+.hero-lock {
+  display: flex; align-items: center; gap: 16px;
+}
+.hero-wordmark-text {
+  font-size: 56px;
+  font-weight: 800;
+  letter-spacing: -.04em;
+  line-height: 1.0;
+  color: var(--tx-primary);
+}
+
+/* 안 3: 오렌지 구분선 강조 */
+.hero-divider {
+  width: 48px; height: 4px;
+  background: var(--orange);
+  border-radius: 2px;
+}
+
+.hero-tagline {
+  font-size: 17px;
+  font-weight: 600;
+  color: var(--hero-band-text);
+  line-height: 1.5;
+}
+[data-theme="dark"] .hero-tagline {
+  color: var(--orange);
+}
+
+.hero-desc {
+  font-size: 16px; line-height: 1.8;
+  color: var(--tx-secondary);
+  max-width: 460px;
+}
+
+.hero-cta {
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.btn-primary {
+  display: inline-flex; align-items: center; gap: 8px;
+  background: var(--orange); color: #fff;
+  border: none; border-radius: var(--radius-sm);
+  padding: 14px 28px;
+  font-family: var(--font-base); font-size: 15px; font-weight: 700;
+  cursor: pointer; text-decoration: none;
+  transition: background 0.18s, transform 0.18s, box-shadow 0.18s;
+  box-shadow: 0 3px 12px rgba(224,112,10,.4);
+}
+.btn-primary:hover {
+  background: var(--orange-hover);
+  transform: translateY(-2px);
+  box-shadow: 0 8px 24px rgba(224,112,10,.5);
+}
+
+.btn-ghost {
+  display: inline-flex; align-items: center; gap: 6px;
+  background: transparent; color: var(--tx-secondary);
+  border: 1.5px solid rgba(30,41,59,.2);
+  border-radius: var(--radius-sm);
+  padding: 13px 22px;
+  font-family: var(--font-base); font-size: 15px; font-weight: 500;
+  cursor: pointer; text-decoration: none;
+  transition: all 0.18s;
+}
+[data-theme="dark"] .btn-ghost { border-color: rgba(226,232,240,.15); }
+.btn-ghost:hover {
+  color: var(--teal); border-color: var(--teal);
+  transform: translateY(-1px);
+}
+
+/* ===== 히어로 우측 — 버섯 크게 + 스샷 ===== */
+/* 안 3 핵심: 버섯이 더 존재감 — 스샷 위쪽에 배치, 마스코트 크기업 */
+.hero-right {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 0;
+  position: relative;
+}
+
+/* 큰 버섯 마스코트 */
+.mushroom-hero {
+  width: 120px; height: 120px;
+  margin-bottom: -20px; /* 스샷 위에 살짝 걸치게 */
+  position: relative;
+  z-index: 2;
+  filter: drop-shadow(0 6px 16px rgba(200,90,10,.3));
+}
+
+.screenshot-frame {
+  width: 100%;
+  background: var(--screenshot-bg);
+  border-radius: var(--radius-lg);
+  padding: 20px;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--screenshot-border);
+  position: relative;
+  z-index: 1;
+}
+[data-theme="dark"] .screenshot-frame {
+  border-color: var(--screenshot-border);
+}
+
+.discord-embed {
+  background: #1e2124;
+  border-radius: 10px;
+  border-left: 4px solid #5EC8C8;
+  padding: 16px 18px;
+  color: #dcddde;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.embed-title {
+  font-weight: 700; color: #5EC8C8; font-size: 14px;
+  margin-bottom: 12px; display: flex; align-items: center; gap: 8px;
+}
+.embed-bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.embed-rank { font-size: 11px; color: #8a9bb5; width: 22px; text-align: right; flex-shrink: 0; }
+.embed-name { font-size: 12px; color: #dcddde; width: 80px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.embed-bar-bg { flex: 1; height: 12px; background: #2c2f33; border-radius: 4px; overflow: hidden; }
+.embed-bar-fill { height: 100%; background: linear-gradient(90deg, #5EC8C8, #3ab0b0); border-radius: 4px; }
+.embed-bar-fill.gold   { background: linear-gradient(90deg, #f0c040, #d4a520); }
+.embed-bar-fill.silver { background: linear-gradient(90deg, #9ab0c8, #7a90a8); }
+.embed-bar-fill.bronze { background: linear-gradient(90deg, #d4855a, #b06040); }
+.embed-level { font-size: 11px; color: #8a9bb5; width: 42px; text-align: right; flex-shrink: 0; }
+.embed-footer { margin-top: 12px; font-size: 10px; color: #72767d; border-top: 1px solid #2c2f33; padding-top: 8px; }
+
+.screenshot-caption {
+  font-size: 12px; color: var(--tx-muted); text-align: center;
+  font-weight: 500; margin-top: 10px;
+}
+
+/* ===== 3기둥 (밴드 외부 — 흰 바탕으로 전환) ===== */
+.pillars {
+  background: var(--bg-subtle);
+  border-top: 1px solid var(--border);
+  padding: 80px 40px;
+}
+.pillars-inner { max-width: 1200px; margin: 0 auto; }
+
+.pillars-header {
+  display: flex; align-items: flex-start; gap: 16px;
+  margin-bottom: 48px;
+}
+.pillars-header-dot {
+  width: 6px; height: 6px;
+  background: var(--orange);
+  border-radius: 50%;
+  margin-top: 14px;
+  flex-shrink: 0;
+}
+.pillars h2 {
+  font-size: 28px; font-weight: 800;
+  letter-spacing: -.025em;
+  color: var(--tx-primary);
+  margin-bottom: 6px;
+}
+.pillars-sub { font-size: 15px; color: var(--tx-secondary); }
+
+.pillar-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 24px;
+}
+.pillar-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 28px;
+  box-shadow: var(--shadow-sm);
+  transition: box-shadow 0.2s, transform 0.2s;
+  display: flex; flex-direction: column; gap: 14px;
+}
+.pillar-card:hover { box-shadow: var(--shadow-md); transform: translateY(-3px); }
+
+/* 안 3: 카드 상단 오렌지 줄 */
+.pillar-card-accent {
+  border-top: 3px solid transparent;
+}
+.pillar-card-accent.teal  { border-top-color: var(--teal); }
+.pillar-card-accent.orange { border-top-color: var(--orange); }
+.pillar-card-accent.green  { border-top-color: #1E7A44; }
+
+.pillar-icon-wrap {
+  width: 40px; height: 40px; border-radius: var(--radius-sm);
+  background: var(--cmd-chip-bg);
+  display: flex; align-items: center; justify-content: center;
+  color: var(--teal);
+}
+.pillar-title { font-size: 16px; font-weight: 700; color: var(--tx-primary); }
+.pillar-desc { font-size: 14px; color: var(--tx-secondary); line-height: 1.65; }
+
+.pillar-shot {
+  background: #1e2124;
+  border-radius: 8px; height: 90px;
+  display: flex; align-items: center; justify-content: center;
+  padding: 12px; margin-top: auto;
+}
+.mini-bar { display: flex; align-items: center; gap: 6px; margin-bottom: 5px; }
+.mini-bar-bg { flex: 1; height: 8px; background: #2c2f33; border-radius: 4px; overflow: hidden; }
+.mini-bar-fill { height: 100%; background: #5EC8C8; border-radius: 4px; }
+.mini-bar-label { font-size: 9px; color: #72767d; width: 40px; }
+.mini-dm-row { background: #2c2f33; border-radius: 4px; padding: 5px 8px; font-size: 9px; color: #8a9bb5; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
+.mini-dot { width: 6px; height: 6px; border-radius: 50%; background: #5EC8C8; flex-shrink: 0; }
+.mini-dot.orange { background: #E0700A; }
+.mini-cell-row { display: flex; gap: 4px; margin-bottom: 3px; }
+.mini-cell { flex: 1; height: 8px; background: #2c2f33; border-radius: 3px; }
+.mini-cell.filled { background: #5EC8C8; }
+.mini-cell.partial { background: #E0700A; }
+
+/* ===== 모바일 ===== */
+@media (max-width: 640px) {
+  nav { padding: 0 20px; }
+  .nav-links { display: none; }
+  .hero {
+    grid-template-columns: 1fr;
+    gap: 32px;
+    padding: 48px 20px;
+    min-height: auto;
+  }
+  .hero-wordmark-text { font-size: 44px; }
+  .hero-right { order: -1; }
+  .mushroom-hero { width: 90px; height: 90px; margin-bottom: -14px; }
+  .pillars { padding: 48px 20px; }
+  .pillar-grid { grid-template-columns: 1fr; }
+  .variant-label { left: 10px; top: 10px; font-size: 10px; padding: 5px 10px; }
+  .theme-toggle { right: 10px; top: 10px; }
+}
+</style>
+</head>
+<body>
+
+<div class="variant-label">안 3 — 따뜻 강조: 오렌지 wash + 버섯 존재감</div>
+
+<button class="theme-toggle" onclick="toggleTheme()" aria-label="테마 전환">
+  <svg id="theme-icon" xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+       fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+    <path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>
+  </svg>
+  <span id="theme-label">다크 모드</span>
+</button>
+
+<!-- 네비 (오렌지 wash 배경 안에 포함) -->
+<div class="hero-band">
+  <nav>
+    <a href="#" class="wordmark">
+      <svg viewBox="0 0 32 32" fill="none" style="width:30px;height:30px">
+        <defs>
+          <radialGradient id="n3navCap" cx="50%" cy="45%" r="55%">
+            <stop offset="0%" stop-color="#F0874A"/>
+            <stop offset="100%" stop-color="#C85A0A"/>
+          </radialGradient>
+        </defs>
+        <ellipse cx="16" cy="13" rx="13" ry="9" fill="url(#n3navCap)"/>
+        <ellipse cx="16" cy="14.5" rx="13" ry="4" fill="#F5EDD8" opacity=".7"/>
+        <rect x="11" y="17" width="10" height="10" rx="5" fill="#F5EDD8"/>
+        <circle cx="13.5" cy="20.5" r="1.5" fill="#3A2A1A"/>
+        <circle cx="18.5" cy="20.5" r="1.5" fill="#3A2A1A"/>
+        <circle cx="12" cy="23" r="1.2" fill="#E05A3A" opacity=".55"/>
+        <circle cx="20" cy="23" r="1.2" fill="#E05A3A" opacity=".55"/>
+        <path d="M14 24.5 Q16 26.5 18 24.5" stroke="#3A2A1A" stroke-width="1.2" fill="none" stroke-linecap="round"/>
+      </svg>
+      메이트
+    </a>
+    <ul class="nav-links">
+      <li><a href="#">시작하기</a></li>
+      <li><a href="#">명령어</a></li>
+      <li><a href="#">개념</a></li>
+      <li><a href="#">개인정보</a></li>
+    </ul>
+  </nav>
+
+  <!-- 히어로 (오렌지 wash 밴드 안) -->
+  <section class="hero">
+    <div class="hero-left">
+      <div class="hero-lock">
+        <!-- 안 3: 좌 히어로에 버섯 없음 — 우측에 크게 배치 -->
+        <h1 class="hero-wordmark-text">메이트</h1>
+      </div>
+
+      <div class="hero-divider"></div>
+
+      <p class="hero-tagline">같이 메이플하는 친구 같은 디스코드 봇</p>
+
+      <p class="hero-desc">
+        메이트는 이름 그대로 같이 메이플하는 친구 같은 디스코드 봇입니다.
+        유니온·스펙·경험치 리더보드와 스타포스·잠재 지출 비교로
+        서로의 성장을 겨루고, 일일·주간·보스 숙제는 스케줄러가
+        DM으로 챙겨줍니다.
+      </p>
+
+      <div class="hero-cta">
+        <a href="#" class="btn-primary">
+          <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24"
+               fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M20.317 4.37a19.791 19.791 0 0 0-4.885-1.515.074.074 0 0 0-.079.037c-.21.375-.444.864-.608 1.25a18.27 18.27 0 0 0-5.487 0 12.64 12.64 0 0 0-.617-1.25.077.077 0 0 0-.079-.037A19.736 19.736 0 0 0 3.677 4.37a.07.07 0 0 0-.032.027C.533 9.046-.32 13.58.099 18.057c.003.028.019.056.041.073a19.9 19.9 0 0 0 5.993 3.03.078.078 0 0 0 .084-.028c.462-.63.874-1.295 1.226-1.994a.076.076 0 0 0-.041-.106 13.107 13.107 0 0 1-1.872-.892.077.077 0 0 1-.008-.128 10.2 10.2 0 0 0 .372-.292.074.074 0 0 1 .077-.01c3.928 1.793 8.18 1.793 12.062 0a.074.074 0 0 1 .078.01c.12.098.246.198.373.292a.077.077 0 0 1-.006.127 12.299 12.299 0 0 1-1.873.892.077.077 0 0 0-.041.107c.36.698.772 1.362 1.225 1.993a.076.076 0 0 0 .084.028 19.839 19.839 0 0 0 6.002-3.03.077.077 0 0 0 .041-.074c.5-5.177-.838-9.674-3.549-13.66a.061.061 0 0 0-.031-.03z"/>
+          </svg>
+          봇 초대하기
+        </a>
+        <a href="#" class="btn-ghost">
+          5분 시작
+          <svg xmlns="http://www.w3.org/2000/svg" width="14" height="14" viewBox="0 0 24 24"
+               fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M5 12h14M12 5l7 7-7 7"/>
+          </svg>
+        </a>
+      </div>
+    </div>
+
+    <!-- 우측: 버섯 크게 + 스샷 -->
+    <div class="hero-right">
+      <!-- 안 3 핵심: 큰 버섯 마스코트가 스샷 위에 존재감 -->
+      <svg class="mushroom-hero" viewBox="0 0 120 120" fill="none" xmlns="http://www.w3.org/2000/svg">
+        <defs>
+          <radialGradient id="n3bigCap" cx="50%" cy="42%" r="58%">
+            <stop offset="0%" stop-color="#F5924A"/>
+            <stop offset="60%" stop-color="#E07020"/>
+            <stop offset="100%" stop-color="#B84A08"/>
+          </radialGradient>
+          <radialGradient id="n3bodyShade" cx="40%" cy="30%" r="70%">
+            <stop offset="0%" stop-color="#FEFAF4"/>
+            <stop offset="100%" stop-color="#F0E4CC"/>
+          </radialGradient>
+        </defs>
+        <!-- 갓 -->
+        <ellipse cx="60" cy="48" rx="47" ry="34" fill="url(#n3bigCap)"/>
+        <!-- 갓 하이라이트 -->
+        <ellipse cx="45" cy="36" rx="16" ry="8" fill="white" opacity=".18" transform="rotate(-20 45 36)"/>
+        <!-- 갓 언더사이드 크림 -->
+        <ellipse cx="60" cy="56" rx="47" ry="14" fill="#F5EDD8" opacity=".85"/>
+        <!-- 스템 -->
+        <rect x="40" y="64" width="40" height="40" rx="20" fill="url(#n3bodyShade)"/>
+        <!-- 눈 (크게 · 표정 있게) -->
+        <ellipse cx="50" cy="77" rx="5.5" ry="6" fill="#3A2A1A"/>
+        <ellipse cx="70" cy="77" rx="5.5" ry="6" fill="#3A2A1A"/>
+        <!-- 눈 하이라이트 -->
+        <circle cx="52" cy="74" r="1.8" fill="white" opacity=".85"/>
+        <circle cx="72" cy="74" r="1.8" fill="white" opacity=".85"/>
+        <!-- 볼 -->
+        <circle cx="44" cy="85" r="5" fill="#E05A3A" opacity=".5"/>
+        <circle cx="76" cy="85" r="5" fill="#E05A3A" opacity=".5"/>
+        <!-- 입 -->
+        <path d="M52 90 Q60 96 68 90" stroke="#3A2A1A" stroke-width="2.5" fill="none" stroke-linecap="round"/>
+        <!-- 반짝이 -->
+        <circle cx="84" cy="30" r="3" fill="white" opacity=".75"/>
+        <circle cx="90" cy="42" r="1.8" fill="white" opacity=".55"/>
+        <circle cx="28" cy="35" r="2" fill="white" opacity=".5"/>
+      </svg>
+
+      <div class="screenshot-frame">
+        <div class="discord-embed">
+          <div class="embed-title">
+            <svg xmlns="http://www.w3.org/2000/svg" width="13" height="13" viewBox="0 0 24 24"
+                 fill="none" stroke="#5EC8C8" stroke-width="2.5">
+              <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/>
+              <path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/>
+              <path d="M4 22h16"/>
+              <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/>
+              <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/>
+              <path d="M18 2H6v7a6 6 0 0 0 12 0V2z"/>
+            </svg>
+            경험치 리더보드 — Top 7
+          </div>
+          <div class="embed-bar-row">
+            <span class="embed-rank">🥇</span>
+            <span class="embed-name">홍길동전사</span>
+            <div class="embed-bar-bg"><div class="embed-bar-fill gold" style="width:92%"></div></div>
+            <span class="embed-level">Lv.275</span>
+          </div>
+          <div class="embed-bar-row">
+            <span class="embed-rank">🥈</span>
+            <span class="embed-name">불꽃아크</span>
+            <div class="embed-bar-bg"><div class="embed-bar-fill silver" style="width:80%"></div></div>
+            <span class="embed-level">Lv.268</span>
+          </div>
+          <div class="embed-bar-row">
+            <span class="embed-rank">🥉</span>
+            <span class="embed-name">바람궁수</span>
+            <div class="embed-bar-bg"><div class="embed-bar-fill bronze" style="width:71%"></div></div>
+            <span class="embed-level">Lv.261</span>
+          </div>
+          <div class="embed-bar-row">
+            <span class="embed-rank" style="color:#72767d">4</span>
+            <span class="embed-name">이글루마법사</span>
+            <div class="embed-bar-bg"><div class="embed-bar-fill" style="width:62%"></div></div>
+            <span class="embed-level">Lv.255</span>
+          </div>
+          <div class="embed-bar-row">
+            <span class="embed-rank" style="color:#72767d">5</span>
+            <span class="embed-name">캐논슈터</span>
+            <div class="embed-bar-bg"><div class="embed-bar-fill" style="width:54%"></div></div>
+            <span class="embed-level">Lv.249</span>
+          </div>
+          <div class="embed-bar-row">
+            <span class="embed-rank" style="color:#72767d">6</span>
+            <span class="embed-name">나이트로드</span>
+            <div class="embed-bar-bg"><div class="embed-bar-fill" style="width:47%"></div></div>
+            <span class="embed-level">Lv.243</span>
+          </div>
+          <div class="embed-bar-row">
+            <span class="embed-rank" style="color:#72767d">7</span>
+            <span class="embed-name">플레임위자드</span>
+            <div class="embed-bar-bg"><div class="embed-bar-fill" style="width:40%"></div></div>
+            <span class="embed-level">Lv.238</span>
+          </div>
+          <div class="embed-footer">2026-07-01 기준 · /경험치</div>
+        </div>
+      </div>
+      <p class="screenshot-caption">경험치 리더보드 · 실제 디스코드 임베드</p>
+    </div>
+  </section>
+</div><!-- /.hero-band -->
+
+<!-- 3기둥 (밴드 밖 — 쿨 베이스로 전환) -->
+<section class="pillars">
+  <div class="pillars-inner">
+    <div class="pillars-header">
+      <div class="pillars-header-dot"></div>
+      <div>
+        <h2>메이트가 하는 일</h2>
+        <p class="pillars-sub">서버 멤버들의 성장을 겨루고, 숙제도 챙겨드립니다.</p>
+      </div>
+    </div>
+    <div class="pillar-grid">
+
+      <div class="pillar-card pillar-card-accent teal">
+        <div class="pillar-icon-wrap">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+               fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M6 9H4.5a2.5 2.5 0 0 1 0-5H6"/><path d="M18 9h1.5a2.5 2.5 0 0 0 0-5H18"/>
+            <path d="M4 22h16"/>
+            <path d="M10 14.66V17c0 .55-.47.98-.97 1.21C7.85 18.75 7 20.24 7 22"/>
+            <path d="M14 14.66V17c0 .55.47.98.97 1.21C16.15 18.75 17 20.24 17 22"/>
+            <path d="M18 2H6v7a6 6 0 0 0 12 0V2z"/>
+          </svg>
+        </div>
+        <div class="pillar-title">같이 비교하기</div>
+        <p class="pillar-desc">스타포스·잠재 지출과 경험치 리더보드로 서버 멤버들의 성장을 한눈에.</p>
+        <div class="pillar-shot">
+          <div style="width:100%">
+            <div class="mini-bar">
+              <span class="mini-bar-label" style="color:#f0c040">홍길동</span>
+              <div class="mini-bar-bg"><div class="mini-bar-fill" style="width:92%;background:#f0c040"></div></div>
+            </div>
+            <div class="mini-bar">
+              <span class="mini-bar-label" style="color:#5EC8C8">불꽃아크</span>
+              <div class="mini-bar-bg"><div class="mini-bar-fill" style="width:80%"></div></div>
+            </div>
+            <div class="mini-bar">
+              <span class="mini-bar-label" style="color:#9ab0c8">바람궁수</span>
+              <div class="mini-bar-bg"><div class="mini-bar-fill" style="width:71%;background:#9ab0c8"></div></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pillar-card pillar-card-accent orange">
+        <div class="pillar-icon-wrap" style="background:rgba(224,112,10,.12)">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+               fill="none" stroke="var(--orange)" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M8 2v4"/><path d="M16 2v4"/>
+            <rect width="18" height="18" x="3" y="4" rx="2"/>
+            <path d="M3 10h18"/>
+            <path d="M9 16h.01"/><path d="M12 16h.01"/><path d="M15 16h.01"/>
+          </svg>
+        </div>
+        <div class="pillar-title">숙제 DM 비서</div>
+        <p class="pillar-desc">일일·주간·보스 숙제를 매일 정해진 시간에 DM으로 챙겨드립니다.</p>
+        <div class="pillar-shot">
+          <div style="width:100%">
+            <div class="mini-dm-row"><div class="mini-dot"></div>에픽던전 ⬜ 미완료</div>
+            <div class="mini-dm-row"><div class="mini-dot orange"></div>무릉도장 완료</div>
+            <div class="mini-dm-row"><div class="mini-dot"></div>주간 보스 5/8</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="pillar-card pillar-card-accent green">
+        <div class="pillar-icon-wrap">
+          <svg xmlns="http://www.w3.org/2000/svg" width="20" height="20" viewBox="0 0 24 24"
+               fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/>
+            <circle cx="9" cy="7" r="4"/>
+            <path d="M23 21v-2a4 4 0 0 0-3-3.87"/>
+            <path d="M16 3.13a4 4 0 0 1 0 7.75"/>
+          </svg>
+        </div>
+        <div class="pillar-title">서버에서 함께</div>
+        <p class="pillar-desc">길드·파티·친구 모두 같은 서버에서 서로의 성장을 응원하세요.</p>
+        <div class="pillar-shot">
+          <div style="width:100%">
+            <div class="mini-cell-row">
+              <div class="mini-cell filled"></div><div class="mini-cell filled"></div>
+              <div class="mini-cell partial"></div><div class="mini-cell"></div><div class="mini-cell"></div>
+            </div>
+            <div class="mini-cell-row">
+              <div class="mini-cell filled"></div><div class="mini-cell"></div>
+              <div class="mini-cell filled"></div><div class="mini-cell filled"></div><div class="mini-cell"></div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<script>
+if (window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches) {
+  document.documentElement.setAttribute('data-theme', 'dark');
+  document.getElementById('theme-label').textContent = '라이트 모드';
+  document.getElementById('theme-icon').innerHTML = '<circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>';
+}
+function toggleTheme() {
+  const html = document.documentElement;
+  const isDark = html.getAttribute('data-theme') === 'dark';
+  html.setAttribute('data-theme', isDark ? 'light' : 'dark');
+  document.getElementById('theme-label').textContent = isDark ? '다크 모드' : '라이트 모드';
+  const icon = document.getElementById('theme-icon');
+  if (isDark) {
+    icon.innerHTML = '<path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/>';
+  } else {
+    icon.innerHTML = '<circle cx="12" cy="12" r="5"/><path d="M12 1v2M12 21v2M4.22 4.22l1.42 1.42M18.36 18.36l1.42 1.42M1 12h2M21 12h2M4.22 19.78l1.42-1.42M18.36 5.64l1.42-1.42"/>';
+  }
+}
+</script>
+</body>
+</html>

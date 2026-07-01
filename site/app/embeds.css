@@ -1,0 +1,97 @@
+/* ============================================================
+   디스코드 임베드 목업 + 스크린샷 틴트 프레임 (D10)
+   히어로/명령어 카드 공용. 실 스샷 교체 전 고충실 플레이스홀더.
+   ============================================================ */
+
+/* 스크린샷 틴트 backdrop 프레임 (테마 인식) */
+.mm-shot {
+  background: var(--screenshot-bg);
+  border-radius: var(--radius-lg);
+  padding: 18px;
+  box-shadow: var(--shadow-lg);
+  border: 1px solid var(--screenshot-border);
+}
+.mm-shot--sm {
+  border-radius: var(--radius-md);
+  padding: 14px;
+  box-shadow: var(--shadow-sm);
+}
+.mm-shot-caption {
+  font-size: 12px;
+  color: var(--tx-muted);
+  font-weight: 500;
+  margin-top: 10px;
+  text-align: center;
+}
+.mm-shot--sm .mm-shot-caption {
+  text-align: left;
+  margin-top: 8px;
+  font-size: 11px;
+}
+
+/* 디스코드 임베드 (다크 고정 — 실제 임베드 룩) */
+.mm-embed {
+  background: #1e2124;
+  border-radius: 10px;
+  border-left: 4px solid #5ec8c8;
+  padding: 15px 17px;
+  color: #dcddde;
+  font-size: 13px;
+  line-height: 1.5;
+}
+.mm-embed--orange { border-left-color: #e0700a; }
+.mm-embed-title {
+  font-weight: 700;
+  color: #5ec8c8;
+  font-size: 14px;
+  margin-bottom: 11px;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.mm-embed-title--orange { color: #e0700a; }
+.mm-embed-footer {
+  margin-top: 12px;
+  font-size: 10px;
+  color: #72767d;
+  border-top: 1px solid #2c2f33;
+  padding-top: 8px;
+}
+
+/* 경험치 리더보드 바 */
+.mm-bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.mm-bar-rank { font-size: 11px; color: #8a9bb5; width: 22px; text-align: right; flex-shrink: 0; }
+.mm-bar-name { font-size: 12px; color: #dcddde; width: 84px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.mm-bar-bg { flex: 1; height: 12px; background: #2c2f33; border-radius: 4px; overflow: hidden; }
+.mm-bar-fill { height: 100%; background: linear-gradient(90deg, #5ec8c8, #3ab0b0); border-radius: 4px; }
+.mm-bar-fill.gold   { background: linear-gradient(90deg, #f0c040, #d4a520); }
+.mm-bar-fill.silver { background: linear-gradient(90deg, #9ab0c8, #7a90a8); }
+.mm-bar-fill.bronze { background: linear-gradient(90deg, #d4855a, #b06040); }
+.mm-bar-level { font-size: 11px; color: #8a9bb5; width: 42px; text-align: right; flex-shrink: 0; }
+
+/* 스펙 임베드 */
+.mm-spec-row { display: flex; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
+.mm-spec-item { background: #2c2f33; border-radius: 4px; padding: 4px 10px; font-size: 11px; color: #b0bac8; }
+.mm-spec-item .val { color: #5ec8c8; font-weight: 600; }
+.mm-spec-item .val.gold { color: #f0c040; }
+.mm-spec-item .val.orange { color: #e0700a; }
+
+/* 스타포스/잠재 비교 표 */
+.mm-cmp { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 11px; color: #8a9bb5; }
+.mm-cmp th { text-align: left; padding: 4px 8px; color: #72767d; font-weight: 500; font-size: 10px; border-bottom: 1px solid #2c2f33; }
+.mm-cmp td { padding: 5px 8px; border-bottom: 1px solid #2c2f33; }
+.mm-cmp td .name { color: #dcddde; font-weight: 500; }
+.mm-cmp td .cost { color: #e0700a; }
+.mm-cmp .luck { font-size: 10px; padding: 1px 6px; background: #16311f; color: #5fd08a; border-radius: 3px; }
+.mm-cmp .luck.amber { background: #33290c; color: #e8c15a; }
+
+/* 유니온 그리드 */
+.mm-union { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
+.mm-union-item { background: #2c2f33; border-radius: 4px; padding: 6px 8px; font-size: 10px; color: #8a9bb5; }
+.mm-union-item .val { color: #5ec8c8; font-size: 12px; font-weight: 700; display: block; }
+
+/* 스케줄러 숙제 DM 행 */
+.mm-todo-row { background: #2c2f33; border-radius: 4px; padding: 6px 9px; font-size: 11px; color: #b0bac8; margin-bottom: 5px; display: flex; align-items: center; gap: 8px; }
+.mm-todo-check { flex-shrink: 0; font-size: 12px; }
+.mm-todo-row .done { color: #5fd08a; }
+.mm-todo-sub { font-size: 10px; color: #72767d; margin-top: 6px; }
