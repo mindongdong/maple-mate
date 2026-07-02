@@ -44,9 +44,9 @@
   /* 히어로 오렌지 warm wash 밴드 (hero-3) */
   --hero-band-bg:   #FFF5EC;   --hero-band-text: #7A3800;
 
-  /* 스크린샷 틴트 프레임 (테마 인식) */
-  --screenshot-bg:     #F0F9F9;
-  --screenshot-border: transparent;
+  /* 스크린샷 프레임 (뉴트럴 · 틴트 없음) */
+  --screenshot-bg:     #F8FAFC;
+  --screenshot-border: #E2E8F0;
 
   --shadow-sm: 0 1px 3px rgba(0,0,0,.08);
   --shadow-md: 0 4px 16px rgba(0,0,0,.10);
@@ -86,8 +86,8 @@
 
   --hero-band-bg:   #1C1008;   --hero-band-text: #F5883A;
 
-  --screenshot-bg:     #162030;
-  --screenshot-border: #2d3f55;
+  --screenshot-bg:     #1E293B;
+  --screenshot-border: #24324A;
 
   --shadow-sm: 0 1px 3px rgba(0,0,0,.3);
   --shadow-md: 0 4px 16px rgba(0,0,0,.4);
@@ -129,6 +129,36 @@ pre,
 /* ---- 마케팅(랜딩) 페이지는 풀폭 · 본문 여백/타이포 초기화 없이 컴포넌트가 담당 ---- */
 .mm-landing {
   max-width: none;
+}
+
+/* 플랫 뉴트럴 노트 박스 (탈-클로드 · 좌측 색바 없음) */
+.mm-note {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: 13px 15px;
+  margin: 18px 0;
+  font-size: 14px;
+  line-height: 1.65;
+  color: var(--tx-secondary);
+}
+.mm-note-icon {
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--tx-muted);
+}
+.mm-note-body > :first-child { margin-top: 0; }
+.mm-note-body > :last-child { margin-bottom: 0; }
+
+/* 스크린샷 이미지(진짜 PNG) — 프레임 안에서 폭 맞춤 */
+.mm-shot-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
 }
 
 /* 공통 유틸 */

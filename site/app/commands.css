@@ -110,13 +110,14 @@
   color: var(--tx-secondary);
   line-height: 1.6;
   background: var(--bg-subtle);
-  border-left: 3px solid var(--teal);
-  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
   padding: 10px 14px;
   margin: 12px 0 0;
 }
 .mm-cmd-tip strong {
-  color: var(--tx-primary);
+  color: var(--tx-muted);
+  font-weight: 600;
   margin-right: 4px;
 }
 
