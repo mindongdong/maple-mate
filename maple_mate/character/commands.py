@@ -39,11 +39,10 @@ def _render_spec_section(section: str, info: SpecInfo) -> str:
         lines = "\n".join(f"· {value}" for value in info.abilities) or "—"
         return f"[{grade}]\n{lines}"
     if section == "장착 심볼":
-        categories = (
+        return (
             " · ".join(f"{name} {count}" for name, count in info.symbols.counts)
             or "없음"
         )
-        return f"총 포스 **{info.symbols.total_force}**\n{categories}"
     if section == "HEXA 코어":
         if not info.hexa_cores:
             return "없음"

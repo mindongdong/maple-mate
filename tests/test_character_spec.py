@@ -47,20 +47,19 @@ def test_format_eok():
     assert format_eok("비수치") == "비수치"
 
 
-def test_summarize_symbols_counts_and_force():
+def test_summarize_symbols_counts():
     symbols = [
         {"symbol_name": "아케인심볼 : 소멸의 여로", "symbol_force": "165"},
         {"symbol_name": "아케인심볼 : 츄츄 아일랜드", "symbol_force": "135"},
         {"symbol_name": "사크레드심볼 : 세르니움", "symbol_force": "200"},
     ]
     summary = summarize_symbols(symbols)
-    assert summary.total_force == 500
     assert summary.counts == (("아케인", 2), ("사크레드", 1))
 
 
 def test_summarize_symbols_empty():
     summary = summarize_symbols(None)
-    assert summary.total_force == 0 and summary.counts == ()
+    assert summary.counts == ()
 
 
 def test_parse_abilities():
@@ -230,7 +229,7 @@ async def test_fetch_spec_assembles_all_sections():
     assert info.level == 285
     assert info.combat_power == "9000000000"
     assert info.ability_grade == "레전드리"
-    assert info.symbols.total_force == 165
+    assert info.symbols.counts == (("아케인", 1),)
     assert info.hexa_cores == (("코어", 30, "마스터리"),)
     assert info.hexa_stats == ("마력 Lv.10",)
     # 비교용 타입묶음/트리플도 채워진다(정수 튜플).
