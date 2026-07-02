@@ -3,7 +3,7 @@
 > **근거 결정:** ADR-0018(본 작업으로 작성 — §7), realm 판정 [ADR-0009](adr/0009-challengers-realm.md), 리더보드 표시 [ADR-0011](adr/0011-exp-leaderboard-display.md), exp_snapshot PK 확장 전례 ADR-0006→0009.
 > **하우스 스타일 레퍼런스:** [starforce-event-luck-work-order.md](starforce-event-luck-work-order.md), [n-characters-work-order.md](n-characters-work-order.md), [exp-leaderboard-work-order.md](exp-leaderboard-work-order.md).
 > **그릴링 출처:** `/grill-me` 세션(2026-07-02). 사용자 문제 제기: 비교류 기능이 많은데 같은 디스코드에 친구가 없는 솔로 유저는 쓸 게 없다 → 본인이 등록한 캐릭터(유저당 최대 10개)끼리 비교하게 하자.
-> **상태:** 설계 확정 · **미구현**. **PR1(스펙·아이템)은 스키마 무변경**, **PR2(경험치)는 마이그레이션 1건**(exp_snapshot PK 확장).
+> **상태:** **PR1(스펙·아이템) 구현·머지 완료 — PR #44(squash `6473b89`, 2026-07-02)**, 776 pytest·ruff·드리프트·사이트 빌드 그린. 남은 작업 = **PR2(경험치)**: 마이그레이션 1건(exp_snapshot PK 확장) + 스케줄러 전 캐릭터 수집 + `/내캐릭터 경험치` 서브커맨드(§5). §1-b 에 PR1 as-built 코드 포인터, §4 는 완료 기록.
 
 ---
 
@@ -23,6 +23,24 @@
 - **캐릭터 자동완성 전례 있음**: `/대표지정`의 ocid 자동완성([registration/commands.py:227](../maple_mate/registration/commands.py#L227)).
 - **명령 추가 = 문서 동반 필수**: 사이트 드리프트 가드 [tests/test_website_command_drift.py](../tests/test_website_command_drift.py) + [site/scripts/check-command-drift.mjs](../site/scripts/check-command-drift.mjs)가 `site/data/commands.json`↔봇 트리를 비교 — 새 명령을 넣고 사이트를 안 고치면 **CI가 깨진다**. `/가이드`([guide/commands.py](../maple_mate/guide/commands.py))도 갱신 대상.
 - **스로틀 전제**: 전역 4req/s(넥슨). `/스펙`의 5명 상한은 렌더 폭+팬아웃 비용 겸용.
+
+---
+
+## 1-b. PR1 as-built — PR2 세션이 재조사하지 말 것 (PR #44)
+
+- **캐릭터 타깃 해석**: `get_my_character_targets(session_factory, guild_id, discord_user_id, ocids=None)` + 순수 코어 `_my_character_targets`([registration/service.py](../maple_mate/registration/service.py)). 무지정 = 레벨 DESC(동률 닉 오름차순), `ocids` 지정 = 입력 순서 보존 + **중복 제거** + 본인 것 아닌 ocid 무시. realm 무필터(혼합). 테스트: [test_registration_service.py](../tests/test_registration_service.py) 하단.
+- **자동완성 공용 헬퍼**: `character_choices(characters, current)`([registration/commands.py](../maple_mate/registration/commands.py)) — `/대표지정`·`/내캐릭터` 공유(라벨 `닉 (Lv, 챌린저스N)` + 대표 👑, 상한 25). 테스트: [test_registration_label.py](../tests/test_registration_label.py) 하단.
+- **공유 빌드 함수(동작 불변 추출)**: [character/commands.py](../maple_mate/character/commands.py)의 `fetch_spec_outcomes`·`fetch_item_outcomes`(둘 다 `command=` 라벨 파라미터 — error_log 구분용), `build_spec_comparison`·`build_item_cards`(둘 다 `label=` 주입, 기본 `_default_label`=닉 20폭), `single_detail_embed`(구 `_single_detail_embed` 공개 승격). **PR2 의 경험치도 이 패턴** — leaderboard 쪽 임베드·그래프 빌드를 Target/행 리스트를 받는 함수로 추출해 공유.
+- **`/내캐릭터` 그룹**: [mychar/commands.py](../maple_mate/mychar/commands.py) — 스펙·아이템 서브커맨드 구현됨. 핵심 헬퍼:
+  - `_resolve_my_targets(deps, interaction, ocids)` — **defer 전에** 0캐릭/DM 판정(공개 defer 후엔 ephemeral 전환 불가) 후 `MAX_COMPARE=5` 초과 시 절단 + 안내 노트 반환. ⚠️ **절단은 스펙·아이템 전용** — 경험치(무인자=최대 10, 결정 4)는 이 헬퍼를 그대로 쓰지 말고 절단 없이 `get_my_character_targets` 직접 호출하거나 limit 파라미터화.
+  - `char_label(target)` — 닉 20폭 절단 + 챌린저스만 ` (챌린저스N)` 병기. 경험치 라벨도 재사용.
+  - `_owner_line(target)` — 범례 대신 소유자 1명 태그(`👤 <@uid>`), 공유 헬퍼 무변경으로 `embed.description` 사후 덮어씀.
+  - error_log `command` 라벨 = `"내캐릭터 스펙"`/`"내캐릭터 아이템"` (경험치도 동일 패턴).
+- **등록**: [bot/core.py](../maple_mate/bot/core.py) `setup_mychar(self)` 이미 체인에 있음 — PR2 는 mychar/commands.py 에 서브커맨드만 추가.
+- **§4-#4 가이드 갱신은 해당 없음이었음**: PR #43 에서 `/가이드`가 명령 목록 없는 링크 버튼 최소본으로 전환 — 명령 커버리지는 웹사이트 드리프트 가드([tests/test_website_command_drift.py](../tests/test_website_command_drift.py))가 단독 담당. **PR2 도 가이드 수정 불필요.**
+- **사이트**: `site/data/commands.json` 스펙·장비 그룹에 `내캐릭터` 카드 존재(그룹 명령이라 최상위 이름 1개 = 드리프트는 이미 그린). **PR2 에선 summary·tip 에 경험치를 반영**(명령 추가가 아니라 카피 갱신 — 드리프트는 안 깨지지만 문서 정확성).
+- **문서**: [ADR-0018](adr/0018-my-character-solo-comparison.md) **작성 완료**(PR2 몫인 결정 5·6 포함 전부 수록 — PR2 에서 ADR 신규 작성 불필요, 상태 갱신도 불필요). CONTEXT.md "캐릭터 타깃" 용어·realm.py 불변식 정밀화(유저 간 비교 한정)도 반영 완료.
+- **테스트 관행**: [tests/test_mychar_commands.py](../tests/test_mychar_commands.py) — 가짜 Interaction(`_Response`/`_Followup`) + `monkeypatch.setattr(reg, "get_my_character_targets", ...)`·`(character, "build_spec_comparison", ...)` 패턴. 경험치 핸들러 테스트도 같은 파일에 이어서.
 
 ---
 
@@ -99,9 +117,9 @@ async def get_my_character_targets(
 
 ---
 
-## 4. 빌드 단위 — PR1 (`/내캐릭터 스펙`·`아이템`, 스키마 무변경)
+## 4. 빌드 단위 — PR1 (`/내캐릭터 스펙`·`아이템`, 스키마 무변경) — ✅ 완료
 
-> 신규 패키지 [maple_mate/mychar/](../maple_mate/mychar/) (commands.py 중심, 파일 작게 유지).
+> **✅ 전부 구현·머지 완료(PR #44, squash `6473b89`).** 아래는 원 계획 — as-built 차이·코드 포인터는 §1-b 참조. 신규 패키지 [maple_mate/mychar/](../maple_mate/mychar/).
 
 ### #1 캐릭터 타깃 헬퍼 — `registration/service.py`
 - §3-1 `get_my_character_targets` 추가. 기존 함수 무수정.
@@ -126,7 +144,9 @@ async def get_my_character_targets(
 
 ---
 
-## 5. 빌드 단위 — PR2 (`/내캐릭터 경험치`, 스키마 확장)
+## 5. 빌드 단위 — PR2 (`/내캐릭터 경험치`, 스키마 확장) — 미구현(남은 작업)
+
+> PR1 산출물 재사용 포인트(그룹·라벨·타깃 해석·테스트 관행)는 **§1-b** 참조.
 
 ### #1 마이그레이션 — `alembic`
 - §3-3 upgrade/downgrade. 배포 전 실 DB(로컬 미러)에서 업→다운→업 가역성 검증.
@@ -143,29 +163,30 @@ async def get_my_character_targets(
 - 수집 경로(`ensure_guild_data`·방송 잡의 수집 단계)만 `get_all_character_targets`로 교체. **표시 경로 `build_payload`는 `get_targets`(대표) + 대표 ocid 필터 유지** — 서버 리더보드 표시 불변.
 - → **verify:** `test_leaderboard_job.py`·`test_leaderboard_commands.py` 그린, 수집이 전 캐릭 upsert하는 테스트 추가, 방송 임베드 스냅샷 불변.
 
-### #5 서브커맨드 — `mychar/commands.py`
+### #5 서브커맨드 — `mychar/commands.py` (기존 그룹에 추가)
 - `/내캐릭터 경험치`: defer → 내 캐릭 멱등 백필(스케줄러가 웜 상태 유지하므로 통상 0~1콜/캐릭, 콜드 시 ≤8콜/캐릭) → 내 ocid들 행으로 `_rank_key` 정렬 Top10 임베드 + 7일 추이 그래프(display_rows·팔레트 10색 재사용) → 공개 발송.
+- ⚠️ 0캐릭/DM ephemeral 판정은 PR1 의 defer-전 패턴을 따르되, **`_resolve_my_targets`의 상위 5 절단은 쓰지 않는다**(경험치 무인자=최대 10, 결정 4 — §1-b). 라벨은 `char_label` 재사용.
 - 혼합 그래프(본+챌 절대레벨 그대로, ADR-0011 절대레벨 원칙과 정합), 챌 캐릭 라벨 월드 병기. 1캐릭=1라인 허용(2명 게이트는 서버 리더보드 전용, 여기 미적용). 데이터 미준비 시 기존 `_MSG_NOT_READY` 톤 재사용.
-- 가이드·사이트에 경험치 서브커맨드 추가(드리프트 그린).
+- 사이트 `commands.json` 의 `내캐릭터` 카드 summary·tip 에 경험치 반영(§1-b — 명령 추가 아님·카피 갱신, 가이드는 해당 없음).
 - → **verify:** 1캐릭 그래프, 10캐릭 Top10, 혼합 realm 한 그래프, 콜드 백필 멱등(재실행 시 추가 콜 0), 기존 `/경험치` 결과 불변.
 
 ---
 
 ## 6. 검증 게이트 (머지 조건)
 
-1. 전체 pytest 그린 + `ruff check`(E,F,I)·`ruff format` clean(CI 게이트 그대로).
-2. 드리프트 2종(웹사이트·가이드) 그린 — **각 PR에 포함된 명령만** 문서 반영.
+1. 전체 pytest 그린 + `ruff check`(E,F,I)·`ruff format` clean(CI 게이트 그대로). — *PR1 통과(776 passed)*
+2. 드리프트(웹사이트) 그린 — **각 PR에 포함된 명령만** 문서 반영. (가이드 가드는 #43 이후 해당 없음 — §1-b) — *PR1 통과*
 3. PR2: 마이그레이션 실 DB 가역성(업→다운→업) 증빙.
-4. 기존 명령 회귀 0: `/스펙`·`/아이템`·`/경험치` 테스트 전량 무수정 통과(리팩터로 픽스처 갱신이 필요하면 결과 동일성 명시).
-5. 라이브 확인(배포 후): 5캐릭 유저로 `/내캐릭터 스펙` 무인자·지정, 챌 혼합 라벨, `/내캐릭터 경험치` 콜드→웜 2회 실행.
+4. 기존 명령 회귀 0: `/스펙`·`/아이템`·`/경험치` 테스트 전량 무수정 통과(리팩터로 픽스처 갱신이 필요하면 결과 동일성 명시). — *PR1 통과(스펙·아이템 무수정)*
+5. 라이브 확인(배포 후): 5캐릭 유저로 `/내캐릭터 스펙` 무인자·지정, 챌 혼합 라벨, `/내캐릭터 경험치` 콜드→웜 2회 실행. — **PR1·PR2 공통 미완(배포 후)**
 
 ---
 
 ## 7. 문서 갱신
 
-- **ADR-0018 신설**(`docs/adr/0018-my-character-solo-comparison.md`): 결정 #2(별도 명령 — member1 조건부 필수 불가 근거), #5·#6(스케줄러 전 캐릭 수집 + 단일 테이블 PK ocid 확장, realm PK 강등 — ADR-0009의 exp_snapshot PK 서술 부분 개정), #7(솔로 모드는 realm 혼합 — "본서버 비교에 챌린저스 불혼입" 불변식은 **유저 간 비교 한정**으로 정밀화).
-- CONTEXT.md 용어 추가: "캐릭터 타깃"(유저 타깃과 구분), `/내캐릭터` 명령군.
-- 사이트 명령어 페이지 + `/가이드` (§4-#4, §5-#5에 포함).
+- ✅ **ADR-0018 신설 완료(PR1)**([0018-my-character-solo-comparison.md](adr/0018-my-character-solo-comparison.md)): 결정 #2(별도 명령), #5·#6(PR2 몫 포함 — 스케줄러 전 캐릭 수집 + PK ocid 확장·realm 강등), #7(realm 혼합 — 불변식 **유저 간 비교 한정** 정밀화, realm.py docstring 동반). **PR2 에서 ADR 추가 작업 없음.**
+- ✅ CONTEXT.md "캐릭터 타깃" 용어 추가 완료(PR1).
+- ✅ 사이트 명령어 카드 추가 완료(PR1) — PR2 는 summary·tip 카피에 경험치만 반영(§5-#5). `/가이드`는 해당 없음(§1-b).
 
 ---
 
