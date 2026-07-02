@@ -47,8 +47,8 @@ export function Pillars() {
             </p>
             <div className="mm-pillar-shot">
               <div className="mm-mini-dm"><span className="mm-mini-dot" />에픽던전 ⬜ 미완료</div>
-              <div className="mm-mini-dm"><span className="mm-mini-dot orange" />무릉도장 ✅ 완료</div>
-              <div className="mm-mini-dm"><span className="mm-mini-dot" />주간 보스 5/8</div>
+              <div className="mm-mini-dm"><span className="mm-mini-dot orange" />지하수로 ✅ 완료</div>
+              <div className="mm-mini-dm"><span className="mm-mini-dot" />주간 보스 5/12</div>
             </div>
           </article>
 
@@ -64,7 +64,7 @@ export function Pillars() {
             <div className="mm-pillar-shot">
               <div className="mm-mini-stat"><span>전투력</span><b>64.2억</b></div>
               <div className="mm-mini-stat"><span>유니온</span><b>8,742</b></div>
-              <div className="mm-mini-stat"><span>크리티컬 데미지</span><b>142%</b></div>
+              <div className="mm-mini-stat"><span>보스 몬스터 데미지</span><b>142%</b></div>
             </div>
           </article>
         </div>

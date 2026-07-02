@@ -58,16 +58,12 @@
   padding-top: 8px;
 }
 
-/* 경험치 리더보드 바 */
-.mm-bar-row { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
-.mm-bar-rank { font-size: 11px; color: #8a9bb5; width: 22px; text-align: right; flex-shrink: 0; }
-.mm-bar-name { font-size: 12px; color: #dcddde; width: 84px; flex-shrink: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
-.mm-bar-bg { flex: 1; height: 12px; background: #2c2f33; border-radius: 4px; overflow: hidden; }
-.mm-bar-fill { height: 100%; background: linear-gradient(90deg, #5ec8c8, #3ab0b0); border-radius: 4px; }
-.mm-bar-fill.gold   { background: linear-gradient(90deg, #f0c040, #d4a520); }
-.mm-bar-fill.silver { background: linear-gradient(90deg, #9ab0c8, #7a90a8); }
-.mm-bar-fill.bronze { background: linear-gradient(90deg, #d4855a, #b06040); }
-.mm-bar-level { font-size: 11px; color: #8a9bb5; width: 42px; text-align: right; flex-shrink: 0; }
+/* 경험치 리더보드 순위 텍스트 (실제 임베드 형식 — 진행 바 없음) */
+.mm-rank-list { display: flex; flex-direction: column; gap: 6px; }
+.mm-rank-line { display: flex; align-items: baseline; gap: 8px; font-size: 12.5px; color: #dcddde; line-height: 1.3; }
+.mm-rank-badge { min-width: 18px; flex-shrink: 0; text-align: center; color: #8a9bb5; }
+.mm-rank-name { font-weight: 700; color: #f2f3f5; }
+.mm-rank-lv { color: #b0bac8; }
 
 /* 스케줄러 숙제 DM 행 */
 .mm-todo-row { background: #2c2f33; border-radius: 4px; padding: 6px 9px; font-size: 11px; color: #b0bac8; margin-bottom: 5px; display: flex; align-items: center; gap: 8px; }

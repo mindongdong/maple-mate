@@ -7,9 +7,10 @@
  * 사이트 크롬(네비·배지·노트)의 Lucide 통일 정책(D13)과 구분된다.
  */
 import * as React from 'react'
-import { Trophy, History } from 'lucide-react'
+import { History } from 'lucide-react'
 
-/** 경험치 리더보드 — 레벨 추이 바(순위키 = 레벨, exp%). 랜딩 히어로 목업 전용. */
+/** 경험치 리더보드 — 실제 /경험치 임베드와 동일한 순위 텍스트(메달 · **닉** — Lv.X (Y%)).
+ *  실제 임베드엔 진행 바가 없으므로 바 없이 텍스트로만. 랜딩 히어로 목업 전용. */
 type Row = { name: string; level: number; pct: number; medal?: 'gold' | 'silver' | 'bronze' }
 const LEADERBOARD: Row[] = [
   { name: '홍길동전사', level: 275, pct: 92, medal: 'gold' },
@@ -23,29 +24,22 @@ const LEADERBOARD: Row[] = [
 
 const MEDAL: Record<string, string> = { gold: '🥇', silver: '🥈', bronze: '🥉' }
 
-export function LeaderboardEmbed({ rows = 7 }: { rows?: number }) {
+export function LeaderboardEmbed({ rows = 5 }: { rows?: number }) {
   return (
     <div className="mm-embed">
-      <div className="mm-embed-title">
-        <Trophy size={13} strokeWidth={2.5} aria-hidden />
-        경험치 리더보드 — Top {rows}
+      <div className="mm-embed-title">📈 경험치 리더보드</div>
+      <div className="mm-rank-list">
+        {LEADERBOARD.slice(0, rows).map((r, i) => (
+          <div className="mm-rank-line" key={r.name}>
+            <span className="mm-rank-badge">{r.medal ? MEDAL[r.medal] : `${i + 1}.`}</span>
+            <span>
+              <b className="mm-rank-name">{r.name}</b>
+              <span className="mm-rank-lv"> — Lv.{r.level} ({r.pct}%)</span>
+            </span>
+          </div>
+        ))}
       </div>
-      {LEADERBOARD.slice(0, rows).map((r, i) => (
-        <div className="mm-bar-row" key={r.name}>
-          <span className="mm-bar-rank" style={r.medal ? undefined : { color: '#72767d' }}>
-            {r.medal ? MEDAL[r.medal] : i + 1}
-          </span>
-          <span className="mm-bar-name">{r.name}</span>
-          <span className="mm-bar-bg">
-            <span
-              className={`mm-bar-fill${r.medal ? ` ${r.medal}` : ''}`}
-              style={{ width: `${r.pct}%` }}
-            />
-          </span>
-          <span className="mm-bar-level">Lv.{r.level}</span>
-        </div>
-      ))}
-      <div className="mm-embed-footer">2026-07-01 기준 · /경험치</div>
+      <div className="mm-embed-footer">기준: 오늘(07/01) 현재 · NEXON Open API</div>
     </div>
   )
 }
@@ -58,10 +52,10 @@ export function SchedulerEmbed() {
         <History size={12} strokeWidth={2.5} aria-hidden />
         오늘의 숙제 — 홍길동전사
       </div>
-      <div className="mm-todo-row"><span className="mm-todo-check">⬜</span>에픽던전 · 무릉도장</div>
+      <div className="mm-todo-row"><span className="mm-todo-check">⬜</span>에픽던전 · 지하수로</div>
       <div className="mm-todo-row"><span className="mm-todo-check done">✅</span><span className="done">일일 보스 3</span></div>
-      <div className="mm-todo-row"><span className="mm-todo-check">⬜</span>주간 보스 <span style={{ color: '#72767d' }}>· 5/8 처치</span></div>
-      <div className="mm-todo-row"><span className="mm-todo-check">⬜</span>길드 미션 P · 플래그 · 수로</div>
+      <div className="mm-todo-row"><span className="mm-todo-check">⬜</span>주간 보스 <span style={{ color: '#72767d' }}>· 5/12 처치</span></div>
+      <div className="mm-todo-row"><span className="mm-todo-check">⬜</span>몬스터파크 <span style={{ color: '#72767d' }}>· 9/14회</span></div>
       <div className="mm-todo-sub">매일 정한 시각에 DM · 등록 캐릭터 전부</div>
     </div>
   )
@@ -91,13 +85,21 @@ export function GuideEmbed() {
   )
 }
 
-/** 정기 알림 구독 확인 — 채널/개인 DM 공통(경험치·공지·썬데이). */
-export function AlertEmbed({ title, line }: { title: string; line: string }) {
+/** 정기 알림 구독 확인 — 경험치·공지·썬데이(채널/개인 DM)와 스케줄러알림(본인 DM). */
+export function AlertEmbed({
+  title,
+  line,
+  sub = '대상: 채널 또는 본인 DM · 켜기 · 끄기',
+}: {
+  title: string
+  line: string
+  sub?: string
+}) {
   return (
     <div className="mm-embed">
       <div className="mm-embed-title">{title}</div>
       <div style={{ fontSize: 12, color: '#dcddde' }}>{line}</div>
-      <div className="mm-todo-sub">대상: 채널 또는 본인 DM · 켜기 · 끄기</div>
+      <div className="mm-todo-sub">{sub}</div>
     </div>
   )
 }

@@ -49,7 +49,7 @@ function embedFor(name: string): { node: ReactNode; caption: string } | null {
     case '스케줄러':
       return { node: <SchedulerEmbed />, caption: '/스케줄러 · 본인만' }
     case '스케줄러알림':
-      return { node: <SchedulerEmbed />, caption: '/스케줄러알림 · 매일 정한 시각 DM' }
+      return { node: <AlertEmbed title="스케줄러 숙제 알림" line="매일 정한 시각에 숙제 체크리스트를 개인 DM으로 보냅니다." sub="대상: 본인 DM · 켜기 · 끄기" />, caption: '/스케줄러알림 · 매일 정한 시각 DM' }
     case '경험치알림':
       return { node: <AlertEmbed title="경험치 리더보드 알림" line="매일 정한 시각에 리더보드를 이 채널 또는 본인 DM으로 보냅니다." />, caption: '/경험치알림' }
     case '공지알림':

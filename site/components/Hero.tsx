@@ -40,7 +40,7 @@ export function Hero() {
               봇 초대하기
             </a>
             <a className="mm-btn-ghost" href="/getting-started">
-              5분 시작
+              빠른 시작
               <ArrowRight size={15} strokeWidth={2} aria-hidden />
             </a>
           </div>
