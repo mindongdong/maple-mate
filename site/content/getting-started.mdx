@@ -3,12 +3,13 @@ title: 시작하기
 description: 봇 초대부터 캐릭터·API 키 등록까지 5분이면 끝. 등록한 만큼 기능이 열립니다.
 ---
 
-import { Steps, Callout, Cards } from 'nextra/components'
+import { Steps, Cards } from 'nextra/components'
 import { BadgeLegend } from '@/components/Badge'
+import { Note } from '@/components/Note'
 
 # 시작하기
 
-메이트는 **등록한 만큼 열리는** 봇입니다. 권한 설정은 필요 없어요.
+메이트는 **캐릭터를 한 번 등록해두면 계속 함께하는** 봇입니다.
 서버에 초대만 하면 `/가이드` 와 경험치·공지·썬데이 알림은 누구나 바로 쓰고,
 캐릭터와 넥슨 API 키를 등록하면 비교·리더보드·스케줄러까지 열립니다.
 
@@ -19,12 +20,8 @@ import { BadgeLegend } from '@/components/Badge'
 ### 봇 초대하기
 
 디스코드 서버에 메이트를 초대하세요. 서버 관리자 한 명이 한 번만 하면 됩니다.
+초대에는 슬래시 명령 권한만 필요하고, 관리자·메시지 관리 같은 권한은 요구하지 않아요.
 초대 직후부터 `/가이드`·`/경험치알림`·`/공지알림`·`/썬데이알림` 은 **등록 없이** 바로 쓸 수 있어요.
-
-<Callout type="info">
-  초대에는 슬래시 명령(`applications.commands`) 권한만 필요합니다. 관리자·메시지 관리
-  같은 별도 권한은 요구하지 않아요.
-</Callout>
 
 ### 캐릭터 등록 — `/캐릭터등록`
 
@@ -33,19 +30,18 @@ import { BadgeLegend } from '@/components/Badge'
 
 ### 넥슨 API 키 등록 — `/키등록`
 
-스타포스·잠재 같은 **이력류**와 **스케줄러 숙제**는 넥슨 개인 API 키가 필요합니다.
-이력 데이터는 계정 소유자만 조회할 수 있는 개인 스코프라서예요.
+스타포스·잠재 기록과 스케줄러 숙제는 넥슨 개인 API 키가 필요합니다. 이 데이터는
+계정 소유자만 열어볼 수 있는 개인 정보라서예요. 남의 기록을 몰래 보는 게 아니라,
+**내 기록을 서버에서 함께 견주기** 위한 거예요.
 
 1. [openapi.nexon.com](https://openapi.nexon.com) 에 접속해 넥슨 계정으로 로그인합니다.
-2. 애플리케이션 등록(또는 API 키 발급)에서 **메이플스토리** API 키를 발급받습니다.
-3. 발급된 키 문자열을 복사합니다.
-4. 디스코드에서 `/키등록` 을 실행하고 키를 붙여넣습니다. 입력은 **본인에게만 보여요**(ephemeral).
+2. 애플리케이션 등록에서 **메이플스토리** API 키를 발급받습니다.
+3. 디스코드에서 `/키등록` 을 실행하고 키를 붙여넣습니다. 입력은 **본인에게만 보여요**(ephemeral).
 
-<Callout type="warning">
-  API 키는 **Fernet 대칭키로 암호화**해 보관하고, 넥슨 API 를 호출할 때만 복호화합니다.
-  키가 유출되면 넥슨 개발자 센터에서 재발급하세요. 자세한 처리 방식은
-  [개인정보·보안](/privacy)을 참고하세요.
-</Callout>
+<Note>
+  API 키는 암호화해 보관하고 넥슨 API 를 호출할 때만 복호화합니다. 보관 방식은
+  [개인정보·보안](/privacy)에서 자세히 다뤄요.
+</Note>
 
 ### 대표 캐릭터 지정 — `/대표지정`
 
@@ -58,6 +54,5 @@ import { BadgeLegend } from '@/components/Badge'
 
 <Cards>
   <Cards.Card title="전체 명령어 보기" href="/commands" arrow />
-  <Cards.Card title="개념: 스펙류·이력류·API 키" href="/concepts" arrow />
   <Cards.Card title="개인정보·보안" href="/privacy" arrow />
 </Cards>
