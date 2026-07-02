@@ -97,6 +97,7 @@ class MapleMateBot(discord.Client):
         from ..history.commands import setup as setup_history
         from ..history.potential_commands import setup as setup_potential
         from ..leaderboard.commands import setup_leaderboard
+        from ..mychar.commands import setup as setup_mychar
         from ..notification.commands import setup as setup_notification
         from ..registration.commands import setup as setup_registration
         from ..scheduler.commands import setup as setup_scheduler
@@ -105,6 +106,7 @@ class MapleMateBot(discord.Client):
         setup_registration(self)
         setup_union(self)
         setup_character(self)  # /스펙 · /아이템
+        setup_mychar(self)  # /내캐릭터 (본인 캐릭터끼리 비교 — 솔로 모드)
         setup_history(self)  # /스타포스
         setup_potential(self)  # /잠재
         # /비틱은 효용 낮아 봇에서 숨김(ADR-0017 작업지시서 #1). bitik/ 코드·테스트는 보존 —
