@@ -110,3 +110,50 @@ async def test_verify_and_encrypt_api_error_returns_message():
     )
     enc, err = await service.verify_and_encrypt_key(nexon, CIPHER, "k")
     assert enc is None and "잠시 후" in err
+
+
+# ── 솔로 비교(/내캐릭터) 캐릭터 타깃 해석 (ADR-0018) ─────────────────────────
+
+
+def _char(ocid, nickname, level, world=None):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(ocid=ocid, maple_nickname=nickname, level=level, world=world)
+
+
+def test_my_character_targets_empty_when_no_characters():
+    assert service._my_character_targets([], 1, 10) == []
+
+
+def test_my_character_targets_sorted_by_level_then_nickname():
+    chars = [
+        _char("o1", "나중닉", 250),
+        _char("o2", "최고레벨", 287),
+        _char("o3", "가나다", 250),  # 동률 → 닉 오름차순
+        _char("o4", "레벨미상", None),  # NULL 레벨은 맨 뒤
+    ]
+    targets = service._my_character_targets(chars, 1, 10)
+    assert [t.ocid for t in targets] == ["o2", "o3", "o1", "o4"]
+
+
+def test_my_character_targets_preserves_ocid_order_and_dedupes():
+    chars = [_char("o1", "일", 200), _char("o2", "이", 280), _char("o3", "삼", 250)]
+    targets = service._my_character_targets(
+        chars, 1, 10, ocids=["o3", "o1", "o3", "남의ocid"]
+    )
+    # 입력 순서 보존 + 중복 제거 + 본인 것 아닌 ocid 무시(레벨 정렬 아님).
+    assert [t.ocid for t in targets] == ["o3", "o1"]
+
+
+def test_my_character_targets_mixes_realms_and_keeps_fields():
+    # realm 필터 없음(결정 7) — 챌린저스 캐릭터도 포함, world 신호 보존.
+    chars = [
+        _char("o1", "본캐", 287, "스카니아"),
+        _char("o2", "챌캐", 260, "챌린저스3"),
+    ]
+    targets = service._my_character_targets(chars, 7, 42)
+    assert [t.ocid for t in targets] == ["o1", "o2"]
+    top = targets[0]
+    assert (top.guild_id, top.discord_user_id) == (7, 42)
+    assert top.nickname == "본캐" and top.world == "스카니아"
+    assert targets[1].world == "챌린저스3"

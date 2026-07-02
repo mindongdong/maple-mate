@@ -445,6 +445,59 @@ async def get_targets(
     return targets
 
 
+def _my_character_targets(
+    characters: Sequence[Character],
+    guild_id: int,
+    discord_user_id: int,
+    ocids: Sequence[str] | None = None,
+) -> list[Target]:
+    """캐릭터 목록 → 캐릭터당 Target 1개(순수함수 — 단위테스트 대상).
+
+    무지정 = 등록 레벨 내림차순(동률 시 닉 오름차순). ocids 지정 시 그 캐릭터만,
+    입력 순서 보존(get_targets 의 user_ids 순서 보존 관행) + 중복 제거.
+    본인 것이 아닌 ocid 는 무시.
+    """
+    if ocids is not None:
+        by_ocid = {c.ocid: c for c in characters}
+        picked = []
+        seen: set[str] = set()
+        for o in ocids:
+            if o in by_ocid and o not in seen:
+                seen.add(o)
+                picked.append(by_ocid[o])
+    else:
+        picked = sorted(
+            characters,
+            key=lambda c: (-(c.level if c.level is not None else -1), c.maple_nickname),
+        )
+    return [
+        Target(
+            guild_id=guild_id,
+            discord_user_id=discord_user_id,
+            nickname=c.maple_nickname,
+            ocid=c.ocid,
+            world=c.world,
+        )
+        for c in picked
+    ]
+
+
+async def get_my_character_targets(
+    session_factory: async_sessionmaker[AsyncSession],
+    guild_id: int,
+    discord_user_id: int,
+    ocids: Sequence[str] | None = None,
+) -> list[Target]:
+    """솔로 비교(`/내캐릭터`) 대상 해석 — 이 유저의 등록 캐릭터를 캐릭터당 Target 1개로.
+
+    realm 필터 없음(본인 캐릭끼리라 공정성 전제가 없음 — ADR-0018 결정 7, 챌린저스 혼합).
+    기존 Target 을 그대로 재사용하므로 비교 렌더 경로가 무수정으로 받는다.
+    """
+    async with session_factory() as session:
+        chars = await _load_user_characters(session, guild_id, discord_user_id)
+    return _my_character_targets(chars, guild_id, discord_user_id, ocids)
+
+
 async def refresh_ocid(
     session_factory: async_sessionmaker[AsyncSession],
     nexon: NexonClient,

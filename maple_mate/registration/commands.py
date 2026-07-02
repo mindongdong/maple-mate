@@ -33,6 +33,28 @@ def _char_label(nickname: str, level: int | None, world: str | None = None) -> s
     return f"{nickname} ({', '.join(parts)})" if parts else nickname
 
 
+def character_choices(
+    characters: list[service.CharacterInfo], current: str
+) -> list[app_commands.Choice[str]]:
+    """본인 캐릭터 목록 → 자동완성 Choice(순수함수 — `/대표지정`·`/내캐릭터` 공유).
+
+    닉 부분일치(대소문자 무시) 필터, 라벨 = `닉 (Lv, 챌린저스N)` + 대표 👑, 상한 25(디스코드).
+    value = ocid.
+    """
+    needle = current.strip().lower()
+    choices: list[app_commands.Choice[str]] = []
+    for c in characters:
+        if needle and needle not in c.nickname.lower():
+            continue
+        label = _char_label(c.nickname, c.level, c.world)
+        if c.is_representative:
+            label = f"{label} 👑"
+        choices.append(app_commands.Choice(name=label[:100], value=c.ocid))
+        if len(choices) >= 25:  # Discord 자동완성 옵션 상한
+            break
+    return choices
+
+
 async def handle_character_register(
     deps: Deps, interaction: discord.Interaction, nickname: str
 ) -> None:
@@ -233,18 +255,7 @@ def setup(bot: discord.Client) -> None:
         characters = await service.get_characters(
             deps.session_factory, interaction.guild_id, interaction.user.id
         )
-        needle = current.strip().lower()
-        choices: list[app_commands.Choice[str]] = []
-        for c in characters:
-            if needle and needle not in c.nickname.lower():
-                continue
-            label = _char_label(c.nickname, c.level, c.world)
-            if c.is_representative:
-                label = f"{label} 👑"
-            choices.append(app_commands.Choice(name=label[:100], value=c.ocid))
-            if len(choices) >= 25:  # Discord 자동완성 옵션 상한
-                break
-        return choices
+        return character_choices(characters, current)
 
     @bot.tree.command(  # type: ignore[attr-defined]
         name="캐릭터목록",
