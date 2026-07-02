@@ -163,6 +163,159 @@
   filter: drop-shadow(0 6px 16px rgba(200, 90, 10, 0.3));
 }
 
+/* ---- 히어로 디스코드 대화 목업 (명령 → 봇 응답 순차 등장) ---- */
+.mm-chat {
+  width: 100%;
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: #313338;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow-lg);
+  font-family: var(--font-base);
+}
+.mm-chat-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 11px 15px;
+  background: #2b2d31;
+  color: #f2f3f5;
+  font-weight: 700;
+  font-size: 14px;
+  border-bottom: 1px solid #1f2023;
+}
+.mm-chat-head svg {
+  color: #949ba4;
+}
+.mm-chat-body {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 15px;
+  height: 400px;
+  padding: 16px 15px;
+  overflow: hidden;
+}
+.mm-chat-line {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+}
+.mm-chat-av {
+  width: 30px;
+  height: 30px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  overflow: hidden;
+}
+.mm-chat-av--bot {
+  background: #fff;
+}
+.mm-chat-content {
+  min-width: 0;
+  flex: 1;
+}
+.mm-chat-meta {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin-bottom: 3px;
+}
+.mm-chat-name {
+  font-size: 13.5px;
+  font-weight: 600;
+}
+.mm-chat-name--bot {
+  color: #c8a2f0;
+}
+.mm-chat-tag {
+  background: #5865f2;
+  color: #fff;
+  font-size: 9px;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  letter-spacing: 0.02em;
+}
+.mm-chat-cmd {
+  display: inline-block;
+  background: rgba(88, 101, 242, 0.18);
+  color: #b3bbff;
+  font-weight: 600;
+  font-size: 13.5px;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+.mm-chat-reply {
+  margin-top: 2px;
+}
+.mm-chat-uni {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  font-size: 12px;
+  color: #dbdee1;
+}
+.mm-chat-uni b {
+  color: #5ec8c8;
+}
+.mm-chat-uni-rank {
+  margin-right: 2px;
+}
+.mm-chat-dots {
+  display: inline-flex;
+  gap: 4px;
+  padding: 7px 2px;
+}
+.mm-chat-dots span {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #949ba4;
+}
+@media (prefers-reduced-motion: no-preference) {
+  .mm-chat-msg {
+    animation: mm-msg-in 0.32s ease both;
+  }
+  .mm-chat-dots span {
+    animation: mm-typing 1.2s infinite ease-in-out;
+  }
+  .mm-chat-dots span:nth-child(2) {
+    animation-delay: 0.2s;
+  }
+  .mm-chat-dots span:nth-child(3) {
+    animation-delay: 0.4s;
+  }
+}
+@keyframes mm-msg-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@keyframes mm-typing {
+  0%,
+  60%,
+  100% {
+    opacity: 0.3;
+    transform: translateY(0);
+  }
+  30% {
+    opacity: 1;
+    transform: translateY(-3px);
+  }
+}
+
 /* ---- 3기둥 (밴드 밖 쿨 베이스) ---- */
 .mm-pillars {
   background: var(--bg-subtle);
@@ -210,7 +363,6 @@
   gap: 14px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-top: 3px solid var(--border);
   border-radius: var(--radius-md);
   padding: 26px;
   box-shadow: var(--shadow-sm);
@@ -220,9 +372,6 @@
   box-shadow: var(--shadow-md);
   transform: translateY(-3px);
 }
-.mm-pillar--teal { border-top-color: var(--teal); }
-.mm-pillar--orange { border-top-color: var(--orange); }
-.mm-pillar--green { border-top-color: #2e9a5b; }
 .mm-pillar-icon {
   width: 40px;
   height: 40px;
@@ -263,10 +412,8 @@
 .mm-mini-dm { font-size: 9px; color: #8a9bb5; background: #2c2f33; border-radius: 4px; padding: 5px 8px; margin-bottom: 4px; display: flex; align-items: center; gap: 6px; }
 .mm-mini-dot { width: 6px; height: 6px; border-radius: 50%; background: #5ec8c8; flex-shrink: 0; }
 .mm-mini-dot.orange { background: #e0700a; }
-.mm-mini-cells { display: flex; gap: 4px; margin-bottom: 3px; }
-.mm-cell { flex: 1; height: 8px; background: #2c2f33; border-radius: 3px; }
-.mm-cell.on { background: #5ec8c8; }
-.mm-cell.part { background: #e0700a; }
+.mm-mini-stat { display: flex; justify-content: space-between; align-items: center; background: #2c2f33; border-radius: 4px; padding: 5px 9px; font-size: 9px; color: #8a9bb5; margin-bottom: 4px; }
+.mm-mini-stat b { color: #5ec8c8; font-size: 10px; }
 
 /* ---- 5분 시작 티저 (리파인 #3) ---- */
 .mm-teaser {

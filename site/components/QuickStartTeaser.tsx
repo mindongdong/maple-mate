@@ -30,9 +30,10 @@ export function QuickStartTeaser() {
     <section className="mm-teaser">
       <div className="mm-teaser-inner">
         <p className="mm-eyebrow">5분이면 충분해요</p>
-        <h2 className="mm-teaser-title">등록한 만큼 열립니다</h2>
+        <h2 className="mm-teaser-title">한 번 등록하면, 계속 함께</h2>
         <p className="mm-teaser-sub">
-          권한 설정은 필요 없어요. 필요한 만큼만 등록하면 그만큼 기능이 열립니다.
+          캐릭터를 한 번만 등록해두면 끝이에요. 다음부턴 명령어 한 줄로 비교도,
+          숙제 알림도 바로 열려요.
         </p>
 
         <ol className="mm-teaser-steps">
