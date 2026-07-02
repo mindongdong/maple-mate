@@ -34,7 +34,7 @@ def test_footer_label_says_today_current():
 
 def _row(rank, nick, level, exp_rate, world_rank):
     return LeaderRow(
-        discord_user_id=rank,
+        ocid=f"o{rank}",
         rank=rank,
         nickname=nick,
         level=level,
@@ -238,6 +238,7 @@ async def test_build_payload_returns_none_below_min_ranked(monkeypatch):
         return [
             SimpleNamespace(
                 discord_user_id=10,
+                ocid="o1",
                 snapshot_date=snap_date,
                 character_level=287,
                 total_exp=1,
@@ -274,6 +275,7 @@ async def test_build_payload_caps_embed_and_graph_to_top_ten(monkeypatch):
         return [
             SimpleNamespace(
                 discord_user_id=t.discord_user_id,
+                ocid=t.ocid,
                 snapshot_date=snap_date,
                 character_level=300 - i,
                 total_exp=1,
@@ -286,8 +288,8 @@ async def test_build_payload_caps_embed_and_graph_to_top_ten(monkeypatch):
     async def fake_live_levels(deps, tgts):
         return {}  # 라이브 실패 → D-1 스냅샷 폴백(결정적 레벨 순서)
 
-    async def fake_history_progress(sf, guild_id, nicknames, today, *, realm=None):
-        return {nick: [(date(2026, 6, 13), 290.0)] for nick in nicknames.values()}
+    async def fake_history_progress(sf, guild_id, labels, today, *, realm=None):
+        return {label: [(date(2026, 6, 13), 290.0)] for label in labels.values()}
 
     captured: dict[str, object] = {}
 

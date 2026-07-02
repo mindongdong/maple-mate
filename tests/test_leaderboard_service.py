@@ -39,10 +39,12 @@ def _snap(
     rank: int | None = 100,
     d=_REF,
     exp_rate: float | None = None,
+    ocid: str | None = None,
 ):
     return SimpleNamespace(
         guild_id=1,
         discord_user_id=uid,
+        ocid=ocid if ocid is not None else f"oc{uid}",  # 캐릭터 차원(ADR-0018)
         snapshot_date=d,
         character_level=level,
         total_exp=total,
@@ -57,10 +59,10 @@ def _snap(
 def test_build_rows_same_level_same_exp_rate_ignores_total_exp():
     # 통일 키 = (레벨, 레벨내 exp%)뿐 — total_exp 는 타이브레이크에서 제외(그래프와 동일 공식).
     # 동레벨·exp% 동일(None)이면 누적이 달라도 순서를 뒤집지 않고 입력 순서를 유지(안정 정렬).
-    nicknames = {10: "손바", 20: "라딘라면"}
+    labels = {"oc10": "손바", "oc20": "라딘라면"}
     today = [_snap(10, _EXP_D2), _snap(20, _EXP_D1)]  # 둘 다 Lv.287, 20 이 누적 큼
     prev = [_snap(10, _EXP_D2, d=_PREV), _snap(20, _EXP_D2, d=_PREV)]
-    rows, excluded = build_rows(today, prev, nicknames=nicknames)
+    rows, excluded = build_rows(today, prev, labels=labels)
     assert excluded == 0
     assert [r.rank for r in rows] == [1, 2]
     assert rows[0].nickname == "손바"  # 누적이 작아도 입력 순서 유지(total_exp 미사용)
@@ -69,63 +71,63 @@ def test_build_rows_same_level_same_exp_rate_ignores_total_exp():
 
 def test_build_rows_ranks_by_level_over_total_exp():
     # 챌린저스 버닝: Lv.276 의 누적이 Lv.272 보다 적어도 레벨이 높아 1위(total_exp 단독 정렬 회귀 방지).
-    nicknames = {10: "중망레테", 20: "힘찬하악질"}
+    labels = {"oc10": "중망레테", "oc20": "힘찬하악질"}
     today = [
         _snap(10, 2_777_501_192_234, level=276, exp_rate=41.1),  # 레벨 높고 누적 적음
         _snap(20, 3_949_632_842_569, level=272, exp_rate=71.5),  # 레벨 낮고 누적 많음
     ]
-    rows, _ = build_rows(today, [], nicknames=nicknames)
+    rows, _ = build_rows(today, [], labels=labels)
     assert [r.nickname for r in rows] == ["중망레테", "힘찬하악질"]  # 레벨 우선
     assert [r.rank for r in rows] == [1, 2]
 
 
 def test_build_rows_same_level_ranks_by_exp_rate_over_total_exp():
     # 같은 레벨이면 exp%(레벨 내 진행)가 2차 키 — 누적이 낮아도 exp% 높으면 먼저(그래프와 일치).
-    nicknames = {10: "무기콤보", 20: "힘찬하악질"}
+    labels = {"oc10": "무기콤보", "oc20": "힘찬하악질"}
     today = [
         _snap(10, 9_000_000, level=272, exp_rate=9.4),  # 누적 큼, exp% 낮음
         _snap(20, 5_000_000, level=272, exp_rate=71.5),  # 누적 작음, exp% 높음
     ]
-    rows, _ = build_rows(today, [], nicknames=nicknames)
+    rows, _ = build_rows(today, [], labels=labels)
     assert [r.nickname for r in rows] == ["힘찬하악질", "무기콤보"]
 
 
 def test_build_rows_delta_matches_spike_numbers():
-    nicknames = {10: "손바"}
+    labels = {"oc10": "손바"}
     today = [_snap(10, _EXP_D1)]
     prev = [_snap(10, _EXP_D2, d=_PREV)]
-    [row], _ = build_rows(today, prev, nicknames=nicknames)
+    [row], _ = build_rows(today, prev, labels=labels)
     assert row.delta == _DELTA  # 935,107,160,853
 
 
 def test_build_rows_delta_none_when_no_prev_snapshot():
-    nicknames = {10: "손바"}
-    rows, _ = build_rows([_snap(10, _EXP_D1)], [], nicknames=nicknames)
+    labels = {"oc10": "손바"}
+    rows, _ = build_rows([_snap(10, _EXP_D1)], [], labels=labels)
     assert rows[0].delta is None  # 이전 스냅샷 없음 → '—'
 
 
 def test_build_rows_negative_delta_clamped_to_none():
     # 음수 Δ(데이터 보정 등)는 None 클램프(작업지시서 파생 결정).
-    nicknames = {10: "손바"}
+    labels = {"oc10": "손바"}
     today = [_snap(10, _EXP_D2)]
     prev = [_snap(10, _EXP_D1, d=_PREV)]  # 어제가 더 큼 → 음수
-    rows, _ = build_rows(today, prev, nicknames=nicknames)
+    rows, _ = build_rows(today, prev, labels=labels)
     assert rows[0].delta is None
 
 
 def test_build_rows_excludes_unranked_registrants():
-    # 등록자 3명 중 오늘 스냅샷 있는 2명만 행, 미등재 1명은 excluded 카운트.
-    nicknames = {10: "손바", 20: "라딘라면", 30: "미등재유저"}
+    # 캐릭터 3개 중 오늘 스냅샷 있는 2개만 행, 미등재 1개는 excluded 카운트.
+    labels = {"oc10": "손바", "oc20": "라딘라면", "oc30": "미등재유저"}
     today = [_snap(10, _EXP_D1), _snap(20, _EXP_D2)]
-    rows, excluded = build_rows(today, [], nicknames=nicknames)
+    rows, excluded = build_rows(today, [], labels=labels)
     assert len(rows) == 2
     assert excluded == 1
 
 
 def test_build_rows_carries_level_and_world_rank():
-    nicknames = {10: "손바"}
+    labels = {"oc10": "손바"}
     rows, _ = build_rows(
-        [_snap(10, _EXP_D1, level=287, rank=129978)], [], nicknames=nicknames
+        [_snap(10, _EXP_D1, level=287, rank=129978)], [], labels=labels
     )
     assert rows[0].level == 287
     assert rows[0].world_rank == 129978
@@ -134,12 +136,27 @@ def test_build_rows_carries_level_and_world_rank():
 
 def test_build_rows_passes_exp_rate_through():
     # character/basic 보강값(snap.exp_rate)이 LeaderRow 로 그대로 전달돼야 한다.
-    nicknames = {10: "손바", 20: "라딘라면"}
+    labels = {"oc10": "손바", "oc20": "라딘라면"}
     today = [_snap(10, _EXP_D1, exp_rate=45.23), _snap(20, _EXP_D2)]
-    rows, _ = build_rows(today, [], nicknames=nicknames)
+    rows, _ = build_rows(today, [], labels=labels)
     by_nick = {r.nickname: r.exp_rate for r in rows}
     assert by_nick["손바"] == 45.23
     assert by_nick["라딘라면"] is None  # 보강 실패 행은 None 유지
+
+
+def test_build_rows_same_user_two_characters_coexist():
+    # 캐릭터 차원(ADR-0018): 같은 유저의 두 캐릭터가 같은 날 각각 행으로 공존한다(/내캐릭터).
+    labels = {"ocA": "본캐", "ocB": "부캐"}
+    today = [
+        _snap(10, _EXP_D1, level=287, exp_rate=50.0, ocid="ocA"),
+        _snap(10, _EXP_D2, level=260, exp_rate=10.0, ocid="ocB"),
+    ]
+    prev = [_snap(10, _EXP_D2, d=_PREV, ocid="ocA")]
+    rows, excluded = build_rows(today, prev, labels=labels)
+    assert [(r.nickname, r.rank) for r in rows] == [("본캐", 1), ("부캐", 2)]
+    assert rows[0].delta == _DELTA  # Δ 매칭도 ocid 기준(유저 키였다면 부캐 행과 섞임)
+    assert rows[1].delta is None  # 부캐는 이전 스냅샷 없음
+    assert excluded == 0
 
 
 # ── 라이브 레벨(표시 전용 — character/basic 무지정=최신) ─────────────────────
@@ -147,7 +164,7 @@ def test_build_rows_passes_exp_rate_through():
 
 def _lrow(uid, level, exp_rate, *, rank=1):
     return service.LeaderRow(
-        discord_user_id=uid,
+        ocid=f"oc{uid}",
         rank=rank,
         nickname=f"u{uid}",
         level=level,
@@ -172,13 +189,13 @@ async def test_live_levels_fetches_latest_and_skips_failures():
         SimpleNamespace(discord_user_id=20, ocid="bad"),
     ]
     out = await service.live_levels(deps, targets)
-    assert out == {10: (274, 14.24)}  # 실패한 20 은 빠짐
+    assert out == {"ok": (274, 14.24)}  # ocid 키 — 실패한 "bad" 는 빠짐
 
 
 def test_with_live_levels_overrides_and_reranks():
-    # D-1 순위(레벨 272 > 271)를 라이브(20 이 274 로 추월)가 뒤집어 재순위·재부여.
+    # D-1 순위(레벨 272 > 271)를 라이브(oc20 이 274 로 추월)가 뒤집어 재순위·재부여.
     rows = [_lrow(10, 272, 9.0, rank=1), _lrow(20, 271, 50.0, rank=2)]
-    out = service.with_live_levels(rows, {10: (272, 10.0), 20: (274, 14.2)})
+    out = service.with_live_levels(rows, {"oc10": (272, 10.0), "oc20": (274, 14.2)})
     assert [(r.nickname, r.level, r.rank) for r in out] == [
         ("u20", 274, 1),
         ("u10", 272, 2),
@@ -194,18 +211,20 @@ def test_with_live_levels_keeps_d1_when_live_missing():
 def test_append_live_point_adds_today_progress():
     today = date(2026, 6, 24)
     series = {"손바": [(date(2026, 6, 23), 287.7)]}
-    out = service.append_live_point(series, {10: "손바"}, {10: (287, 80.0)}, today)
+    out = service.append_live_point(
+        series, {"oc10": "손바"}, {"oc10": (287, 80.0)}, today
+    )
     assert out["손바"][-1] == (today, 287.8)  # 287 + 80/100
 
 
 def test_append_live_point_none_when_live_missing():
     today = date(2026, 6, 24)
     series = {"손바": [(date(2026, 6, 23), 287.7)]}
-    out = service.append_live_point(series, {10: "손바"}, {}, today)
+    out = service.append_live_point(series, {"oc10": "손바"}, {}, today)
     assert out["손바"][-1] == (today, None)  # 라이브 없으면 선 끊김
 
 
-# ── history_progress: 유저별 7일 진행도(레벨+exp%) 시계열 ─────────────────────
+# ── history_progress: 캐릭터별 7일 진행도(레벨+exp%) 시계열 ───────────────────
 
 
 def _factory_for_rows(rows):
@@ -223,17 +242,15 @@ def _factory_for_rows(rows):
 
 
 async def test_history_progress_computes_level_plus_exp_rate():
-    nicknames = {10: "손바"}
+    labels = {"oc10": "손바"}
     today = date(2026, 6, 13)  # 기준일(어제) = 그래프 오른쪽 끝, 표시 구간 06/07..06/13
-    # rows = (uid, date, character_level, exp_rate). 스파이크 Lv287 재현, exp% 는 float-정확값.
+    # rows = (ocid, date, character_level, exp_rate). 스파이크 Lv287 재현, exp% 는 float-정확값.
     rows = [
-        (10, date(2026, 6, 11), 287, 50.0),  # progress = 287.5
-        (10, date(2026, 6, 12), 287, 75.0),  # progress = 287.75
-        (10, date(2026, 6, 13), 288, 25.0),  # progress = 288.25 (레벨업 후)
+        ("oc10", date(2026, 6, 11), 287, 50.0),  # progress = 287.5
+        ("oc10", date(2026, 6, 12), 287, 75.0),  # progress = 287.75
+        ("oc10", date(2026, 6, 13), 288, 25.0),  # progress = 288.25 (레벨업 후)
     ]
-    series = await history_progress(
-        _factory_for_rows(rows), 1, nicknames, today, days=7
-    )
+    series = await history_progress(_factory_for_rows(rows), 1, labels, today, days=7)
     points = dict(series["손바"])
     assert points[date(2026, 6, 11)] == 287.5
     assert points[date(2026, 6, 12)] == 287.75
@@ -243,27 +260,40 @@ async def test_history_progress_computes_level_plus_exp_rate():
 
 async def test_history_progress_none_when_exp_rate_missing():
     # exp_rate 결손이면 그날 progress 미산출(None) — 백필 결손·basic 실패 케이스.
-    nicknames = {10: "손바"}
+    labels = {"oc10": "손바"}
     rows = [
-        (10, date(2026, 6, 12), 287, None),  # exp_rate 없음 → None
-        (10, date(2026, 6, 13), 287, 50.0),  # 정상 → 287.5
+        ("oc10", date(2026, 6, 12), 287, None),  # exp_rate 없음 → None
+        ("oc10", date(2026, 6, 13), 287, 50.0),  # 정상 → 287.5
     ]
     series = await history_progress(
-        _factory_for_rows(rows), 1, nicknames, date(2026, 6, 13), days=7
+        _factory_for_rows(rows), 1, labels, date(2026, 6, 13), days=7
     )
     points = dict(series["손바"])
     assert points[date(2026, 6, 12)] is None
     assert points[date(2026, 6, 13)] == 287.5
 
 
-async def test_history_progress_includes_all_registrants_even_without_data():
-    nicknames = {10: "손바", 20: "라딘라면"}
+async def test_history_progress_includes_all_characters_even_without_data():
+    labels = {"oc10": "손바", "oc20": "라딘라면"}
     series = await history_progress(
-        _factory_for_rows([]), 1, nicknames, date(2026, 6, 13), days=7
+        _factory_for_rows([]), 1, labels, date(2026, 6, 13), days=7
     )
     assert set(series.keys()) == {"손바", "라딘라면"}
-    # 데이터 없는 유저는 전 구간 None(빈 데이터 가드).
+    # 데이터 없는 캐릭터는 전 구간 None(빈 데이터 가드).
     assert all(v is None for _, v in series["손바"])
+
+
+async def test_history_progress_same_user_two_characters_separate_series():
+    # 같은 유저의 두 캐릭터가 각자 라인을 가진다(/내캐릭터 — 유저 키였다면 한 라인으로 뭉개짐).
+    labels = {"ocA": "본캐", "ocB": "부캐"}
+    d = date(2026, 6, 13)
+    rows = [
+        ("ocA", d, 287, 50.0),  # progress = 287.5
+        ("ocB", d, 260, 10.0),  # progress = 260.1
+    ]
+    series = await history_progress(_factory_for_rows(rows), 1, labels, d, days=7)
+    assert dict(series["본캐"])[d] == 287.5
+    assert dict(series["부캐"])[d] == 260.1
 
 
 # ── prune 경계: snapshot_date < 오늘 KST − 90일 ─────────────────────────────
@@ -401,6 +431,35 @@ async def test_fetch_and_store_records_realm_from_world(monkeypatch):
     ]
     await service.fetch_and_store(deps, 1, targets, "2026-06-13")
     assert [p["realm"] for p in params] == ["본서버", "챌린저스"]
+    assert [p["ocid"] for p in params] == ["ocM", "ocC"]  # 캐릭터 차원 적재(ADR-0018)
+
+
+async def test_upsert_conflict_target_is_ocid_key(monkeypatch):
+    # upsert 충돌 키 = (guild, user, ocid, date) — 같은 유저의 캐릭터 N개가 같은 날 공존하는 근거.
+    nexon = _FakeNexon(
+        {"ocA": {"character_level": 287, "character_exp": _EXP_D1, "ranking": 1}}
+    )
+    captured: list = []
+
+    class _Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def execute(self, stmt):
+            captured.append(stmt)
+            return SimpleNamespace(rowcount=1)
+
+        async def commit(self):
+            return None
+
+    deps = SimpleNamespace(session_factory=lambda: _Session(), nexon=nexon)
+    await service.fetch_and_store(deps, 1, [_target(10, "ocA")], "2026-06-13")
+    [stmt] = captured
+    sql = str(stmt.compile(compile_kwargs={"literal_binds": False}))
+    assert "ON CONFLICT (guild_id, discord_user_id, ocid, snapshot_date)" in sql
 
 
 async def test_fetch_and_store_counts_unranked_skips(monkeypatch):
@@ -556,23 +615,23 @@ async def test_backfill_fetches_ranking_and_basic():
     assert all(p["exp_rate"] == 10.0 for p in upserts)  # basic 의 exp_rate 적재됨
 
 
-# ── backfill: realm 별 빈 날 판정(dual-realm 구멍 회귀 가드) ───────────────────
+# ── backfill: 캐릭터(ocid)별 빈 날 판정(캐릭터 간 가림 회귀 가드) ──────────────
 
 
-async def test_backfill_checks_existing_dates_per_target_realm(monkeypatch):
-    # 같은 디스코드 유저가 본서버·챌린저스 대표를 둘 다 가질 때(ADR-0009), 백필은 대상의 realm
-    # 으로 기존일을 조회해야 한다 — realm 무관 조회는 한 realm 의 스냅샷이 다른 realm 의 빈 날을
-    # 가려 그날을 건너뛰는 구멍을 만든다(챌린저스 추이가 일부 끊기는 버그).
-    seen_realms: list[str] = []
+async def test_backfill_checks_existing_dates_per_target_ocid(monkeypatch):
+    # 같은 유저의 캐릭터 N개(ADR-0018 — dual-realm 대표 포함)를 백필할 때, 빈 날 판정은
+    # 캐릭터(ocid)별이어야 한다 — ocid 무관 조회는 한 캐릭터의 스냅샷이 다른 캐릭터의 빈 날을
+    # 가려 그날을 건너뛰는 구멍을 만든다(종전 realm 별 판정을 포섭하는 더 정밀한 키).
+    seen_ocids: list[str] = []
 
-    async def fake_existing(session_factory, guild_id, discord_user_id, realm, dates):
-        seen_realms.append(realm)
+    async def fake_existing(session_factory, guild_id, discord_user_id, ocid, dates):
+        seen_ocids.append(ocid)
         return set()  # 전부 빈 날 → 전부 페치(가림 없음을 검증)
 
-    fetched: list[str | None] = []
+    fetched: list[str] = []
 
     async def fake_fetch_one_day(deps, target, snapshot_date):
-        fetched.append(target.world)
+        fetched.append(target.ocid)
         return True
 
     monkeypatch.setattr(service, "_existing_dates", fake_existing)
@@ -580,10 +639,10 @@ async def test_backfill_checks_existing_dates_per_target_realm(monkeypatch):
     deps = SimpleNamespace(session_factory=object(), nexon=object())
     targets = [
         _target(10, "ocM", world="스카니아"),  # 본서버
-        _target(20, "ocC", world="챌린저스3"),  # 챌린저스
+        _target(10, "ocC", world="챌린저스3"),  # 같은 유저의 챌린저스 캐릭터
     ]
     await service.backfill(deps, 1, targets, days=8)
-    assert seen_realms == ["본서버", "챌린저스"]  # 대표 world → realm 으로 빈 날 조회
+    assert seen_ocids == ["ocM", "ocC"]  # 캐릭터별로 빈 날 조회
     assert (
         len(fetched) == 16
-    )  # 대상 2명 × 8일 전부 페치(다른 realm 이 빈 날을 가리지 않음)
+    )  # 캐릭터 2개 × 8일 전부 페치(다른 캐릭터가 빈 날을 가리지 않음)
