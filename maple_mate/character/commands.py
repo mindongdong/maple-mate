@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from collections.abc import Callable
 from datetime import datetime
 
 import discord
@@ -55,9 +56,10 @@ def _render_spec_section(section: str, info: SpecInfo) -> str:
     return "—"
 
 
-def _single_detail_embed(
+def single_detail_embed(
     target, info: SpecInfo, footer: str, realm: Realm = Realm.MAIN
 ) -> discord.Embed:
+    """단일 대상 스펙 상세 임베드 — `/스펙`(1명)·`/내캐릭터 스펙`(1캐릭) 공유."""
     # 설명에 유저 태그(누구 캐릭인지). 단일이라 표 대신 항목별 상세 필드.
     embed = make_embed(
         realm_title(f"{target.nickname} 스펙", realm),
@@ -71,62 +73,38 @@ def _single_detail_embed(
     return embed
 
 
-async def handle_spec(
-    deps: Deps,
-    interaction: discord.Interaction,
-    members: list[discord.Member],
-    realm: Realm = Realm.MAIN,
-) -> None:
-    await defer(interaction)
-    if interaction.guild_id is None:
-        await interaction.followup.send(
-            embed=make_embed("스펙", "서버(길드) 안에서만 쓸 수 있어요.")
-        )
-        return
-    if not members:  # 인자 필수(보통 Discord 가 강제하지만 방어적으로)
-        await interaction.followup.send(
-            embed=make_embed("스펙", "비교할 유저를 1~5명 지정해 주세요.")
-        )
-        return
+def _default_label(target: reg.Target) -> str:
+    return comparison.truncate_display(target.nickname, 20)
 
-    targets, missing = await comparison.resolve_targets(
-        deps.session_factory, interaction.guild_id, members, realm
-    )
-    if not targets:
-        await interaction.followup.send(
-            embed=comparison.all_failed_embed(realm_title("스펙 비교", realm), missing)
-        )
-        return
 
-    outcomes = await reg.fetch_each(
+async def fetch_spec_outcomes(
+    deps: Deps, targets: list[reg.Target], *, command: str = "스펙"
+) -> list[reg.TargetOutcome]:
+    """대상들의 스펙 조회(부분 성공 허용) — `/스펙`·`/내캐릭터 스펙` 공유."""
+    return await reg.fetch_each(
         targets=targets,
         nexon=deps.nexon,
         session_factory=deps.session_factory,
-        command="스펙",
+        command=command,
         fetch=lambda ocid: service.fetch_spec(deps.nexon, ocid),
     )
-    outcomes = outcomes + missing
 
-    successes = [o for o in outcomes if o.ok]
-    if not successes:
-        await interaction.followup.send(
-            embed=comparison.all_failed_embed("스펙 비교", outcomes)
-        )
-        return
 
-    footer = append_source(comparison.data_footer(successes[0].data.date))
+async def build_spec_comparison(
+    deps: Deps,
+    successes: list[reg.TargetOutcome],
+    outcomes: list[reg.TargetOutcome],
+    *,
+    title: str,
+    footer: str,
+    label: Callable[[reg.Target], str] = _default_label,
+) -> tuple[discord.Embed, discord.File]:
+    """2명+ 스펙 비교표 PNG (임베드, 첨부) — `/스펙`·`/내캐릭터 스펙` 공유. 호출자가 send.
 
-    # 단일 대상(실패/미등록 없이 1명) = 상세 전체 1임베드 + 유저 태그.
-    if len(outcomes) == 1:
-        await interaction.followup.send(
-            embed=_single_detail_embed(
-                successes[0].target, successes[0].data, footer, realm
-            )
-        )
-        return
+    비교 = 한 장 PNG 표. 대상을 세로(행)로 쌓아 전투력 내림차순 순위가 위→아래로 보이게.
+    컬럼: 순위·캐릭터·전투력·HEXA 코어(타입별 묶음)·HEXA 스탯(숫자). 어빌리티·심볼 제외.
+    """
 
-    # 비교 = 한 장 PNG 표. 캐릭터를 세로(행)로 쌓아 전투력 내림차순 순위가 위→아래로 보이게.
-    # 컬럼: 순위·캐릭터·전투력·HEXA 코어(타입별 묶음)·HEXA 스탯(숫자). 어빌리티·심볼 제외.
     def _latest_power(outcome) -> int:
         try:
             return int(outcome.data.combat_power)
@@ -182,7 +160,7 @@ async def handle_spec(
         rows.append(
             [
                 str(rank),
-                comparison.truncate_display(o.target.nickname, 20),
+                label(o.target),
                 table_image.Highlight(power_text)
                 if (rank - 1) in best_power
                 else power_text,
@@ -204,9 +182,9 @@ async def handle_spec(
             ]
         )
     # 표 PNG 렌더(CPU)는 워커 스레드로 — 이벤트루프 비차단(D6).
-    embed, file = await asyncio.to_thread(
+    return await asyncio.to_thread(
         comparison.table_image_message,
-        realm_title("스펙 비교", realm),
+        title,
         headers,
         rows,
         [o.target for o in ranked],
@@ -214,6 +192,63 @@ async def handle_spec(
         footer=footer,
         outcomes=outcomes,
         filename="spec.png",
+    )
+
+
+async def handle_spec(
+    deps: Deps,
+    interaction: discord.Interaction,
+    members: list[discord.Member],
+    realm: Realm = Realm.MAIN,
+) -> None:
+    await defer(interaction)
+    if interaction.guild_id is None:
+        await interaction.followup.send(
+            embed=make_embed("스펙", "서버(길드) 안에서만 쓸 수 있어요.")
+        )
+        return
+    if not members:  # 인자 필수(보통 Discord 가 강제하지만 방어적으로)
+        await interaction.followup.send(
+            embed=make_embed("스펙", "비교할 유저를 1~5명 지정해 주세요.")
+        )
+        return
+
+    targets, missing = await comparison.resolve_targets(
+        deps.session_factory, interaction.guild_id, members, realm
+    )
+    if not targets:
+        await interaction.followup.send(
+            embed=comparison.all_failed_embed(realm_title("스펙 비교", realm), missing)
+        )
+        return
+
+    outcomes = await fetch_spec_outcomes(deps, targets)
+    outcomes = outcomes + missing
+
+    successes = [o for o in outcomes if o.ok]
+    if not successes:
+        await interaction.followup.send(
+            embed=comparison.all_failed_embed("스펙 비교", outcomes)
+        )
+        return
+
+    footer = append_source(comparison.data_footer(successes[0].data.date))
+
+    # 단일 대상(실패/미등록 없이 1명) = 상세 전체 1임베드 + 유저 태그.
+    if len(outcomes) == 1:
+        await interaction.followup.send(
+            embed=single_detail_embed(
+                successes[0].target, successes[0].data, footer, realm
+            )
+        )
+        return
+
+    embed, file = await build_spec_comparison(
+        deps,
+        successes,
+        outcomes,
+        title=realm_title("스펙 비교", realm),
+        footer=footer,
     )
     await interaction.followup.send(embed=embed, file=file)
 
@@ -257,6 +292,50 @@ async def _fetch_icon(nexon: NexonClient, result: ItemResult) -> bytes | None:
         return None
 
 
+async def fetch_item_outcomes(
+    deps: Deps, targets: list[reg.Target], slot: str, *, command: str = "아이템"
+) -> list[reg.TargetOutcome]:
+    """대상들의 부위 장비 조회(부분 성공 허용) — `/아이템`·`/내캐릭터 아이템` 공유."""
+    return await reg.fetch_each(
+        targets=targets,
+        nexon=deps.nexon,
+        session_factory=deps.session_factory,
+        command=command,
+        fetch=lambda ocid: item.fetch_item(deps.nexon, ocid, slot),
+    )
+
+
+async def build_item_cards(
+    deps: Deps,
+    successes: list[reg.TargetOutcome],
+    outcomes: list[reg.TargetOutcome],
+    slot: str,
+    *,
+    title: str,
+    footer: str,
+    label: Callable[[reg.Target], str] = _default_label,
+) -> tuple[discord.Embed, discord.File]:
+    """게임 툴팁풍 아이템 카드 PNG (임베드, 첨부) — `/아이템`·`/내캐릭터 아이템` 공유.
+
+    아이콘 동시 다운로드(캐시) → 카드 렌더, 여러 명은 한 PNG 세로 스택. 호출자가 send.
+    """
+    icons = await asyncio.gather(*(_fetch_icon(deps.nexon, o.data) for o in successes))
+    cards = [
+        _to_item_card(f"{label(o.target)} · {slot}", o.data, icon)
+        for o, icon in zip(successes, icons)
+    ]
+    # 카드 PNG 렌더(CPU)는 워커 스레드로 — 이벤트루프 비차단(D6).
+    png = await asyncio.to_thread(item_card.render_item_cards, cards)
+    return comparison.image_message(
+        title,
+        png,
+        [o.target for o in successes],
+        footer=footer,
+        outcomes=outcomes,
+        filename="item.png",
+    )
+
+
 async def handle_item(
     deps: Deps,
     interaction: discord.Interaction,
@@ -289,13 +368,7 @@ async def handle_item(
             await interaction.followup.send(embed=make_embed("아이템", empty))
         return
 
-    outcomes = await reg.fetch_each(
-        targets=targets,
-        nexon=deps.nexon,
-        session_factory=deps.session_factory,
-        command="아이템",
-        fetch=lambda ocid: item.fetch_item(deps.nexon, ocid, slot),
-    )
+    outcomes = await fetch_item_outcomes(deps, targets, slot)
     outcomes = outcomes + missing
 
     successes = [o for o in outcomes if o.ok]
@@ -306,25 +379,8 @@ async def handle_item(
         return
 
     footer = append_source(comparison.data_footer(successes[0].data.date))
-    # 아이콘 동시 다운로드(캐시) → 게임 툴팁풍 카드, 여러 명은 한 PNG 세로 스택.
-    icons = await asyncio.gather(*(_fetch_icon(deps.nexon, o.data) for o in successes))
-    cards = [
-        _to_item_card(
-            f"{comparison.truncate_display(o.target.nickname, 20)} · {slot}",
-            o.data,
-            icon,
-        )
-        for o, icon in zip(successes, icons)
-    ]
-    # 카드 PNG 렌더(CPU)는 워커 스레드로 — 이벤트루프 비차단(D6).
-    png = await asyncio.to_thread(item_card.render_item_cards, cards)
-    embed, file = comparison.image_message(
-        title,
-        png,
-        [o.target for o in successes],
-        footer=footer,
-        outcomes=outcomes,
-        filename="item.png",
+    embed, file = await build_item_cards(
+        deps, successes, outcomes, slot, title=title, footer=footer
     )
     await interaction.followup.send(embed=embed, file=file)
 
