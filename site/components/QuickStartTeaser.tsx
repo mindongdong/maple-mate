@@ -21,7 +21,7 @@ const STEPS = [
     icon: KeyRound,
     tone: 'amber' as const,
     label: 'API 키 등록하면',
-    body: '/키등록 으로 스타포스·잠재 지출 비교와 스케줄러 숙제 DM 개방.',
+    body: '/키등록 으로 스타포스·잠재 지출 비교와 스케줄러 숙제 DM 가능.',
   },
 ]
 
@@ -32,8 +32,9 @@ export function QuickStartTeaser() {
         <p className="mm-eyebrow">5분이면 충분해요</p>
         <h2 className="mm-teaser-title">한 번 등록하면, 계속 함께</h2>
         <p className="mm-teaser-sub">
-          캐릭터를 한 번만 등록해두면 끝이에요. 다음부턴 명령어 한 줄로 비교도,
-          숙제 알림도 바로 열려요.
+          캐릭터를 한 번만 등록해두면 끝이에요.
+          <br />
+          다음부턴 명령어를 통한 비교도, 숙제 알림도 바로 가능해요.
         </p>
 
         <ol className="mm-teaser-steps">
@@ -53,7 +54,7 @@ export function QuickStartTeaser() {
 
         <div className="mm-teaser-cta">
           <a className="mm-btn-primary" href="/getting-started">
-            5분 시작 가이드
+            빠른 시작 가이드
             <ArrowRight size={15} strokeWidth={2} aria-hidden />
           </a>
           <a className="mm-btn-ghost" href="/commands">
