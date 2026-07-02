@@ -25,7 +25,7 @@ from ..nexon.client import KST
 from ..notification import service as channel_service
 from ..notification.scheduler import _resolve_channel
 from ..registration.realm import Realm
-from ..registration.service import Target, get_targets
+from ..registration.service import Target, get_all_character_targets, get_targets
 from . import service
 
 log = logging.getLogger(__name__)
@@ -84,12 +84,12 @@ def _rank_line(row: service.LeaderRow) -> str:
 
 
 def _build_embed(
-    rows: Sequence[service.LeaderRow], now_date: date, realm: Realm = Realm.MAIN
+    rows: Sequence[service.LeaderRow], now_date: date, title: str | None = None
 ) -> discord.Embed:
-    """순위판(라이브 레벨 Top10) 텍스트 + 7일 추이 그래프 임베드. 챌린저스는 🏆 제목(ADR-0011)."""
+    """순위판(라이브 레벨 Top10) 텍스트 + 7일 추이 그래프 임베드. 제목 미지정 = 본서버 리더보드."""
     ranking = "\n".join(_rank_line(r) for r in rows[:_TOP_N])
     embed = discord.Embed(
-        title=_embed_title(realm),
+        title=title if title is not None else _embed_title(Realm.MAIN),
         description=ranking,
         color=discord.Color.from_rgb(255, 140, 0),
     )
@@ -98,60 +98,92 @@ def _build_embed(
     return embed
 
 
-async def build_payload(
-    bot: discord.Client, deps: Deps, guild_id: int, realm: Realm = Realm.MAIN
+async def build_targets_payload(
+    deps: Deps,
+    guild_id: int,
+    targets: Sequence[Target],
+    *,
+    labels: dict[str, str],
+    title: str,
+    min_ranked: int,
+    realm: Realm | None = None,
 ) -> LeaderboardPayload | None:
-    """get_targets(realm) → D-1 스냅샷 게이트 → 라이브 레벨 덮어쓰기 → 7일+오늘 추이 그래프.
+    """Target 리스트 → D-1 스냅샷 게이트 → 라이브 레벨 덮어쓰기 → Top10 순위판+7일 추이 그래프.
 
-    `/경험치` 명령과 매일 10시 잡이 공유한다(작업지시서 #5). realm 별로 완전 분리(결정 8) — 각각
-    독립 MIN_RANKED 게이트. **표시 레벨은 character/basic 라이브(오늘 현재)** 로 덮어쓰고, 그래프
-    끝에도 오늘 라이브 점을 붙여 임베드·그래프가 모두 '현재'로 일치한다(ADR-0011). 정렬·게이트·이력은
-    스냅샷 기반 유지. 렌더는 to_thread(이벤트 루프 비차단).
+    서버 리더보드(`build_payload`)와 `/내캐릭터 경험치`가 공유하는 코어(ADR-0018). labels =
+    ocid → 표시 라벨. 수집이 등록 전 캐릭터로 확장돼도(결정 5) 스냅샷을 targets 의 (user, ocid)
+    쌍으로 필터하므로 표시 대상은 호출측이 정한다. **표시 레벨은 character/basic 라이브(오늘
+    현재)** 로 덮어쓰고, 그래프 끝에도 오늘 라이브 점을 붙여 임베드·그래프가 모두 '현재'로
+    일치한다(ADR-0011). 정렬·게이트·이력은 스냅샷 기반 유지. 렌더는 to_thread(루프 비차단).
     """
-    targets = await get_targets(deps.session_factory, guild_id, realm=realm)
-    nicknames = {t.discord_user_id: t.nickname for t in targets}
-
     now = datetime.now(KST)
     ref_date = service.yesterday_kst(now)  # D-1(스냅샷 이력 끝)
     prev_date = ref_date - timedelta(days=1)  # D-2(어제 Δ 계산용)
     today = now.date()
 
-    today_snaps = await service.snapshots_on(
-        deps.session_factory, guild_id, ref_date, realm
+    # 스냅샷은 캐릭터(ocid) 단위로 쌓인다 — 표시 대상 캐릭터의 행만 남긴다.
+    pairs = {(t.discord_user_id, t.ocid) for t in targets}
+
+    def _mine(snaps: Sequence) -> list:
+        return [s for s in snaps if (s.discord_user_id, s.ocid) in pairs]
+
+    today_snaps = _mine(
+        await service.snapshots_on(deps.session_factory, guild_id, ref_date, realm)
     )
-    prev_snaps = await service.snapshots_on(
-        deps.session_factory, guild_id, prev_date, realm
+    prev_snaps = _mine(
+        await service.snapshots_on(deps.session_factory, guild_id, prev_date, realm)
     )
 
-    # rows = 등재 인원의 단일 출처(순위·미등재 제외) — 게이트 + 임베드 순위판의 베이스.
-    rows, _excluded = service.build_rows(today_snaps, prev_snaps, nicknames=nicknames)
-    if len(rows) < MIN_RANKED:  # 등재 2명 미만 → 발송/표시 생략(Q10)
+    # rows = 등재 캐릭터의 단일 출처(순위·미등재 제외) — 게이트 + 임베드 순위판의 베이스.
+    rows, _excluded = service.build_rows(today_snaps, prev_snaps, labels=labels)
+    if len(rows) < min_ranked:  # 등재 수 미달 → 발송/표시 생략
         return None
 
     # 표시 레벨을 라이브로(character/basic 무지정=최신). 실패 대상은 D-1 스냅샷 폴백.
-    ranked_ids = {r.discord_user_id for r in rows}
+    ranked_ocids = {r.ocid for r in rows}
     live = await service.live_levels(
-        deps, [t for t in targets if t.discord_user_id in ranked_ids]
+        deps, [t for t in targets if t.ocid in ranked_ocids]
     )
     display_rows = service.with_live_levels(rows, live)
 
     # 그래프: 7일 이력(스냅샷) + 오늘 라이브 점 → 끝점이 임베드 순위와 같은 '현재'.
     series = await service.history_progress(
-        deps.session_factory, guild_id, nicknames, ref_date, realm=realm
+        deps.session_factory, guild_id, labels, ref_date, realm=realm
     )
-    series = service.append_live_point(series, nicknames, live, today)
+    series = service.append_live_point(series, labels, live, today)
     # 그래프도 임베드와 동일한 상위 _TOP_N 만 그 순위 순서로 그린다(단일 순위 소스 = display_rows).
     # dict 삽입 순서 = 순위 순서라 렌더러가 1위에 팔레트 선두색을 준다(구조적 일치, 렌더러는 재정렬 안 함).
     # 단, 7일 내내 exp% 결손이라 그릴 점이 0개인 상위권 캐릭은 순위판엔 뜨지만 그래프 라인은 없다(드묾).
-    top_nicks = [r.nickname for r in display_rows[:_TOP_N]]
-    series = {nick: series[nick] for nick in top_nicks if nick in series}
+    top_labels = [r.nickname for r in display_rows[:_TOP_N]]
+    series = {label: series[label] for label in top_labels if label in series}
     graph_buf = await asyncio.to_thread(
         leaderboard_image.render_progress_graph, series, ref_date
     )
     return LeaderboardPayload(
         graph_png=graph_buf.getvalue(),
-        embed=_build_embed(display_rows, today, realm),
+        embed=_build_embed(display_rows, today, title),
         ref_date=ref_date,
+    )
+
+
+async def build_payload(
+    bot: discord.Client, deps: Deps, guild_id: int, realm: Realm = Realm.MAIN
+) -> LeaderboardPayload | None:
+    """서버 리더보드 payload — get_targets(realm) = **대표 캐릭터 행만** 표시(결과 불변, ADR-0018).
+
+    `/경험치` 명령과 매일 10시 잡이 공유한다(작업지시서 #5). realm 별로 완전 분리(결정 8) — 각각
+    독립 MIN_RANKED 게이트. 수집은 등록 전 캐릭터로 확장됐지만(결정 5) 표시는 유저당 대표 1캐릭
+    유지 — 코어의 (user, ocid) 필터가 나머지 캐릭터 행을 걸러낸다.
+    """
+    targets = await get_targets(deps.session_factory, guild_id, realm=realm)
+    return await build_targets_payload(
+        deps,
+        guild_id,
+        targets,
+        labels={t.ocid: t.nickname for t in targets},
+        title=_embed_title(realm),
+        min_ranked=MIN_RANKED,
+        realm=realm,
     )
 
 
@@ -173,26 +205,17 @@ async def refresh_guild(
     return await service.fetch_and_store(deps, guild_id, targets, ref_date.isoformat())
 
 
-async def _all_realm_targets(session_factory, guild_id: int) -> list[Target]:
-    """본서버 + 챌린저스 대표 합집합(적재용). 각 대상은 자기 realm 으로 저장된다(결정 8).
-
-    dual-realm 유저는 두 realm 대표 둘 다 포함된다(PK 에 realm 이 있어 충돌 없음, ADR-0009).
-    """
-    main = await get_targets(session_factory, guild_id, realm=Realm.MAIN)
-    chal = await get_targets(session_factory, guild_id, realm=Realm.CHALLENGERS)
-    return [*main, *chal]
-
-
 async def ensure_guild_data(
     deps: Deps, guild_id: int, realm: Realm = Realm.MAIN
 ) -> None:
-    """`/경험치` 온디맨드: 그 realm 대표들의 빈 과거일 백필(7일 그래프 이력 공백 메움).
+    """`/경험치` 온디맨드: 그 realm **등록 전 캐릭터**의 빈 과거일 백필(그래프 이력 공백 메움).
 
+    수집 대상 = 등록 전 캐릭터(ADR-0018 결정 5 — `/내캐릭터 경험치`의 캐릭별 추이 재료).
     표시 레벨은 build_payload 가 character/basic(무지정=최신)으로 **라이브** 조회하므로 명령 시점
     '현재 갱신'은 그쪽이 담당한다 — 여기선 `backfill`(멱등)로 7일 그래프 이력의 공백(봇 미가동일·
-    뒤늦게 추가된 챌린저스 realm)만 채운다(정상 상태 넥슨 0콜). 그 realm 등록자가 없으면 no-op.
+    뒤늦게 등록된 캐릭터)만 채운다(정상 상태 넥슨 0콜). 그 realm 캐릭터가 없으면 no-op.
     """
-    targets = await get_targets(deps.session_factory, guild_id, realm=realm)
+    targets = await get_all_character_targets(deps.session_factory, guild_id, realm)
     if targets:
         await service.backfill(deps, guild_id, targets)
 
@@ -242,7 +265,8 @@ async def run_leaderboard_job(bot: discord.Client, deps: Deps) -> None:
     }
 
     for guild_id in guild_ids:
-        targets = await _all_realm_targets(session_factory, guild_id)
+        # 수집 = 등록 전 캐릭터(realm 무관 — 각 캐릭터가 자기 realm 으로 저장됨, ADR-0018 결정 5).
+        targets = await get_all_character_targets(session_factory, guild_id)
         if not targets:
             continue
         skipped = await refresh_guild(deps, guild_id, targets, ref_date)
