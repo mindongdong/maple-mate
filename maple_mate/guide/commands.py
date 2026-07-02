@@ -1,12 +1,10 @@
 """`/가이드` 디스코드 어댑터 — 봇 기능 안내 (얇은 전달 계층).
 
-구현된 전체 명령을 한 장의 ephemeral 임베드로 안내한다. Discord 의 `/` 입력 UI 가
-이미 각 명령의 `description`·인자를 보여주므로, 가이드는 그것이 *못* 주는 것
-(**그룹·등록 순서·키/권한 전제조건**)에만 집중한다.
-
-본문은 정적 손작성이며, 새 명령 추가 시 갱신 누락은 드리프트 가드 테스트
-(`tests/test_guide.py`)가 CI 에서 잡는다. `/핑`(헬스체크)을 흡수 — 가이드가
-응답하는 것 자체가 봇 생존 증명이다. 쿨다운 없음(순수 정적·ephemeral).
+상세 명령 안내는 웹사이트 명령어 페이지(COMMANDS_URL)로 위임하고, 임베드는
+디스코드 안에서 바로 행동 가능한 **온보딩 최소본**(소개 + 등록 순서)만 담는다.
+명령 커버리지는 tests/test_website_command_drift.py(봇트리↔commands.json)가
+지킨다. `/핑`(헬스체크)을 흡수 — 가이드가 응답하는 것 자체가 봇 생존 증명이다.
+쿨다운 없음(순수 정적·ephemeral).
 """
 
 from __future__ import annotations
@@ -15,63 +13,34 @@ import discord
 
 from ..bot.embeds import make_embed
 
+COMMANDS_URL = "https://maplemate.site/commands"
+
 _ONBOARDING = (
     "메이트는 디스코드 채널 유저들의 메이플스토리 캐릭터 스펙·이력을 비교하는 봇이에요.\n"
-    "처음이라면 → /캐릭터등록 → (이력 보려면) /키등록 → /대표지정 순으로 등록하세요.\n"
-    "🔓 스펙류는 등록만으로, 📜 이력류는 개인 API 키가 있어야 보입니다.\n"
-    "🏆 챌린저스 서버 캐릭터를 등록하면, 비교·리더보드 명령의 `모드`를 챌린저스로 골라 "
-    "본서버와 따로 볼 수 있어요(섞이지 않아요)."
-)
-
-# (그룹 헤더, 한 줄 설명) — 그룹 헤더의 (키 불필요/개인 API 키 필요/서버 관리 권한)
-# 라벨은 가이드의 핵심 가치라 유지한다.
-_GROUPS: tuple[tuple[str, str], ...] = (
-    (
-        "📝 등록·관리",
-        "`/캐릭터등록` 캐릭터 등록(유저당 여러 개) · "
-        "`/키등록` 넥슨 개인 API 키 등록(이력류 개방) · "
-        "`/대표지정` 공개 명령용 대표 캐릭터 지정 · "
-        "`/캐릭터목록` 내 등록 현황(본인만)",
-    ),
-    (
-        "⚔️ 스펙·장비 (스펙류 · 키 불필요)",
-        "`/스펙` 전투력·어빌·심볼·HEXA 비교 · "
-        "`/아이템` 부위별 스타포스·잠재·옵션 비교 · "
-        "`/유니온` 유니온·아티팩트·챔피언 등급 비교",
-    ),
-    (
-        "📜 이력 (이력류 · 개인 API 키 필요)",
-        "`/스타포스` 운지수·손익메소 비교 · `/잠재` 재설정·큐브·메소·등업 비교",
-    ),
-    (
-        "📈 리더보드",
-        "`/경험치` 등록 캐릭터 최근 7일 레벨 추이 그래프",
-    ),
-    (
-        "🗓 스케줄러 숙제 (개인 API 키 필요)",
-        "`/스케줄러` 내 등록 캐릭터 전체의 일일·주간·보스 숙제 현황(본인만) · "
-        "`/스케줄러알림 켜기·끄기` 매일 정한 시각에 숙제 체크리스트를 DM으로 받는 본인 구독"
-        "(등록 캐릭터 전부)",
-    ),
-    (
-        "🔔 알림 설정 (권한 불필요 · 채널/개인 DM)",
-        "`/경험치알림` 매일 경험치 리더보드 · "
-        "`/공지알림` 메이플 공지·업데이트 · "
-        "`/썬데이알림` 썬데이 메이플 — 모두 `켜기·끄기`, 대상은 채널 또는 본인 DM",
-    ),
+    "처음이라면 → /캐릭터등록 → (이력 보려면) /키등록 → /대표지정 순으로 등록하세요."
 )
 
 
 def build_guide_embed() -> discord.Embed:
     """가이드 임베드를 만든다(순수 함수 — 테스트에서 직접 호출 가능)."""
-    embed = make_embed(
+    return make_embed(
         "메이트 가이드",
         _ONBOARDING,
         footer="각 명령 사용법은 / 입력 시 표시돼요 · 도움말 재호출: /가이드",
     )
-    for header, line in _GROUPS:
-        embed.add_field(name=header, value=line, inline=False)
-    return embed
+
+
+def build_guide_view() -> discord.ui.View:
+    """웹사이트 명령어 페이지로 가는 링크 버튼 뷰(순수 함수)."""
+    view = discord.ui.View()
+    view.add_item(
+        discord.ui.Button(
+            style=discord.ButtonStyle.link,
+            label="📖 명령어 전체 보기",
+            url=COMMANDS_URL,
+        )
+    )
+    return view
 
 
 def setup(bot: discord.Client) -> None:
@@ -79,9 +48,9 @@ def setup(bot: discord.Client) -> None:
 
     @bot.tree.command(
         name="가이드",
-        description="봇의 명령 목록과 사용법을 안내합니다.",
+        description="봇 사용법 안내와 명령어 페이지 링크를 보여줍니다.",
     )
     async def guide(interaction: discord.Interaction) -> None:
         await interaction.response.send_message(
-            embed=build_guide_embed(), ephemeral=True
+            embed=build_guide_embed(), view=build_guide_view(), ephemeral=True
         )
