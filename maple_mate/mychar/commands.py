@@ -217,7 +217,7 @@ def setup(bot: discord.Client) -> None:
 
     group = app_commands.Group(
         name="내캐릭터",
-        description="내가 등록한 캐릭터끼리 비교합니다 (친구 없이도 사용 가능).",
+        description="내가 등록한 캐릭터들을 모아서 비교합니다.",
     )
 
     async def _char_autocomplete(
