@@ -9,18 +9,19 @@ import { Icon } from '@/lib/icons'
 import { groupById, type Command } from '@/lib/commands'
 import {
   GuideEmbed,
-  LeaderboardEmbed,
-  SpecEmbed,
-  ItemEmbed,
-  UnionEmbed,
-  StarforceEmbed,
-  PotentialEmbed,
   SchedulerEmbed,
   AlertEmbed,
   RegisterEmbed,
 } from './Embeds'
 
-/** 명령 → 임베드 목업 + 캡션. 실 스샷 재캡처 시 <img> 로 교체(현재 CSS 목업). */
+/** 봇 렌더러가 만든 진짜 PNG(site/public/shots/). 렌더 코드 변경 시
+ *  site/scripts/render_demo_shots.py 재실행 → 재커밋(드리프트 0). */
+function shot(file: string, alt: string): ReactNode {
+  return <img src={`/shots/${file}`} alt={alt} className="mm-shot-img" />
+}
+
+/** 명령 → 결과 이미지 + 캡션. 비교·리더보드는 봇 실제 렌더러 PNG(<img>),
+ *  텍스트 임베드 명령은 디스코드 임베드 CSS 목업. */
 function embedFor(name: string): { node: ReactNode; caption: string } | null {
   switch (name) {
     case '가이드':
@@ -28,23 +29,23 @@ function embedFor(name: string): { node: ReactNode; caption: string } | null {
     case '캐릭터등록':
       return { node: <RegisterEmbed title="캐릭터 등록 완료" line="홍길동전사(Lv.275)를 이 서버에 등록했어요." />, caption: '/캐릭터등록' }
     case '키등록':
-      return { node: <RegisterEmbed title="키 등록 완료" line="개인 API 키를 등록했어요. 스타포스·잠재 등 이력류(계정 전체)를 조회할 수 있어요." />, caption: '/키등록' }
+      return { node: <RegisterEmbed title="키 등록 완료" line="개인 API 키를 등록했어요. 스타포스·잠재 기록을 계정 단위로 조회할 수 있어요." />, caption: '/키등록' }
     case '대표지정':
       return { node: <RegisterEmbed title="대표 캐릭터 지정" line="홍길동전사를 대표 캐릭터로 지정했어요." />, caption: '/대표지정' }
     case '캐릭터목록':
       return { node: <RegisterEmbed title="내 캐릭터" line="홍길동전사 Lv.275 (대표 · 키✓) · 불꽃아크 Lv.268 (키✓)" />, caption: '/캐릭터목록 · 본인만' }
     case '스펙':
-      return { node: <SpecEmbed />, caption: '/스펙 · 계정 전체 합산' }
+      return { node: shot('spec.png', '스펙 비교표 — 전투력·HEXA 코어·스탯 코어'), caption: '/스펙 · 계정 전체 합산' }
     case '아이템':
-      return { node: <ItemEmbed />, caption: '/아이템 · 부위별 비교' }
+      return { node: shot('item.png', '아이템 카드 — 부위별 스타포스·잠재·추가옵션'), caption: '/아이템 · 부위별 비교' }
     case '유니온':
-      return { node: <UnionEmbed />, caption: '/유니온' }
+      return { node: shot('union.png', '유니온 비교표 — 유니온·아티팩트·챔피언'), caption: '/유니온' }
     case '스타포스':
-      return { node: <StarforceEmbed />, caption: '/스타포스 · 본서버 기준' }
+      return { node: shot('starforce.png', '스타포스 이력 비교표 — 운빨·사용 메소·건수'), caption: '/스타포스 · 10성 이상만 집계' }
     case '잠재':
-      return { node: <PotentialEmbed />, caption: '/잠재 · 계정 전체 합산' }
+      return { node: shot('potential.png', '잠재 이력 비교표 — 재설정·큐브·메소·등업'), caption: '/잠재 · 계정 전체 합산' }
     case '경험치':
-      return { node: <LeaderboardEmbed rows={10} />, caption: '/경험치 · Top 10 + 최근 7일 그래프' }
+      return { node: shot('exp.png', '경험치 리더보드 그래프 — 최근 7일 레벨 추이'), caption: '/경험치 · 최근 7일 레벨 추이 그래프' }
     case '스케줄러':
       return { node: <SchedulerEmbed />, caption: '/스케줄러 · 본인만' }
     case '스케줄러알림':

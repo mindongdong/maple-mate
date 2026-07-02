@@ -1,8 +1,9 @@
 /**
- * 3기둥 카드(비교·비서·함께) — 밴드 밖 쿨 베이스 섹션(D8).
- * 카드 상단 컬러 스트라이프(teal/orange/green), Lucide 아이콘(D13).
+ * 3기둥 카드(비교 · 알림 · 조회) — 밴드 밖 쿨 베이스 섹션(D8).
+ * 겹치지 않는 3축: 같이 비교하기(경쟁) / 스케줄러 알림(숙제) / 내 스펙 한눈에(개인 조회).
+ * 기능형 Lucide 라인 아이콘, 색은 아이콘에만(상단 색바 없음).
  */
-import { Trophy, CalendarCheck, Users } from 'lucide-react'
+import { ArrowLeftRight, BellRing, Gauge } from 'lucide-react'
 
 export function Pillars() {
   return (
@@ -21,7 +22,7 @@ export function Pillars() {
         <div className="mm-pillar-grid">
           <article className="mm-pillar mm-pillar--teal">
             <span className="mm-pillar-icon mm-pillar-icon--teal">
-              <Trophy size={20} strokeWidth={2} aria-hidden />
+              <ArrowLeftRight size={20} strokeWidth={2} aria-hidden />
             </span>
             <h3 className="mm-pillar-name">같이 비교하기</h3>
             <p className="mm-pillar-desc">
@@ -37,12 +38,12 @@ export function Pillars() {
 
           <article className="mm-pillar mm-pillar--orange">
             <span className="mm-pillar-icon mm-pillar-icon--orange">
-              <CalendarCheck size={20} strokeWidth={2} aria-hidden />
+              <BellRing size={20} strokeWidth={2} aria-hidden />
             </span>
-            <h3 className="mm-pillar-name">숙제 DM 비서</h3>
+            <h3 className="mm-pillar-name">스케줄러 알림</h3>
             <p className="mm-pillar-desc">
-              일일·주간·보스 숙제를 개인 DM으로 챙겨드려요. 원하는 묶음만 골라
-              받고, 남은 숙제를 한눈에.
+              일일·주간·보스 숙제를 정한 시각에 개인 DM으로 챙겨드려요. 원하는
+              묶음만 골라 받고, 남은 숙제를 한눈에.
             </p>
             <div className="mm-pillar-shot">
               <div className="mm-mini-dm"><span className="mm-mini-dot" />에픽던전 ⬜ 미완료</div>
@@ -53,20 +54,17 @@ export function Pillars() {
 
           <article className="mm-pillar mm-pillar--green">
             <span className="mm-pillar-icon mm-pillar-icon--green">
-              <Users size={20} strokeWidth={2} aria-hidden />
+              <Gauge size={20} strokeWidth={2} aria-hidden />
             </span>
-            <h3 className="mm-pillar-name">서버에서 함께</h3>
+            <h3 className="mm-pillar-name">내 스펙 한눈에</h3>
             <p className="mm-pillar-desc">
-              캐릭터를 한 번 등록하면 친구·길드원과 나란히 묶여요. 썬데이·공지
-              알림까지 곁에서 챙겨드립니다.
+              캐릭터를 한 번 등록하면 전투력·유니온·장비를 명령어 한 줄로 바로
+              확인해요. 대표 캐릭터만 정하면 끝.
             </p>
             <div className="mm-pillar-shot">
-              <div className="mm-mini-cells">
-                <span className="mm-cell on" /><span className="mm-cell on" /><span className="mm-cell part" /><span className="mm-cell" /><span className="mm-cell" />
-              </div>
-              <div className="mm-mini-cells">
-                <span className="mm-cell on" /><span className="mm-cell" /><span className="mm-cell on" /><span className="mm-cell on" /><span className="mm-cell" />
-              </div>
+              <div className="mm-mini-stat"><span>전투력</span><b>64.2억</b></div>
+              <div className="mm-mini-stat"><span>유니온</span><b>8,742</b></div>
+              <div className="mm-mini-stat"><span>크리티컬 데미지</span><b>142%</b></div>
             </div>
           </article>
         </div>

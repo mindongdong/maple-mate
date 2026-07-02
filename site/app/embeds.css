@@ -69,27 +69,6 @@
 .mm-bar-fill.bronze { background: linear-gradient(90deg, #d4855a, #b06040); }
 .mm-bar-level { font-size: 11px; color: #8a9bb5; width: 42px; text-align: right; flex-shrink: 0; }
 
-/* 스펙 임베드 */
-.mm-spec-row { display: flex; gap: 8px; margin-bottom: 6px; flex-wrap: wrap; }
-.mm-spec-item { background: #2c2f33; border-radius: 4px; padding: 4px 10px; font-size: 11px; color: #b0bac8; }
-.mm-spec-item .val { color: #5ec8c8; font-weight: 600; }
-.mm-spec-item .val.gold { color: #f0c040; }
-.mm-spec-item .val.orange { color: #e0700a; }
-
-/* 스타포스/잠재 비교 표 */
-.mm-cmp { width: 100%; border-collapse: separate; border-spacing: 0; font-size: 11px; color: #8a9bb5; }
-.mm-cmp th { text-align: left; padding: 4px 8px; color: #72767d; font-weight: 500; font-size: 10px; border-bottom: 1px solid #2c2f33; }
-.mm-cmp td { padding: 5px 8px; border-bottom: 1px solid #2c2f33; }
-.mm-cmp td .name { color: #dcddde; font-weight: 500; }
-.mm-cmp td .cost { color: #e0700a; }
-.mm-cmp .luck { font-size: 10px; padding: 1px 6px; background: #16311f; color: #5fd08a; border-radius: 3px; }
-.mm-cmp .luck.amber { background: #33290c; color: #e8c15a; }
-
-/* 유니온 그리드 */
-.mm-union { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; }
-.mm-union-item { background: #2c2f33; border-radius: 4px; padding: 6px 8px; font-size: 10px; color: #8a9bb5; }
-.mm-union-item .val { color: #5ec8c8; font-size: 12px; font-weight: 700; display: block; }
-
 /* 스케줄러 숙제 DM 행 */
 .mm-todo-row { background: #2c2f33; border-radius: 4px; padding: 6px 9px; font-size: 11px; color: #b0bac8; margin-bottom: 5px; display: flex; align-items: center; gap: 8px; }
 .mm-todo-check { flex-shrink: 0; font-size: 12px; }

@@ -1,7 +1,6 @@
 /**
- * 스크린샷 틴트 backdrop 프레임 (D10). 테마 인식(CSS 토큰).
- * children = 실 스샷 <img> 또는 디스코드 임베드 목업.
- * 실데이터 금지 → 현재는 CSS 임베드 목업. 재캡처 후 <img>로 교체.
+ * 스크린샷 프레임 (뉴트럴 · 테마 인식 CSS 토큰).
+ * children = 봇 렌더러 PNG(<img>, 비교·리더보드) 또는 디스코드 임베드 CSS 목업(텍스트 임베드).
  */
 import * as React from 'react'
 

@@ -13,6 +13,5 @@ export default {
   },
   'getting-started': { title: '시작하기', type: 'page' },
   commands: { title: '명령어', type: 'page' },
-  concepts: { title: '개념', type: 'page' },
   privacy: { title: '개인정보·보안', type: 'page' },
 }

@@ -8,8 +8,7 @@
  */
 import { ArrowRight } from 'lucide-react'
 import { MushroomFull } from './Mushroom'
-import { ScreenshotFrame } from './ScreenshotFrame'
-import { LeaderboardEmbed } from './Embeds'
+import { DiscordDemo } from './DiscordDemo'
 import { INVITE_URL, SITE_TAGLINE } from '@/lib/site'
 
 function DiscordGlyph() {
@@ -49,9 +48,7 @@ export function Hero() {
 
         <div className="mm-hero-right">
           <MushroomFull size={96} className="mm-hero-mushroom" aria-hidden />
-          <ScreenshotFrame caption="경험치 리더보드 · 실제 디스코드 임베드">
-            <LeaderboardEmbed rows={7} />
-          </ScreenshotFrame>
+          <DiscordDemo />
         </div>
       </div>
     </section>
