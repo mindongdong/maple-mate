@@ -15,9 +15,12 @@ import pytest
 from maple_mate.bot.core import MapleMateBot
 from maple_mate.bot.embeds import make_embed
 from maple_mate.character import commands as character
+from maple_mate.leaderboard import broadcast as leaderboard_broadcast
+from maple_mate.mychar import commands as mychar
 from maple_mate.mychar.commands import (
     MAX_COMPARE,
     char_label,
+    handle_my_exp,
     handle_my_item,
     handle_my_spec,
 )
@@ -38,7 +41,14 @@ def test_group_registered_with_subcommands(bot):
     group = bot.tree.get_command("내캐릭터")
     assert group is not None
     names = {cmd.name for cmd in group.commands}
-    assert names == {"스펙", "아이템"}  # 경험치는 PR2(스키마 확장)에서 추가
+    assert names == {"스펙", "아이템", "경험치"}
+
+
+def test_exp_subcommand_has_no_parameters(bot):
+    # 경험치는 무인자 = 등록 전체(상한 10, 결정 4) — 캐릭터 파라미터 없음.
+    group = bot.tree.get_command("내캐릭터")
+    exp = group.get_command("경험치")
+    assert exp.parameters == []
 
 
 def test_subcommand_params_renamed_korean(bot):
@@ -301,3 +311,108 @@ async def test_item_delegates_to_shared_builder(monkeypatch):
     assert build_captured["label"] is char_label
     [sent] = interaction.followup.sent
     assert sent["embed"].description == "👤 <@10>"
+
+
+# ── /내캐릭터 경험치 분기 (PR2 — 스키마 확장, ADR-0018 결정 4·5) ─────────────
+
+
+def _payload_stub():
+    embed = make_embed("📈 내 캐릭터 경험치")
+    embed.description = "🥇 **본캐** — Lv.287 (79%)"
+    return SimpleNamespace(embed=embed, to_files=lambda: ["graph.png"])
+
+
+def _patch_exp_backfill(monkeypatch) -> dict:
+    captured: dict = {}
+
+    async def fake(deps, guild_id, targets, days=8):
+        captured["guild_id"] = guild_id
+        captured["targets"] = targets
+        return None
+
+    monkeypatch.setattr(mychar.exp_service, "backfill", fake)
+    return captured
+
+
+def _patch_exp_payload(monkeypatch, payload) -> dict:
+    captured: dict = {}
+
+    async def fake(deps, guild_id, targets, *, labels, title, min_ranked, realm=None):
+        captured.update(
+            targets=targets,
+            labels=labels,
+            title=title,
+            min_ranked=min_ranked,
+            realm=realm,
+        )
+        return payload
+
+    monkeypatch.setattr(leaderboard_broadcast, "build_targets_payload", fake)
+    return captured
+
+
+async def test_exp_dm_rejected_ephemeral_before_defer():
+    interaction = _interaction(guild_id=None)
+    await handle_my_exp(_deps(), interaction)
+    [sent] = interaction.response.sent
+    assert sent["ephemeral"] is True
+    assert interaction.response.deferred is False
+
+
+async def test_exp_no_characters_ephemeral_error(monkeypatch):
+    _patch_targets(monkeypatch, [])
+    interaction = _interaction()
+    await handle_my_exp(_deps(), interaction)
+    [sent] = interaction.response.sent
+    assert sent["ephemeral"] is True
+    assert "캐릭터등록" in sent["embed"].description
+    assert interaction.followup.sent == []
+
+
+async def test_exp_backfills_all_characters_without_truncation(monkeypatch):
+    # 무인자 = 등록 전체(최대 10) — _resolve_my_targets 의 상위 5 절단을 쓰지 않는다(결정 4).
+    targets = [_target(f"o{i}", f"닉{i}") for i in range(10)]
+    _patch_targets(monkeypatch, targets)
+    backfill = _patch_exp_backfill(monkeypatch)
+    build = _patch_exp_payload(monkeypatch, _payload_stub())
+    interaction = _interaction()
+
+    await handle_my_exp(_deps(), interaction)
+
+    assert interaction.response.deferred is True
+    assert backfill["targets"] == targets  # 10캐릭 전부 멱등 백필(절단 없음)
+    assert build["targets"] == targets  # Top10 파이프라인에도 전부 전달
+
+
+async def test_exp_sends_public_payload_with_owner_line(monkeypatch):
+    targets = [_target("o1", "본캐"), _target("o2", "챌캐", "챌린저스3")]
+    _patch_targets(monkeypatch, targets)
+    _patch_exp_backfill(monkeypatch)
+    build = _patch_exp_payload(monkeypatch, _payload_stub())
+    interaction = _interaction()
+
+    await handle_my_exp(_deps(), interaction)
+
+    # 라벨 = ocid → char_label(챌린저스 월드 병기), realm 혼합(None), 1캐릭 게이트.
+    assert build["labels"] == {"o1": "본캐", "o2": "챌캐 (챌린저스3)"}
+    assert build["title"] == "📈 내 캐릭터 경험치"
+    assert build["min_ranked"] == 1
+    assert build["realm"] is None
+    [sent] = interaction.followup.sent
+    assert "ephemeral" not in sent  # 공개 발송
+    assert sent["files"] == ["graph.png"]
+    # 소유자 한 줄 태그가 순위판 위에 붙는다(스펙·아이템과 동일 패턴).
+    assert sent["embed"].description.startswith("👤 <@10>\n\n🥇")
+
+
+async def test_exp_not_ready_sends_ephemeral_notice(monkeypatch):
+    _patch_targets(monkeypatch, [_target("o1", "본캐")])
+    _patch_exp_backfill(monkeypatch)
+    _patch_exp_payload(monkeypatch, None)  # 등재 0캐릭 → payload None
+    interaction = _interaction()
+
+    await handle_my_exp(_deps(), interaction)
+
+    [sent] = interaction.followup.sent
+    assert sent["ephemeral"] is True
+    assert "잠시 후" in sent["embed"].description

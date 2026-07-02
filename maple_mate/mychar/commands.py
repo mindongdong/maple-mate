@@ -5,8 +5,9 @@ fetch·렌더 경로를 그대로 재사용하되 대상만 "내 등록 캐릭�
 기존 명령은 한 줄도 바꾸지 않는다(회귀 0). realm 필터 없음 — 본인 캐릭끼리라 공정성 전제가
 없어 본서버·챌린저스 혼합(결정 7), 챌린저스 캐릭터만 라벨에 월드 병기.
 
-서브커맨드: `스펙`(캐릭터1~5 선택) · `아이템`(부위 필수 + 캐릭터1~5 선택). 출력은 채널
-공개(기존 비교류와 동일). 경험치 서브커맨드는 PR2(스키마 확장)에서 추가.
+서브커맨드: `스펙`(캐릭터1~5 선택) · `아이템`(부위 필수 + 캐릭터1~5 선택) · `경험치`(무인자 =
+등록 캐릭터 전체 — 상한 10 이 Top10 파이프라인과 정합이라 절단 없음, 결정 4). 출력은 채널
+공개(기존 비교류와 동일).
 """
 
 from __future__ import annotations
@@ -19,6 +20,8 @@ from ..bot.embeds import append_source, defer, make_embed
 from ..character import commands as character
 from ..character.equipment_slots import SLOT_CHOICES
 from ..dependencies import Deps
+from ..leaderboard import broadcast as leaderboard
+from ..leaderboard import service as exp_service
 from ..registration import service as reg
 from ..registration.commands import character_choices
 from ..registration.realm import is_challengers
@@ -26,6 +29,10 @@ from ..registration.service import Target
 
 _DM_ONLY = "서버(길드) 안에서만 쓸 수 있어요."
 _NO_CHARACTERS = "등록된 캐릭터가 없어요. `/캐릭터등록`으로 추가해 주세요."
+_EXP_NOT_READY = (
+    "아직 종합 랭킹 데이터를 못 받았어요(전일 데이터 준비 전이거나 랭킹 미등재)."
+    " 잠시 후 다시 시도해 주세요."
+)
 
 # 스펙·아이템 렌더 폭 + 팬아웃 비용 상한(기존 /스펙 5명 상한과 동일 근거).
 MAX_COMPARE = 5
@@ -160,8 +167,52 @@ async def handle_my_item(
     await interaction.followup.send(embed=embed, file=file)
 
 
+async def handle_my_exp(deps: Deps, interaction: discord.Interaction) -> None:
+    """`/내캐릭터 경험치`: defer 전 0캐릭/DM 판정 → 멱등 백필 → 캐릭별 Top10 순위판+7일 그래프.
+
+    `_resolve_my_targets` 를 쓰지 않는다 — 상위 5 절단은 스펙·아이템 전용이고 경험치는
+    무인자 = 등록 전체(상한 10 = Top10 파이프라인과 정합, 결정 4). realm 혼합 한 그래프
+    (절대 레벨 그대로 — ADR-0011 원칙과 정합), 1캐릭 = 1라인 허용(2명 게이트는 서버
+    리더보드 전용). 백필은 멱등이라 스케줄러가 웜이면 넥슨 0콜, 콜드면 캐릭당 ≤8콜.
+    """
+    if interaction.guild_id is None:
+        await interaction.response.send_message(
+            embed=make_embed("내 캐릭터 경험치", _DM_ONLY), ephemeral=True
+        )
+        return
+    targets = await reg.get_my_character_targets(
+        deps.session_factory, interaction.guild_id, interaction.user.id
+    )
+    if not targets:
+        await interaction.response.send_message(
+            embed=make_embed("내 캐릭터 경험치", _NO_CHARACTERS), ephemeral=True
+        )
+        return
+    await defer(interaction)
+
+    await exp_service.backfill(deps, interaction.guild_id, targets)
+
+    payload = await leaderboard.build_targets_payload(
+        deps,
+        interaction.guild_id,
+        targets,
+        labels={t.ocid: char_label(t) for t in targets},
+        title="📈 내 캐릭터 경험치",
+        min_ranked=1,  # 1캐릭 = 1라인 그래프 허용(graceful)
+        realm=None,  # 본서버·챌린저스 혼합(결정 7)
+    )
+    if payload is None:
+        await interaction.followup.send(
+            embed=make_embed("내 캐릭터 경험치", _EXP_NOT_READY), ephemeral=True
+        )
+        return
+    embed = payload.embed
+    embed.description = f"{_owner_line(targets[0])}\n\n{embed.description}"
+    await interaction.followup.send(embed=embed, files=payload.to_files())
+
+
 def setup(bot: discord.Client) -> None:
-    """`/내캐릭터` 그룹(스펙·아이템)을 트리에 등록. bot.deps(Deps) 를 사용한다."""
+    """`/내캐릭터` 그룹(스펙·아이템·경험치)을 트리에 등록. bot.deps(Deps) 를 사용한다."""
     deps: Deps = bot.deps  # type: ignore[attr-defined]
 
     group = app_commands.Group(
@@ -258,5 +309,13 @@ def setup(bot: discord.Client) -> None:
     ) -> None:
         ocids = [c for c in (char1, char2, char3, char4, char5) if c]
         await handle_my_item(deps, interaction, part.value, ocids)
+
+    @group.command(
+        name="경험치",
+        description="내 등록 캐릭터들의 최근 7일 레벨 추이를 그래프와 순위로 보여줍니다.",
+    )
+    @cooldowns.spec_cooldown()  # 10초 — 첫 호출은 넥슨 콜드 백필 가능; 이후는 DB 조회만
+    async def my_exp_command(interaction: discord.Interaction) -> None:
+        await handle_my_exp(deps, interaction)
 
     bot.tree.add_command(group)
