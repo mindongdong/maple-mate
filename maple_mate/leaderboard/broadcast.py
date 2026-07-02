@@ -25,7 +25,7 @@ from ..nexon.client import KST
 from ..notification import service as channel_service
 from ..notification.scheduler import _resolve_channel
 from ..registration.realm import Realm
-from ..registration.service import Target, get_targets
+from ..registration.service import Target, get_all_character_targets, get_targets
 from . import service
 
 log = logging.getLogger(__name__)
@@ -205,26 +205,17 @@ async def refresh_guild(
     return await service.fetch_and_store(deps, guild_id, targets, ref_date.isoformat())
 
 
-async def _all_realm_targets(session_factory, guild_id: int) -> list[Target]:
-    """본서버 + 챌린저스 대표 합집합(적재용). 각 대상은 자기 realm 으로 저장된다(결정 8).
-
-    dual-realm 유저는 두 realm 대표 둘 다 포함된다(PK 에 realm 이 있어 충돌 없음, ADR-0009).
-    """
-    main = await get_targets(session_factory, guild_id, realm=Realm.MAIN)
-    chal = await get_targets(session_factory, guild_id, realm=Realm.CHALLENGERS)
-    return [*main, *chal]
-
-
 async def ensure_guild_data(
     deps: Deps, guild_id: int, realm: Realm = Realm.MAIN
 ) -> None:
-    """`/경험치` 온디맨드: 그 realm 대표들의 빈 과거일 백필(7일 그래프 이력 공백 메움).
+    """`/경험치` 온디맨드: 그 realm **등록 전 캐릭터**의 빈 과거일 백필(그래프 이력 공백 메움).
 
+    수집 대상 = 등록 전 캐릭터(ADR-0018 결정 5 — `/내캐릭터 경험치`의 캐릭별 추이 재료).
     표시 레벨은 build_payload 가 character/basic(무지정=최신)으로 **라이브** 조회하므로 명령 시점
     '현재 갱신'은 그쪽이 담당한다 — 여기선 `backfill`(멱등)로 7일 그래프 이력의 공백(봇 미가동일·
-    뒤늦게 추가된 챌린저스 realm)만 채운다(정상 상태 넥슨 0콜). 그 realm 등록자가 없으면 no-op.
+    뒤늦게 등록된 캐릭터)만 채운다(정상 상태 넥슨 0콜). 그 realm 캐릭터가 없으면 no-op.
     """
-    targets = await get_targets(deps.session_factory, guild_id, realm=realm)
+    targets = await get_all_character_targets(deps.session_factory, guild_id, realm)
     if targets:
         await service.backfill(deps, guild_id, targets)
 
@@ -274,7 +265,8 @@ async def run_leaderboard_job(bot: discord.Client, deps: Deps) -> None:
     }
 
     for guild_id in guild_ids:
-        targets = await _all_realm_targets(session_factory, guild_id)
+        # 수집 = 등록 전 캐릭터(realm 무관 — 각 캐릭터가 자기 realm 으로 저장됨, ADR-0018 결정 5).
+        targets = await get_all_character_targets(session_factory, guild_id)
         if not targets:
             continue
         skipped = await refresh_guild(deps, guild_id, targets, ref_date)

@@ -9,6 +9,7 @@ from cryptography.fernet import Fernet
 
 from maple_mate.nexon.errors import NexonAPIError
 from maple_mate.registration import service
+from maple_mate.registration.realm import Realm
 from maple_mate.security.crypto import KeyCipher
 
 
@@ -157,3 +158,54 @@ def test_my_character_targets_mixes_realms_and_keeps_fields():
     assert (top.guild_id, top.discord_user_id) == (7, 42)
     assert top.nickname == "본캐" and top.world == "스카니아"
     assert targets[1].world == "챌린저스3"
+
+
+# ── 경험치 수집 캐릭터 타깃 해석 (ADR-0018 결정 5 — 등록 전 캐릭터) ────────────
+
+
+def _guild_char(uid, ocid, nickname, level, world=None, guild_id=1):
+    from types import SimpleNamespace
+
+    return SimpleNamespace(
+        guild_id=guild_id,
+        discord_user_id=uid,
+        ocid=ocid,
+        maple_nickname=nickname,
+        level=level,
+        world=world,
+    )
+
+
+def test_guild_character_targets_empty():
+    assert service._guild_character_targets([]) == []
+
+
+def test_guild_character_targets_returns_every_character_per_user():
+    # 유저당 대표 1명(get_targets)이 아니라 등록 캐릭터 전부 — 캐릭터당 Target 1개.
+    chars = [
+        _guild_char(20, "oB1", "친구본캐", 260),
+        _guild_char(10, "oA2", "부캐", 250),
+        _guild_char(10, "oA1", "본캐", 287),
+    ]
+    targets = service._guild_character_targets(chars)
+    # 정렬 = (유저, ocid) 오름차순 — 수집(넥슨 콜) 순서 결정성.
+    assert [(t.discord_user_id, t.ocid) for t in targets] == [
+        (10, "oA1"),
+        (10, "oA2"),
+        (20, "oB1"),
+    ]
+    assert targets[0].nickname == "본캐" and targets[0].world is None
+
+
+def test_guild_character_targets_realm_filter():
+    chars = [
+        _guild_char(10, "oM", "본캐", 287, "스카니아"),
+        _guild_char(10, "oC", "챌캐", 260, "챌린저스3"),
+        _guild_char(20, "oL", "레거시", 200, None),  # NULL world = 본서버
+    ]
+    main = service._guild_character_targets(chars, Realm.MAIN)
+    chal = service._guild_character_targets(chars, Realm.CHALLENGERS)
+    assert [t.ocid for t in main] == ["oM", "oL"]
+    assert [t.ocid for t in chal] == ["oC"]
+    none = service._guild_character_targets(chars, None)  # 미지정 = 전 캐릭터
+    assert [t.ocid for t in none] == ["oC", "oM", "oL"]  # (유저, ocid) 정렬

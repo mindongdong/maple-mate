@@ -498,6 +498,50 @@ async def get_my_character_targets(
     return _my_character_targets(chars, guild_id, discord_user_id, ocids)
 
 
+def _guild_character_targets(
+    characters: Sequence[Character], realm: Realm | None = None
+) -> list[Target]:
+    """길드 캐릭터 목록 → 캐릭터당 Target 1개(순수함수 — 단위테스트 대상).
+
+    realm 지정 시 그 realm 캐릭터만. 정렬 = (유저, ocid) 오름차순 — 수집(넥슨 콜) 순서 결정성.
+    """
+    pool = [c for c in characters if realm is None or in_realm(c.world, realm)]
+    return [
+        Target(
+            guild_id=c.guild_id,
+            discord_user_id=c.discord_user_id,
+            nickname=c.maple_nickname,
+            ocid=c.ocid,
+            world=c.world,
+        )
+        for c in sorted(pool, key=lambda c: (c.discord_user_id, c.ocid))
+    ]
+
+
+async def get_all_character_targets(
+    session_factory: async_sessionmaker[AsyncSession],
+    guild_id: int,
+    realm: Realm | None = None,
+) -> list[Target]:
+    """경험치 **수집** 대상 해석 — 길드의 등록 캐릭터 전부, 캐릭터당 Target 1개(ADR-0018 결정 5).
+
+    표시 경로(서버 리더보드)는 여전히 `get_targets`(유저별 대표 1명)다 — 이 함수는 매일
+    수집·백필 전용. realm 지정 시 그 realm 캐릭터만(`/경험치` 온디맨드가 그 realm 만 워밍),
+    미지정 = 전 캐릭터(매일 10시 잡).
+    """
+    async with session_factory() as session:
+        chars = (
+            (
+                await session.execute(
+                    select(Character).where(Character.guild_id == guild_id)
+                )
+            )
+            .scalars()
+            .all()
+        )
+    return _guild_character_targets(chars, realm)
+
+
 async def refresh_ocid(
     session_factory: async_sessionmaker[AsyncSession],
     nexon: NexonClient,

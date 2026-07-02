@@ -37,15 +37,17 @@ async def test_no_channels_no_subs_skips_nexon_call(monkeypatch):
         calls.append("dm_subs")
         return []
 
-    async def get_targets(sf, guild_id, realm=None):
-        calls.append("get_targets")
+    async def get_all_character_targets(sf, guild_id, realm=None):
+        calls.append("get_all_character_targets")
         return []
 
     monkeypatch.setattr(
         broadcast.channel_service, "enabled_exp_channels", enabled_exp_channels
     )
     monkeypatch.setattr(broadcast.channel_service, "dm_subscribers", dm_subscribers)
-    monkeypatch.setattr(broadcast, "get_targets", get_targets)
+    monkeypatch.setattr(
+        broadcast, "get_all_character_targets", get_all_character_targets
+    )
     await broadcast.run_leaderboard_job(bot=object(), deps=_deps())
     assert calls == ["channels", "dm_subs"]  # 채널·구독자 0 → 넥슨/적재/발송 없음
 
@@ -57,7 +59,7 @@ async def test_job_backfills_then_fetches_and_sends(monkeypatch):
     async def enabled_exp_channels(sf):
         return [(1, 100)]
 
-    async def get_targets(sf, guild_id, realm=None):
+    async def get_all_character_targets(sf, guild_id, realm=None):
         return [SimpleNamespace(discord_user_id=10, nickname="손바", ocid="o1")]
 
     async def backfill(deps, guild_id, targets):
@@ -85,7 +87,9 @@ async def test_job_backfills_then_fetches_and_sends(monkeypatch):
         broadcast.channel_service, "enabled_exp_channels", enabled_exp_channels
     )
     _no_dm_subs(monkeypatch)
-    monkeypatch.setattr(broadcast, "get_targets", get_targets)
+    monkeypatch.setattr(
+        broadcast, "get_all_character_targets", get_all_character_targets
+    )
     monkeypatch.setattr(broadcast.service, "backfill", backfill)
     monkeypatch.setattr(broadcast.service, "fetch_and_store", fetch_and_store)
     monkeypatch.setattr(broadcast, "build_payload", build_payload)
@@ -97,6 +101,47 @@ async def test_job_backfills_then_fetches_and_sends(monkeypatch):
     assert len(sent) == 1
 
 
+async def test_job_collects_all_characters_not_just_representatives(monkeypatch):
+    # 수집 단계는 등록 전 캐릭터를 적재한다(같은 유저의 캐릭터 2개 모두, ADR-0018 결정 5).
+    fetched_targets: list = []
+
+    async def enabled_exp_channels(sf):
+        return [(1, 100)]
+
+    chars = [
+        SimpleNamespace(discord_user_id=10, nickname="본캐", ocid="o1"),
+        SimpleNamespace(discord_user_id=10, nickname="부캐", ocid="o2"),
+    ]
+
+    async def get_all_character_targets(sf, guild_id, realm=None):
+        assert realm is None  # 잡 수집은 realm 무관(각 캐릭터가 자기 realm 으로 저장)
+        return chars
+
+    async def backfill(deps, guild_id, targets):
+        pass
+
+    async def fetch_and_store(deps, guild_id, targets, date_iso):
+        fetched_targets.extend(targets)
+        return 0
+
+    async def build_payload(bot, deps, guild_id, realm):
+        return None
+
+    monkeypatch.setattr(
+        broadcast.channel_service, "enabled_exp_channels", enabled_exp_channels
+    )
+    _no_dm_subs(monkeypatch)
+    monkeypatch.setattr(
+        broadcast, "get_all_character_targets", get_all_character_targets
+    )
+    monkeypatch.setattr(broadcast.service, "backfill", backfill)
+    monkeypatch.setattr(broadcast.service, "fetch_and_store", fetch_and_store)
+    monkeypatch.setattr(broadcast, "build_payload", build_payload)
+
+    await broadcast.run_leaderboard_job(bot=object(), deps=_deps())
+    assert fetched_targets == chars  # 대표 1명이 아니라 캐릭터 2개 전부 적재
+
+
 async def test_job_always_backfills_even_with_existing_data(monkeypatch):
     # 게이트 폐기 후: 기존 스냅샷이 있어도 매 실행 backfill 을 호출한다(멱등 — 빈 날만 채움).
     calls: list[str] = []
@@ -104,7 +149,7 @@ async def test_job_always_backfills_even_with_existing_data(monkeypatch):
     async def enabled_exp_channels(sf):
         return [(1, 100)]
 
-    async def get_targets(sf, guild_id, realm=None):
+    async def get_all_character_targets(sf, guild_id, realm=None):
         return [SimpleNamespace(discord_user_id=10, nickname="손바", ocid="o1")]
 
     async def backfill(deps, guild_id, targets):
@@ -121,7 +166,9 @@ async def test_job_always_backfills_even_with_existing_data(monkeypatch):
         broadcast.channel_service, "enabled_exp_channels", enabled_exp_channels
     )
     _no_dm_subs(monkeypatch)
-    monkeypatch.setattr(broadcast, "get_targets", get_targets)
+    monkeypatch.setattr(
+        broadcast, "get_all_character_targets", get_all_character_targets
+    )
     monkeypatch.setattr(broadcast.service, "backfill", backfill)
     monkeypatch.setattr(broadcast.service, "fetch_and_store", fetch_and_store)
     monkeypatch.setattr(broadcast, "build_payload", build_payload)
@@ -140,7 +187,7 @@ async def test_per_guild_payload_built_once_per_realm_for_two_channels(monkeypat
         # 길드 1의 채널 두 개
         return [(1, 100), (1, 101)]
 
-    async def get_targets(sf, guild_id, realm=None):
+    async def get_all_character_targets(sf, guild_id, realm=None):
         return [SimpleNamespace(discord_user_id=10, nickname="손바", ocid="o1")]
 
     async def backfill(deps, guild_id, targets):
@@ -167,7 +214,9 @@ async def test_per_guild_payload_built_once_per_realm_for_two_channels(monkeypat
         broadcast.channel_service, "enabled_exp_channels", enabled_exp_channels
     )
     _no_dm_subs(monkeypatch)
-    monkeypatch.setattr(broadcast, "get_targets", get_targets)
+    monkeypatch.setattr(
+        broadcast, "get_all_character_targets", get_all_character_targets
+    )
     monkeypatch.setattr(broadcast.service, "backfill", backfill)
     monkeypatch.setattr(broadcast.service, "fetch_and_store", fetch_and_store)
     monkeypatch.setattr(broadcast, "build_payload", build_payload)
@@ -193,7 +242,7 @@ async def test_dm_fanout_to_subscribers(monkeypatch):
         assert kind == broadcast.channel_service.KIND_EXP
         return [(1, 10), (1, 11)]  # 같은 길드 두 구독자
 
-    async def get_targets(sf, guild_id, realm=None):
+    async def get_all_character_targets(sf, guild_id, realm=None):
         return [SimpleNamespace(discord_user_id=10, nickname="손바", ocid="o1")]
 
     async def backfill(deps, guild_id, targets):
@@ -218,7 +267,9 @@ async def test_dm_fanout_to_subscribers(monkeypatch):
         broadcast.channel_service, "enabled_exp_channels", enabled_exp_channels
     )
     monkeypatch.setattr(broadcast.channel_service, "dm_subscribers", dm_subscribers)
-    monkeypatch.setattr(broadcast, "get_targets", get_targets)
+    monkeypatch.setattr(
+        broadcast, "get_all_character_targets", get_all_character_targets
+    )
     monkeypatch.setattr(broadcast.service, "backfill", backfill)
     monkeypatch.setattr(broadcast.service, "fetch_and_store", fetch_and_store)
     monkeypatch.setattr(broadcast, "build_payload", build_payload)
@@ -240,7 +291,7 @@ async def test_dm_fanout_skips_blocked_dm(monkeypatch):
     async def dm_subscribers(sf, kind):
         return [(1, 10), (1, 11)]
 
-    async def get_targets(sf, guild_id, realm=None):
+    async def get_all_character_targets(sf, guild_id, realm=None):
         return [SimpleNamespace(discord_user_id=10, nickname="손바", ocid="o1")]
 
     async def backfill(deps, guild_id, targets):
@@ -262,7 +313,9 @@ async def test_dm_fanout_skips_blocked_dm(monkeypatch):
         broadcast.channel_service, "enabled_exp_channels", enabled_exp_channels
     )
     monkeypatch.setattr(broadcast.channel_service, "dm_subscribers", dm_subscribers)
-    monkeypatch.setattr(broadcast, "get_targets", get_targets)
+    monkeypatch.setattr(
+        broadcast, "get_all_character_targets", get_all_character_targets
+    )
     monkeypatch.setattr(broadcast.service, "backfill", backfill)
     monkeypatch.setattr(broadcast.service, "fetch_and_store", fetch_and_store)
     monkeypatch.setattr(broadcast, "build_payload", build_payload)
@@ -298,32 +351,40 @@ async def test_refresh_guild_always_backfills_then_fetches(monkeypatch):
 async def test_ensure_guild_data_backfills_realm_gaps(monkeypatch):
     seen = {}
 
-    async def get_targets(sf, guild_id, realm=None):
+    async def get_all_character_targets(sf, guild_id, realm=None):
         seen["realm"] = realm
-        return [SimpleNamespace(discord_user_id=10, nickname="손바", ocid="o1")]
+        # 같은 유저의 캐릭터 2개 — 수집은 대표만이 아니라 등록 전 캐릭터(ADR-0018 결정 5).
+        return [
+            SimpleNamespace(discord_user_id=10, nickname="손바", ocid="o1"),
+            SimpleNamespace(discord_user_id=10, nickname="부캐", ocid="o2"),
+        ]
 
     backfilled: list[int] = []
 
     async def backfill(deps, guild_id, targets):
         backfilled.append(len(targets))
 
-    monkeypatch.setattr(broadcast, "get_targets", get_targets)
+    monkeypatch.setattr(
+        broadcast, "get_all_character_targets", get_all_character_targets
+    )
     monkeypatch.setattr(broadcast.service, "backfill", backfill)
     await broadcast.ensure_guild_data(_deps(), 1, Realm.CHALLENGERS)
-    assert seen["realm"] is Realm.CHALLENGERS  # 그 realm 대표만(realm 혼합 없음)
-    assert backfilled == [1]  # 7일 그래프 이력 공백만 메움(현재값은 라이브)
+    assert seen["realm"] is Realm.CHALLENGERS  # 그 realm 캐릭터만(realm 혼합 없음)
+    assert backfilled == [2]  # 전 캐릭터의 이력 공백만 메움(현재값은 라이브)
 
 
 async def test_ensure_guild_data_noop_when_no_targets(monkeypatch):
     backfilled: list[int] = []
 
-    async def get_targets(sf, guild_id, realm=None):
-        return []  # 등록자 없음
+    async def get_all_character_targets(sf, guild_id, realm=None):
+        return []  # 등록 캐릭터 없음
 
     async def backfill(deps, guild_id, targets):
         backfilled.append(len(targets))
 
-    monkeypatch.setattr(broadcast, "get_targets", get_targets)
+    monkeypatch.setattr(
+        broadcast, "get_all_character_targets", get_all_character_targets
+    )
     monkeypatch.setattr(broadcast.service, "backfill", backfill)
     await broadcast.ensure_guild_data(_deps(), 1)
     assert backfilled == []  # 대상 0 → 백필 안 함
