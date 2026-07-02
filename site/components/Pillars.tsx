@@ -62,7 +62,7 @@ export function Pillars() {
               확인해요. 대표 캐릭터만 정하면 끝.
             </p>
             <div className="mm-pillar-shot">
-              <div className="mm-mini-stat"><span>전투력</span><b>64.2억</b></div>
+              <div className="mm-mini-stat"><span>전투력</span><b>4.2억</b></div>
               <div className="mm-mini-stat"><span>유니온</span><b>8,742</b></div>
               <div className="mm-mini-stat"><span>보스 몬스터 데미지</span><b>142%</b></div>
             </div>
