@@ -4,6 +4,7 @@ realm 신호 = `Character.world` 접두 `챌린저스`. NULL/빈값 = 본서버(
 전부 한 realm 으로 본다. discord/sqlalchemy 비의존 — 어디서든 import 가능(순환 회피).
 
 핵심 불변식: 본서버 비교·리더보드에 챌린저스 캐릭터가 절대 섞이지 않는다(위반=버그).
+단, **유저 간 비교 한정** — 본인 캐릭터끼리인 `/내캐릭터`는 realm 혼합(ADR-0018).
 """
 
 from __future__ import annotations
