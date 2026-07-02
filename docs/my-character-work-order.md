@@ -3,7 +3,7 @@
 > **근거 결정:** ADR-0018(본 작업으로 작성 — §7), realm 판정 [ADR-0009](adr/0009-challengers-realm.md), 리더보드 표시 [ADR-0011](adr/0011-exp-leaderboard-display.md), exp_snapshot PK 확장 전례 ADR-0006→0009.
 > **하우스 스타일 레퍼런스:** [starforce-event-luck-work-order.md](starforce-event-luck-work-order.md), [n-characters-work-order.md](n-characters-work-order.md), [exp-leaderboard-work-order.md](exp-leaderboard-work-order.md).
 > **그릴링 출처:** `/grill-me` 세션(2026-07-02). 사용자 문제 제기: 비교류 기능이 많은데 같은 디스코드에 친구가 없는 솔로 유저는 쓸 게 없다 → 본인이 등록한 캐릭터(유저당 최대 10개)끼리 비교하게 하자.
-> **상태:** **PR1(스펙·아이템) 구현·머지 완료 — PR #44(squash `6473b89`, 2026-07-02)**, 776 pytest·ruff·드리프트·사이트 빌드 그린. 남은 작업 = **PR2(경험치)**: 마이그레이션 1건(exp_snapshot PK 확장) + 스케줄러 전 캐릭터 수집 + `/내캐릭터 경험치` 서브커맨드(§5). §1-b 에 PR1 as-built 코드 포인터, §4 는 완료 기록.
+> **상태:** **전부 완료.** PR1(스펙·아이템) = PR #44(squash `6473b89`, 2026-07-02), PR2(경험치) = **PR #45(squash `6eb8c77`, 2026-07-03)** — 789 pytest·ruff·드리프트 그린, 마이그레이션 실 DB 업→다운→업 가역성 증빙, **배포 후 라이브 확인 완료(2026-07-03, §6-5)**. §1-b 에 PR1, §5 말미에 PR2 as-built 코드 포인터.
 
 ---
 
@@ -144,9 +144,9 @@ async def get_my_character_targets(
 
 ---
 
-## 5. 빌드 단위 — PR2 (`/내캐릭터 경험치`, 스키마 확장) — 미구현(남은 작업)
+## 5. 빌드 단위 — PR2 (`/내캐릭터 경험치`, 스키마 확장) — ✅ 완료
 
-> PR1 산출물 재사용 포인트(그룹·라벨·타깃 해석·테스트 관행)는 **§1-b** 참조.
+> **✅ 전부 구현·머지 완료(PR #45, squash `6eb8c77`, 논리 커밋 4개).** 아래는 원 계획 — as-built 차이·코드 포인터는 이 절 말미의 **§5-b** 참조. PR1 산출물 재사용 포인트는 §1-b.
 
 ### #1 마이그레이션 — `alembic`
 - §3-3 upgrade/downgrade. 배포 전 실 DB(로컬 미러)에서 업→다운→업 가역성 검증.
@@ -172,13 +172,25 @@ async def get_my_character_targets(
 
 ---
 
+## 5-b. PR2 as-built (PR #45, squash `6eb8c77`) — 계획 대비 차이·코드 포인터
+
+- **마이그레이션 `a9c4e7f21b3d`**([a9c4e7f21b3d_exp_snapshot_ocid.py](../maple_mate/alembic/versions/a9c4e7f21b3d_exp_snapshot_ocid.py)) — §3-3 그대로. 백필은 원시 SQL `DISTINCT ON (guild, user, realm판정)` 1방(대표 우선순위 = 수동 핀 → 레벨 → created_at → ocid, realm 판정 = `world LIKE '챌린저스%'`·NULL=본서버), 고아 행 삭제 수는 `op.get_bind().execute(...).rowcount` 로 로그. **실 DB 증빙**: 로컬 도커 QA 시드(스냅샷 40행·캐릭 9개·수동 핀 전부 NULL)에서 업→다운→업 — 업① 40/40 백필이 대표 기대값과 정확 일치(손바·라딘라면·힘찬하악질·무기콤보·거꾸로파이썬)·고아 0·ocid 외 컬럼 diff 0, 다운 후 원본과 diff 0(완전 복구), 업② 재적용 + `alembic check` "No new upgrade operations".
+- **서비스 키 계약 = `labels: dict[ocid, 표시라벨]`**([leaderboard/service.py](../maple_mate/leaderboard/service.py)): `build_rows`·`history_progress`·`append_live_point` 의 `nicknames`(유저 키) 파라미터를 `labels`(ocid 키)로 교체, `live_levels` 반환도 ocid 키. **`LeaderRow.discord_user_id` → `ocid`**(매칭 키 — 내캐릭터는 한 유저의 캐릭터 N행이라 유저 키 불가). `_existing_dates` 는 날짜×ocid(종전 realm 필터를 포섭 — dual-realm 가림 가드 테스트는 ocid 판정으로 재작성). `_upsert_snapshot` 충돌 키에 ocid, `realm` 은 set_ 에도 포함(강등된 일반 컬럼이라 최신 판정 추종).
+- **공유 코어 = `build_targets_payload(deps, guild_id, targets, *, labels, title, min_ranked, realm)`**([leaderboard/broadcast.py](../maple_mate/leaderboard/broadcast.py)) — 계획의 "대표 ocid 행만 조회"는 SQL 이 아니라 **targets 의 (user, ocid) 쌍 Python 필터**로 구현(같은 ocid 를 두 유저가 등록하는 §8 엣지까지 방어). `snapshots_on` 은 무수정. `history_progress` 는 `ocid IN (labels)` SQL 필터. `build_payload` 는 `get_targets`(대표)를 넘기는 얇은 래퍼 — 서버 리더보드 표시 불변. `_build_embed` 는 realm → `title` 파라미터로 일반화.
+- **수집 타깃**: `get_all_character_targets(session_factory, guild_id, realm=None)` + 순수 코어 `_guild_character_targets`([registration/service.py](../maple_mate/registration/service.py)) — 정렬 = (유저, ocid) 오름차순(수집 콜 순서 결정성). 매일 잡은 **realm=None 단일 호출**(`_all_realm_targets` 폐기 — 각 캐릭터가 자기 realm 으로 저장되므로 합집합 호출 불필요), `ensure_guild_data` 는 그 realm 캐릭터 전부로 교체.
+- **`/내캐릭터 경험치`**([mychar/commands.py](../maple_mate/mychar/commands.py) `handle_my_exp`): **파라미터 없음**(무인자 = 등록 전체 최대 10 — 캐릭터 지정은 스펙·아이템 전용). defer 전 0캐릭/DM ephemeral 판정만 공유(계획대로 `_resolve_my_targets` 미사용), `exp_service.backfill`(멱등) → 코어 호출(`labels=char_label`, `min_ranked=1`, `realm=None` 혼합, title `📈 내 캐릭터 경험치`) → 소유자 태그를 순위판 위에 prepend(`👤 <@uid>\n\n🥇 …`) → 공개 발송. 미준비 문구 `_EXP_NOT_READY` 는 `/경험치` `_MSG_NOT_READY` 와 동일 톤(모듈 상수 별도 — private import 회피). 쿨다운 `spec_cooldown`.
+- **테스트**: [test_leaderboard_service.py](../tests/test_leaderboard_service.py)(같은 유저 2캐릭 공존·캐릭별 시계열 분리·upsert 충돌 키)·[test_leaderboard_job.py](../tests/test_leaderboard_job.py)(잡이 전 캐릭터 적재)·[test_registration_service.py](../tests/test_registration_service.py)(수집 타깃 정렬·realm 필터)·[test_mychar_commands.py](../tests/test_mychar_commands.py)(경험치 6건 — 절단 없음·라벨·공개·미준비). 기존 픽스처는 ocid 포함으로 갱신하되 대표만 있는 입력에서 결과 불변(회귀 가드).
+- **논리 커밋 4개**: 마이그레이션+모델 → 서비스 ocid 차원+코어 추출 → 수집 타깃 교체 → 서브커맨드+사이트 카피.
+
+---
+
 ## 6. 검증 게이트 (머지 조건)
 
-1. 전체 pytest 그린 + `ruff check`(E,F,I)·`ruff format` clean(CI 게이트 그대로). — *PR1 통과(776 passed)*
-2. 드리프트(웹사이트) 그린 — **각 PR에 포함된 명령만** 문서 반영. (가이드 가드는 #43 이후 해당 없음 — §1-b) — *PR1 통과*
-3. PR2: 마이그레이션 실 DB 가역성(업→다운→업) 증빙.
-4. 기존 명령 회귀 0: `/스펙`·`/아이템`·`/경험치` 테스트 전량 무수정 통과(리팩터로 픽스처 갱신이 필요하면 결과 동일성 명시). — *PR1 통과(스펙·아이템 무수정)*
-5. 라이브 확인(배포 후): 5캐릭 유저로 `/내캐릭터 스펙` 무인자·지정, 챌 혼합 라벨, `/내캐릭터 경험치` 콜드→웜 2회 실행. — **PR1·PR2 공통 미완(배포 후)**
+1. 전체 pytest 그린 + `ruff check`(E,F,I)·`ruff format` clean(CI 게이트 그대로). — *PR1 통과(776 passed)* / *PR2 통과(789 passed)*
+2. 드리프트(웹사이트) 그린 — **각 PR에 포함된 명령만** 문서 반영. (가이드 가드는 #43 이후 해당 없음 — §1-b) — *PR1 통과* / *PR2 통과(그룹 명령이라 최상위 이름 불변 — 카피만 갱신)*
+3. PR2: 마이그레이션 실 DB 가역성(업→다운→업) 증빙. — ✅ **통과**(로컬 도커 QA 시드 40행 — §5-b. 검증 후 로컬 DB 는 원 리비전 복구, 운영 적용은 배포 기동 시 `alembic upgrade`)
+4. 기존 명령 회귀 0: `/스펙`·`/아이템`·`/경험치` 테스트 전량 무수정 통과(리팩터로 픽스처 갱신이 필요하면 결과 동일성 명시). — *PR1 통과(스펙·아이템 무수정)* / *PR2 통과(`/경험치` 픽스처는 ocid 포함 갱신, 대표만 있는 입력에서 결과 동일 — §5-b)*
+5. 라이브 확인(배포 후): 5캐릭 유저로 `/내캐릭터 스펙` 무인자·지정, 챌 혼합 라벨, `/내캐릭터 경험치` 콜드→웜 2회 실행. — ✅ **완료(2026-07-03, PR1·PR2 공통)**
 
 ---
 
