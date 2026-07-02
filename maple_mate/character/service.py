@@ -18,7 +18,6 @@ log = logging.getLogger(__name__)
 
 @dataclass(frozen=True)
 class SymbolSummary:
-    total_force: int
     counts: tuple[tuple[str, int], ...]  # (분류, 개수) — 아케인/사크레드/어센틱/기타
 
 
@@ -95,17 +94,15 @@ def _symbol_category(name: str) -> str:
 
 
 def summarize_symbols(symbol_list: list[dict] | None) -> SymbolSummary:
-    """심볼 목록 → 총 포스 + 분류별 개수(순수함수)."""
-    total = 0
+    """심볼 목록 → 분류별 개수(순수함수)."""
     counts: dict[str, int] = {}
     for symbol in symbol_list or []:
-        total += _to_int(symbol.get("symbol_force"))
         category = _symbol_category(symbol.get("symbol_name") or "")
         counts[category] = counts.get(category, 0) + 1
     ordered = [
         (c, counts[c]) for c in ("아케인", "사크레드", "어센틱", "기타") if c in counts
     ]
-    return SymbolSummary(total_force=total, counts=tuple(ordered))
+    return SymbolSummary(counts=tuple(ordered))
 
 
 def parse_abilities(ability: dict) -> tuple[str | None, tuple[str, ...]]:
