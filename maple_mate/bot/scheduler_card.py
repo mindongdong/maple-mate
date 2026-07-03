@@ -184,6 +184,24 @@ def card_summary_line(hw: Homework, excluded: frozenset[str]) -> str:
 # ── 카드 렌더 ─────────────────────────────────────────────────────────────────
 
 
+def _estimate_height(hw: Homework) -> int:
+    """섹션별 항목 수로 캔버스 최소 필요 높이를 산출(항상 실제보다 넉넉하게). 순수.
+
+    정확한 픽셀 계산 없이 각 요소를 상한 추정으로 더한다:
+    - 헤더·진행요약·디바이더: 고정 300px
+    - ContentItem: 각 50px(in_progress 행 = ROW_H+8, todo/done = ROW_H)
+    - 섹션 헤더(최대 9개): SECTION_H × 9 = 414px
+    - 보스 행(2컬럼, 올림): ceil(len) × BOSS_ROW_H
+    - 길드 마진·푸터·여유: 300px
+    excluded 를 고려하지 않아 항상 보수적(크게) 추정 — 낭비보다 정보 손실이 더 나쁘다.
+    """
+    n_content = len(hw.daily) + len(hw.weekly)
+    n_boss = len(hw.boss)
+    boss_rows = (n_boss + 1) // 2 if n_boss else 0
+    # 9개 섹션 헤더 + 항목당 50px + 보스 행 + 고정 여유
+    return 300 + 9 * _SECTION_H + n_content * 50 + boss_rows * _BOSS_ROW_H + 300
+
+
 def render_scheduler_card(
     hw: Homework, now: datetime, excluded: frozenset[str] = frozenset()
 ) -> bytes:
@@ -193,8 +211,9 @@ def render_scheduler_card(
     보존한다. 높이는 그리며 결정(동적) → 마지막에 crop. `asyncio.to_thread` 로 호출(루프 비차단).
     """
     f = _Fonts()
-    # 넉넉히 큰 캔버스에 그린 뒤 실제 사용 높이로 crop(bitik_card 관행).
-    est_h = 2600
+    # 항목 수 기반으로 필요 높이를 추정한 뒤 실제 사용 높이로 crop(bitik_card 관행).
+    # 고정 상한이 아니라 동적 산출 — 항목이 많아도 캔버스를 넘어 하단이 잘리지 않는다.
+    est_h = _estimate_height(hw)
     img = Image.new("RGB", (_W + 2 * _MARGIN, est_h), _BG)
     draw = ImageDraw.Draw(img)
     x0, y0 = _MARGIN, _MARGIN
@@ -458,13 +477,15 @@ def _content_section(
     y = _section_header(draw, color, label, f"{done}/{total}", f, left, right, y)
 
     in_progress, todo, done_items = _ordered_contents(items)
-    name_max = inner_w - 44 - _GAUGE_W - 70
+    # 이름 끝 = 게이지 시작 - gap(12) — 이름 말줄임 폭을 게이지 x 기준으로 잡아 겹침 방지
+    gauge_x = right - _GAUGE_W - 84
+    name_max = gauge_x - (left + 44) - 12
     for c in in_progress:  # 회수형 진행중: 이름 + 미니 게이지 + n/m
         _checkbox(draw, left + 4, y + 2, _CHECKBOX, False)
         name = _ellipsize(draw, c.name, f.body_r, name_max)
         draw.text((left + 44, y), name, font=f.body_r, fill=_TEXT)
         ratio = c.now_count / c.max_count if c.max_count else 0.0
-        _progress_bar(draw, right - _GAUGE_W - 84, y + 10, _GAUGE_W, 10, ratio, color)
+        _progress_bar(draw, gauge_x, y + 10, _GAUGE_W, 10, ratio, color)
         gauge = f"{c.now_count}/{c.max_count}"
         draw.text(
             (right - draw.textlength(gauge, font=f.small_r), y + 4),
@@ -511,7 +532,13 @@ def _guild_section(
         return y
     y = _section_header(draw, _C_GUILD, label, None, f, left, right, y)
     for c in items:
-        name = _ellipsize(draw, c.name, f.body_r, right - left - 160)
+        # 점수 실측 폭만큼 이름 말줄임 폭을 줄여 점수와 겹치지 않게 한다.
+        score_w = (
+            draw.textlength(f"{c.now_count:,}", font=f.body_b) + 16
+            if c.now_count
+            else 0
+        )
+        name = _ellipsize(draw, c.name, f.body_r, right - (left + 44) - score_w)
         if c.now_count == 0:
             draw.text((left + 44, y), name, font=f.body_r, fill=_MUTED)
         else:
