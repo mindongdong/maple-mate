@@ -253,8 +253,17 @@ def _draw_card(
         y += _BODY_SIZE + _ROW_GAP
 
 
+# 카드 6장부터 2열 — 무인자 상한 10장(ADR-0008)까지 세로 벽이 안 생기게 절반으로 접는다.
+_TWO_COLUMN_MIN = 6
+
+
+def _column_split(n: int) -> int:
+    """첫 열 카드 수. 5장 이하 1열(=n), 6장부터 ⌈n/2⌉ — 6→3·7→4·8→4·9→5·10→5."""
+    return n if n < _TWO_COLUMN_MIN else (n + 1) // 2
+
+
 def render_item_cards(cards: list[ItemCard]) -> bytes:
-    """아이템 카드(1장 이상)를 세로 스택 PNG 로 렌더 → bytes."""
+    """아이템 카드(1장 이상) PNG 렌더 → bytes. 5장 이하 세로 1열, 6장부터 2열."""
     if not cards:
         raise ValueError("render_item_cards: 카드가 최소 1장 필요합니다")
     f = _Fonts()
@@ -262,21 +271,27 @@ def render_item_cards(cards: list[ItemCard]) -> bytes:
 
     sizes = [_card_size(probe, f, c) for c in cards]
     card_w = max(w for w, _, _, _ in sizes)
-    total_w = card_w + 2 * _MARGIN
-    total_h = (
-        _MARGIN
-        + sum(h for _, h, _, _ in sizes)
-        + _CARD_GAP * (len(cards) - 1)
-        + _MARGIN
-    )
+
+    split = _column_split(len(cards))
+    stacked = list(zip(cards, sizes))
+    columns = [col for col in (stacked[:split], stacked[split:]) if col]
+    col_heights = [
+        sum(h for _, (_, h, _, _) in col) + _CARD_GAP * (len(col) - 1)
+        for col in columns
+    ]
+    total_w = 2 * _MARGIN + card_w * len(columns) + _CARD_GAP * (len(columns) - 1)
+    total_h = 2 * _MARGIN + max(col_heights)
 
     img = Image.new("RGB", (total_w, total_h), _IMG_BG)
     draw = ImageDraw.Draw(img)
 
-    y = _MARGIN
-    for card, (_, h, pills, rows) in zip(cards, sizes):
-        _draw_card(img, draw, f, card, _MARGIN, y, card_w, h, pills, rows)
-        y += h + _CARD_GAP
+    x = _MARGIN
+    for col in columns:
+        y = _MARGIN
+        for card, (_, h, pills, rows) in col:
+            _draw_card(img, draw, f, card, x, y, card_w, h, pills, rows)
+            y += h + _CARD_GAP
+        x += card_w + _CARD_GAP
 
     buffer = io.BytesIO()
     img.save(buffer, "PNG")
