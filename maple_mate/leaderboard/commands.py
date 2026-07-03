@@ -1,6 +1,6 @@
 """`/경험치` · `/경험치알림` 디스코드 어댑터 (얇은 전달 계층, 작업지시서 빌드 단위 #6, ADR-0017).
 
-- `/경험치`: defer → build_payload(현재 길드) → 7일 레벨 추이 그래프 공개 응답(2명 미만/데이터 없음 안내).
+- `/경험치`: defer → build_payload(현재 길드) → 7일 레벨 추이 그래프 공개 응답(미등록/데이터 없음 안내).
 - `/경험치알림 켜기·끄기`: `대상`(채널/개인) 인자로 채널 발송(channel_settings.exp_alert)·본인 DM
   구독(notification_subscription)을 토글. 권한 불필요(공지·썬데이와 통일, notification.toggle 공유).
 """
@@ -32,17 +32,20 @@ _EXP_SPEC = AlertSpec(
     personal_off="경험치 리더보드 DM 구독을 껐어요.",
 )
 
-_MSG_NOT_ENOUGH = "경험치 리더보드는 **2명 이상 등록**해야 추이가 떠요. 친구들도 `/캐릭터등록` 하면 같이 나와요."
+_MSG_NO_TARGETS = (
+    "경험치 리더보드는 **캐릭터를 등록**해야 떠요."
+    " `/캐릭터등록` 하면 나와요 — 친구들도 등록하면 같이 순위가 떠요."
+)
 _MSG_NOT_READY = (
-    "아직 어제 데이터를 못 받았어요(넥슨 전일 데이터 준비 전)."
+    "아직 표시할 경험치 데이터가 없어요(넥슨 전일 데이터 준비 전)."
     " 잠시 후 다시 시도해 주세요."
 )
-_MSG_CHAL_NOT_ENOUGH = (
-    "챌린저스 경험치 리더보드는 **챌린저스 캐릭터 2명 이상**이 등록해야 떠요."
-    " 챌린저스 캐릭터를 `/캐릭터등록` 하면 같이 나와요."
+_MSG_CHAL_NO_TARGETS = (
+    "챌린저스 경험치 리더보드는 **챌린저스 캐릭터를 등록**해야 떠요."
+    " 챌린저스 캐릭터를 `/캐릭터등록` 하면 나와요."
 )
 _MSG_CHAL_NOT_READY = (
-    "아직 챌린저스 캐릭터의 어제 데이터를 못 받았어요(넥슨 전일 데이터 준비 전)."
+    "아직 표시할 챌린저스 경험치 데이터가 없어요(넥슨 전일 데이터 준비 전)."
     " 잠시 후 다시 시도해 주세요."
 )
 
@@ -52,8 +55,8 @@ async def handle_leaderboard(
 ) -> None:
     """`/경험치` 본체: defer → 온디맨드 갱신(그 realm D-1 재적재) → build_payload(realm) → 공개 발송.
 
-    주기 잡과 독립으로 명령 시점에 D-1 을 새로 받아 가장 신선한 어제 기준을 보여준다. payload 가
-    None 이면 그 realm 등록자 수를 확인해 <2명 vs 데이터 미준비를 구분해 안내한다.
+    주기 잡과 독립으로 명령 시점에 빈 과거일을 백필해 가장 신선한 기준을 보여준다. payload 가
+    None(그 realm 스냅샷 0건)이면 등록자 유무를 확인해 미등록 vs 데이터 미준비를 구분해 안내한다.
     """
     await defer(interaction)
     title = realm_title("경험치 리더보드", realm)
@@ -69,14 +72,14 @@ async def handle_leaderboard(
 
     payload = await build_payload(interaction.client, deps, interaction.guild_id, realm)
     if payload is None:
-        # 그 realm 등록자가 2명 미만인지, 데이터가 아직 미준비인지 구분해 안내한다.
+        # 그 realm 에 등록자가 없는지, 데이터가 아직 미준비인지 구분해 안내한다.
         targets = await get_targets(
             deps.session_factory, interaction.guild_id, realm=realm
         )
         if realm is Realm.CHALLENGERS:
-            msg = _MSG_CHAL_NOT_ENOUGH if len(targets) < 2 else _MSG_CHAL_NOT_READY
+            msg = _MSG_CHAL_NO_TARGETS if not targets else _MSG_CHAL_NOT_READY
         else:
-            msg = _MSG_NOT_ENOUGH if len(targets) < 2 else _MSG_NOT_READY
+            msg = _MSG_NO_TARGETS if not targets else _MSG_NOT_READY
         await interaction.followup.send(embed=make_embed(title, msg), ephemeral=True)
         return
 
