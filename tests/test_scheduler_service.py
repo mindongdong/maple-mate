@@ -24,19 +24,14 @@ from maple_mate.scheduler.service import (
     ContentItem,
     Homework,
     boss_counts,
-    boss_cycle_value,
     bosses_by_cycle,
     bosses_other_cycle,
     by_category,
-    content_field_value,
     difficulty_ko,
     field_counts,
-    guild_field_value,
     is_empty_filtered,
     parse_homework,
-    section_text,
     strip_prefix,
-    truncate,
     visible_remaining,
     weekly_boss_limit,
 )
@@ -265,12 +260,6 @@ def test_strip_prefix_removes_leading_bracket():
     assert strip_prefix("무릉도장") == "무릉도장"  # 프리픽스 없으면 그대로
 
 
-def test_truncate_strips_then_ellipsizes():
-    assert truncate("[일일 퀘스트] 짧은") == "짧은"
-    out = truncate("[길드] " + "가" * 30, limit=10)
-    assert out.endswith("…") and len(out) == 10
-
-
 # ── 버킷·집계 ────────────────────────────────────────────────────────────────
 
 
@@ -310,67 +299,6 @@ def test_field_counts_excludes_qs0():
 def test_boss_counts():
     items = [BossItem("a", "hard", True), BossItem("b", "hard", False)]
     assert boss_counts(items) == (1, 2)
-
-
-# ── 본문 렌더 ────────────────────────────────────────────────────────────────
-
-
-def test_content_field_value_todo_first():
-    items = [
-        ContentItem("몬스터파크", 2, 14),  # 진행중 회수
-        ContentItem("에픽 던전 : 하이마운틴", 5, 0),  # 이진 완료(now>0)
-        ContentItem("[일일 퀘스트] 소멸의 여로", 0, 100, type="quest", quest_state="1"),
-        ContentItem("[일일 퀘스트] 리멘", 0, 100, type="quest", quest_state="2"),
-        ContentItem("[일일 퀘스트] 탈라하트", 0, 0, type="quest", quest_state="0"),
-    ]
-    out = content_field_value(items)
-    lines = out.split("\n")
-    assert lines[0] == "🟡 몬스터파크 `2/14`"  # 진행중 게이지 먼저
-    assert "⬜ 소멸의 여로" in out  # 미완료 체크박스(0/100 소멸)
-    assert "✅ 에픽 던전 : 하이마운틴" in out  # 완료 한 줄씩(에픽 포함)
-    assert "✅ 리멘" in out
-    assert "탈라하트" not in out  # qs0 제외
-
-
-def test_content_field_value_all_done_per_line():
-    items = [
-        ContentItem("a", 0, 1, type="quest", quest_state="2"),
-        ContentItem("b", 1, 1),
-    ]
-    assert content_field_value(items) == "✅ a\n✅ b"
-
-
-def test_guild_field_value():
-    items = [
-        ContentItem("[길드] 지하 수로", 0, 0),
-        ContentItem("[길드] 주간 미션 포인트", 1240, 0),
-    ]
-    out = guild_field_value(items)
-    assert "⬜ 지하 수로" in out  # now==0 → 아직
-    assert "🔹 주간 미션 포인트 `1240`" in out  # now>0 → 점수
-
-
-def test_boss_cycle_value_undone_first():
-    items = [
-        BossItem("자쿰", "chaos", True, CYCLE_WEEKLY),  # 처치
-        BossItem("스우", "hard", False, CYCLE_WEEKLY),  # 미처치
-        BossItem("이름만", "", False, CYCLE_WEEKLY),  # 난이도 없음
-    ]
-    out = boss_cycle_value(items)
-    lines = out.split("\n")
-    assert lines[0] == "⬜ 스우(하드)"  # 미처치 먼저 + 난이도 한글
-    assert lines[1] == "⬜ 이름만"  # 난이도 없으면 생략
-    assert "✅ 자쿰(카오스)" in out  # 처치 한 줄씩 + 난이도 한글
-
-
-# ── 길이 안전(클램프) ─────────────────────────────────────────────────────────
-
-
-def test_section_text_joins_and_clamps():
-    assert section_text(["a", "b", "c"]) == "a\nb\nc"
-    assert section_text([]) == ""
-    out = section_text([f"⬜ 보스{i}(하드)" for i in range(200)])
-    assert "…외" in out and len(out) <= 1024
 
 
 # ── 카테고리 필터 재집계(ADR-0014) ───────────────────────────────────────────

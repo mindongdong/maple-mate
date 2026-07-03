@@ -8,6 +8,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import discord
 from discord import app_commands
 
 from maple_mate.scheduler import commands
@@ -123,12 +124,12 @@ async def test_scheduler_renders_one_message_per_character(monkeypatch):
     monkeypatch.setattr(commands, "build_homeworks", build_homeworks)
     interaction = _interaction()
     await commands.handle_scheduler(_deps(), interaction)
-    titles = [s["embed"].title for s in interaction.followup.sent]
-    assert titles == [
-        "🗓 캐릭A 의 스케줄러 숙제",
-        "🗓 캐릭B 의 스케줄러 숙제",
-    ]  # 캐릭터당 1개
-    assert all(s["ephemeral"] is True for s in interaction.followup.sent)
+    sent = interaction.followup.sent
+    # 캐릭터당 카드 1개(파일 첨부 + content 한 줄, 임베드 셸 없음).
+    assert [s["content"].split(" —")[0] for s in sent] == ["캐릭A", "캐릭B"]
+    assert all("embed" not in s for s in sent)
+    assert all(isinstance(s["file"], discord.File) for s in sent)
+    assert all(s["ephemeral"] is True for s in sent)
 
 
 async def test_scheduler_skips_empty_characters_renders_rest(monkeypatch):
@@ -138,8 +139,8 @@ async def test_scheduler_skips_empty_characters_renders_rest(monkeypatch):
     monkeypatch.setattr(commands, "build_homeworks", build_homeworks)
     interaction = _interaction()
     await commands.handle_scheduler(_deps(), interaction)
-    titles = [s["embed"].title for s in interaction.followup.sent]
-    assert titles == ["🗓 캐릭A 의 스케줄러 숙제"]  # 빈 캐릭터 생략, 나머지 표시
+    contents = [s["content"] for s in interaction.followup.sent]
+    assert len(contents) == 1 and contents[0].startswith("캐릭A")  # 빈 캐릭터 생략
 
 
 # ── /스케줄러알림 켜기: fail fast 가드 + 시각 저장 ───────────────────────────
@@ -240,7 +241,7 @@ async def test_reminder_off_when_not_subscribed(monkeypatch):
 # ── 카테고리 필터(ADR-0014) ──────────────────────────────────────────────────
 
 
-async def test_scheduler_excludes_bucket_from_embed(monkeypatch):
+async def test_scheduler_excludes_bucket_renders_card(monkeypatch):
     async def build_homeworks(deps, g, u):
         return [_homework(name="캐릭A")], None  # daily 무릉도장 + boss 검은마법사
 
@@ -248,9 +249,9 @@ async def test_scheduler_excludes_bucket_from_embed(monkeypatch):
     interaction = _interaction()
     await commands.handle_scheduler(_deps(), interaction, frozenset({BUCKET_BOSS}))
     [sent] = interaction.followup.sent
-    names = [f.name for f in sent["embed"].fields]
-    assert all("보스" not in n for n in names)  # 보스 묶음 가림
-    assert any("일일" in n for n in names)  # 나머지는 유지
+    # 보스 묶음 제외 경로도 카드 발송(필드 검사는 렌더러 테스트가 담당).
+    assert isinstance(sent["file"], discord.File) and "embed" not in sent
+    assert sent["content"].startswith("캐릭A")
 
 
 async def test_scheduler_all_off_guard_before_build(monkeypatch):

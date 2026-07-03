@@ -25,13 +25,30 @@ GRADE_COLORS: dict[str, _RGB] = {
 }
 _GRADE_BADGE_DEFAULT: _RGB = (128, 132, 140)  # 미상 등급은 회색
 
-# (경로, regular index, bold index) — macOS 시스템 한글 폰트 우선, 실패 시 다음 후보.
-_FONT_CANDIDATES: tuple[tuple[str, int, int], ...] = (
-    ("/System/Library/Fonts/AppleSDGothicNeo.ttc", 0, 6),
-    ("/System/Library/Fonts/Supplemental/AppleGothic.ttf", 0, 0),
-    ("/Library/Fonts/NanumGothic.ttf", 0, 0),
-    # 리눅스(CI 러너·프로덕션 컨테이너): debian fonts-nanum 패키지 경로.
-    ("/usr/share/fonts/truetype/nanum/NanumGothic.ttf", 0, 0),
+# (regular 경로, regular index, bold 경로, bold index) — macOS 는 reg/bold 가 같은 파일
+# (index 로 구분), Nanum 은 볼드가 별 파일이라 경로를 나눈다. 실패 시 다음 후보.
+_FONT_CANDIDATES: tuple[tuple[str, int, str, int], ...] = (
+    (
+        "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+        0,
+        "/System/Library/Fonts/AppleSDGothicNeo.ttc",
+        6,
+    ),
+    (
+        "/System/Library/Fonts/Supplemental/AppleGothic.ttf",
+        0,
+        "/System/Library/Fonts/Supplemental/AppleGothic.ttf",
+        0,
+    ),
+    ("/Library/Fonts/NanumGothic.ttf", 0, "/Library/Fonts/NanumGothicBold.ttf", 0),
+    # 리눅스(CI 러너·프로덕션 컨테이너): debian fonts-nanum 패키지 경로. 볼드는 별 파일이라
+    # NanumGothicBold 를 볼드 후보로 쓴다(같은 index 0 → 볼드가 노멀로 렌더되던 회귀 해소).
+    (
+        "/usr/share/fonts/truetype/nanum/NanumGothic.ttf",
+        0,
+        "/usr/share/fonts/truetype/nanum/NanumGothicBold.ttf",
+        0,
+    ),
 )
 
 # 디스코드 다크 임베드에 어울리는 팔레트.
@@ -93,10 +110,10 @@ class GradeBadges:
 
 def _load_fonts(size: int) -> tuple[ImageFont.FreeTypeFont, ImageFont.FreeTypeFont]:
     """(본문 Regular, 헤더/강조 Bold) 폰트. 후보를 순회하고 모두 실패하면 기본 폰트."""
-    for path, reg_idx, bold_idx in _FONT_CANDIDATES:
+    for reg_path, reg_idx, bold_path, bold_idx in _FONT_CANDIDATES:
         try:
-            regular = ImageFont.truetype(path, size, index=reg_idx)
-            bold = ImageFont.truetype(path, size, index=bold_idx)
+            regular = ImageFont.truetype(reg_path, size, index=reg_idx)
+            bold = ImageFont.truetype(bold_path, size, index=bold_idx)
             return regular, bold
         except OSError:
             continue

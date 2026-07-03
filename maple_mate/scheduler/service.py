@@ -1,6 +1,6 @@
 """스케줄러 알리미 비즈니스 로직 (전달-무관: 순수 + DB). discord/넥슨 타입 비의존.
 
-- 순수: `parse_homework`(응답 → DTO, registration_flag 필터)·라인 빌더·`section_text`(1024 클램프).
+- 순수: `parse_homework`(응답 → DTO, registration_flag 필터)·카테고리 파생·집계·필터.
 - DB: 구독 토글/조회(scheduler_subscription)·`resolve_self_characters`(키 + 등록 캐릭터 전부).
 DB 함수는 pg_insert/delete 통합 영역이라 단위테스트에서 제외한다(작업지시서 #5, 기존 방침).
 """
@@ -27,13 +27,6 @@ log = logging.getLogger(__name__)
 
 # 기본 발송 시각(KST 시 단위). 앱이 켜기 upsert 마다 명시 → 모델/DB 에 default 없음(ADR-0012 결정 4).
 DEFAULT_HOUR = 21
-
-# Discord 임베드 필드 value 상한.
-FIELD_LIMIT = 1024
-_SEP = "\n"
-# 오버플로 노트(`…외 NNNN개`) 자리 예약폭 — 마지막 직전까지 이만큼 남겨 합계가 한도를 안 넘게.
-_NOTE_RESERVE = 12
-
 
 # ── DTO (순수 파싱 산출) ─────────────────────────────────────────────────────
 
@@ -231,43 +224,17 @@ def parse_homework(data: dict) -> Homework:
     )
 
 
-# ── 렌더링 (순수, 필드 파생 카테고리 — ADR-0013) ──────────────────────────────
+# ── 표시 이름 정규화 (순수 — 렌더러가 픽셀 폭 말줄임 전 프리픽스 제거) ─────────
 #
-# 할 일 우선(todo-first): 미완료를 주인공으로 개별 표시, 완료는 수+이름 한 줄로 접는다. 헤더는
-# `남은 N + 완료/총` 숫자만(진행바 없음). 콘텐츠명 앞 `[..]` 구조 프리픽스는 떼고 길면 말줄임한다.
+# 콘텐츠명 앞 `[..]` 구조 프리픽스(`[일일 퀘스트]`·`[길드]`)를 떼어 표시명만 남긴다. 실제 말줄임·
+# 정렬·todo-first 는 표현 매체(scheduler_card PNG 렌더러)가 담당한다(ADR-0013 매체 전환).
 
 _PREFIX_RE = re.compile(r"^\s*\[[^\]]*\]\s*")  # 선두 `[..]` 한 그룹
-_NAME_MAX = 18  # 표시 이름 최대 길이(모바일 줄바꿈 방지)
-
-
-def section_text(lines: Sequence[str], limit: int = FIELD_LIMIT) -> str:
-    """라인들을 줄바꿈으로 합치되 임베드 필드 상한(1024) 초과 시 `…외 N개`로 클램프(순수)."""
-    if not lines:
-        return ""
-    out: list[str] = []
-    used = 0
-    last = len(lines) - 1
-    for i, line in enumerate(lines):
-        addition = (len(_SEP) if out else 0) + len(line)
-        # 마지막 라인이 아니면 노트 자리(_NOTE_RESERVE)를 남겨 합계가 한도를 넘지 않게 한다.
-        budget = limit if i == last else limit - _NOTE_RESERVE
-        if used + addition > budget:
-            out.append(f"…외 {len(lines) - i}개")
-            break
-        out.append(line)
-        used += addition
-    return _SEP.join(out)
 
 
 def strip_prefix(name: str) -> str:
     """콘텐츠명 앞 `[...]` 프리픽스 제거(없으면 그대로). 순수."""
     return _PREFIX_RE.sub("", name, count=1).strip()
-
-
-def truncate(name: str, limit: int = _NAME_MAX) -> str:
-    """프리픽스 제거 후 말줄임(… 포함 limit 자). 순수."""
-    name = strip_prefix(name)
-    return name if len(name) <= limit else name[: limit - 1] + "…"
 
 
 # ── 카테고리 버킷·집계(순수) ─────────────────────────────────────────────────
@@ -321,7 +288,7 @@ def visible_remaining(hw: Homework, excluded: frozenset[str]) -> tuple[int, int]
 def is_empty_filtered(hw: Homework, excluded: frozenset[str]) -> bool:
     """보이는 묶음에 표시할 항목이 없으면 True — is_empty 의 필터 버전(ADR-0014 결정 5). 순수.
 
-    build_embed 가 실제 그리는 필드의 존재 여부를 묶음별로 본다(일일/주간=비길드 항목 qs0 제외,
+    카드 렌더러가 실제 그리는 섹션의 존재 여부를 묶음별로 본다(일일/주간=비길드 항목 qs0 제외,
     길드=[길드] 항목, 보스=전체). 제외된 묶음은 건너뛴다.
     """
     daily_visible = BUCKET_DAILY not in excluded and bool(
@@ -339,65 +306,6 @@ def is_empty_filtered(hw: Homework, excluded: frozenset[str]) -> bool:
     )
     boss_visible = BUCKET_BOSS not in excluded and bool(hw.boss)
     return not (daily_visible or weekly_visible or guild_visible or boss_visible)
-
-
-# ── 카테고리 본문(순수) ───────────────────────────────────────────────────────
-
-
-def content_field_value(items: Sequence[ContentItem]) -> str:
-    """퀘스트/회수/완료미완료 본문 — 진행중(게이지) → 미완료 ⬜ → 완료 ✅. 순수.
-
-    진행중(회수형 0<now<max)만 달성률 내림차순 게이지. 나머지 미완료는 `⬜ 이름`(0/100 도배 소멸).
-    완료는 ⬜ 미완료와 거울 대칭으로 `✅ 이름` 한 줄씩(카운트는 필드 헤더에 있음, qs0 기타 제외).
-    """
-    active = [c for c in items if not c.excluded]
-    in_progress = sorted(
-        (c for c in active if c.in_progress),
-        key=lambda c: c.now_count / c.max_count,
-        reverse=True,
-    )
-    todo = [c for c in active if not c.done and not c.in_progress]
-    done = [c for c in active if c.done]
-
-    lines: list[str] = []
-    for c in in_progress:
-        lines.append(f"🟡 {truncate(c.name)} `{c.now_count}/{c.max_count}`")
-    for c in todo:
-        lines.append(f"⬜ {truncate(c.name)}")
-    for c in done:
-        lines.append(f"✅ {truncate(c.name)}")
-    return section_text(lines)
-
-
-def guild_field_value(items: Sequence[ContentItem]) -> str:
-    """길드 콘텐츠(점수제) 본문 — now==0 ⬜(아직 안 함), now>0 이름+점수. 완료개념 없음. 순수."""
-    lines: list[str] = []
-    for c in items:
-        name = truncate(c.name)
-        if c.now_count == 0:
-            lines.append(f"⬜ {name}")
-        else:
-            lines.append(f"🔹 {name} `{c.now_count}`")
-    return section_text(lines)
-
-
-def _boss_line(box: str, b: BossItem) -> str:
-    """보스 한 줄 `{box} 이름(난이도)` — 난이도 미상이면 괄호 생략. 순수."""
-    name = truncate(b.name)
-    diff = difficulty_ko(b.difficulty)
-    return f"{box} {name}({diff})" if diff else f"{box} {name}"
-
-
-def boss_cycle_value(items: Sequence[BossItem]) -> str:
-    """한 cycle 보스 본문 — 미처치 ⬜ 이름(난이도) → 처치 ✅ 이름(난이도). '뭘 잡아야 하나' 우선. 순수.
-
-    처치는 ⬜ 미처치와 거울 대칭으로 한 줄씩(카운트는 필드 헤더에 있음).
-    """
-    not_done = [b for b in items if not b.done]
-    done = [b for b in items if b.done]
-    lines = [_boss_line("⬜", b) for b in not_done]
-    lines += [_boss_line("✅", b) for b in done]
-    return section_text(lines)
 
 
 # ── 구독(DB) ─────────────────────────────────────────────────────────────────

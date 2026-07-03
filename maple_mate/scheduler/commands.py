@@ -8,6 +8,7 @@
 
 from __future__ import annotations
 
+import io
 from datetime import datetime
 
 import discord
@@ -19,7 +20,7 @@ from ..bot.scope import GUILD_INSTALLS, MSG_UNAVAILABLE, OPEN_CONTEXTS, resolve_
 from ..dependencies import Deps
 from ..nexon.client import KST
 from . import service
-from .broadcast import build_embed, build_homeworks
+from .broadcast import build_card_payload, build_homeworks
 from .category_filter import (
     CATEGORY_ON_OFF,
     is_all_excluded,
@@ -66,7 +67,7 @@ async def handle_scheduler(
     interaction: discord.Interaction,
     excluded: frozenset[str] = frozenset(),
 ) -> None:
-    """`/스케줄러` 본체: defer → (all-off 가드) → build_homeworks → 캐릭터당 임베드 1개씩 followup.
+    """`/스케줄러` 본체: defer → (all-off 가드) → build_homeworks → 캐릭터당 PNG 카드 1개씩 followup.
 
     등록 캐릭터 4개면 ephemeral 응답 4개(캐릭터당 메시지 1개). excluded(ADR-0014) 묶음은 가리고
     필터 후 빈 캐릭터는 생략한다. 무상태 — excluded 는 이번 호출에만 적용(저장 안 함).
@@ -100,8 +101,11 @@ async def handle_scheduler(
 
     now = datetime.now(KST)
     for homework in non_empty:  # 캐릭터당 메시지 1개(온디맨드 ephemeral)
+        content, png = await build_card_payload(homework, now, excluded)
         await interaction.followup.send(
-            embed=build_embed(homework, now, excluded), ephemeral=True
+            content=content,
+            file=discord.File(io.BytesIO(png), filename="scheduler_card.png"),
+            ephemeral=True,
         )
 
 
