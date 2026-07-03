@@ -1,6 +1,7 @@
 # ADR-0013 — 스케줄러 숙제 표시: 필드 파생 카테고리 분류 (요약형 폐기)
 
 - **상태:** 채택 (Accepted) — [ADR-0012](0012-scheduler-reminder-per-user-dm.md) 결정 5(표시 규칙)를 **개정(supersede)**, 결정 1~4·6·7은 불변.
+  - **표현 매체 PNG 전환 (2026-07-03):** 임베드 → PIL 렌더링 PNG 카드로 매체만 전환(정보 구조·분류·todo-first 불변). [docs/scheduler-png-card-work-order.md](../scheduler-png-card-work-order.md) 참조.
 - **일자:** 2026-06-27
 - **관련 문서:** [CONTEXT.md](../../CONTEXT.md)(스케줄러 숙제), [docs/api/scheduler.md](../api/scheduler.md)(실 필드 의미·실호출), [docs/scheduler-design-handoff.md](../scheduler-design-handoff.md)(디자인 핸드오프), [service.py](../../maple_mate/scheduler/service.py)(파싱·카테고리·렌더), [broadcast.py](../../maple_mate/scheduler/broadcast.py)(임베드 조립)
 - **이력:** `/grill-with-docs` 그릴링(2026-06-27, 사용자 요구 "완료/미완료를 확실히, 내가 뭘 더 해야하지가 즉시 보이게") + **라이브 9캐릭 실 API 필드 조사**로 분류 규칙 확정.
