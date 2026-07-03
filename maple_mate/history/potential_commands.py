@@ -352,6 +352,8 @@ def setup(bot: discord.Client) -> None:
         name="잠재",
         description="잠재 재설정·사용 큐브·사용 메소·등업을 비교합니다 (개인 키 등록자 대상, 대상 미지정 시 서버 전체).",
     )
+    @app_commands.allowed_installs(guilds=True, users=False)
+    @app_commands.allowed_contexts(guilds=True, dms=False, private_channels=False)
     @app_commands.choices(period=_PERIOD_CHOICES)
     @app_commands.rename(
         period="기간",
