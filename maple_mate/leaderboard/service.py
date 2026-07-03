@@ -19,7 +19,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from datetime import date, datetime, timedelta, timezone
 
-from sqlalchemy import delete, select
+from sqlalchemy import delete, func, select
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
@@ -248,6 +248,31 @@ async def backfill(
 
 
 # ── 조회 + 순수 집계 ────────────────────────────────────────────────────────
+
+
+async def latest_snapshot_date(
+    session_factory: async_sessionmaker[AsyncSession],
+    guild_id: int,
+    ocids: Sequence[str],
+    on_or_before: date,
+    realm: Realm | None = None,
+) -> date | None:
+    """대상 캐릭터들의 가장 최근 스냅샷 일자(≤ on_or_before). 스냅샷 0건이면 None.
+
+    넥슨 전일 데이터는 "다음날 오전 1시 이후" 생성이지만 경계가 soft 라(01:10 에도 미준비
+    실측 — docs/api/README.md) 자정~생성 사이엔 D-1 행이 없다. 유니온의 D-2 폴백과 같은
+    취지로, 게이트·표시 기준일을 특정 시각 가정 없이 '가장 최근 있는 날'로 낮춰 어떤
+    시각에도 리더보드가 뜨게 한다(표시 레벨은 어차피 라이브 덮어쓰기라 신선도 무손실).
+    """
+    async with session_factory() as session:
+        stmt = select(func.max(ExpSnapshot.snapshot_date)).where(
+            ExpSnapshot.guild_id == guild_id,
+            ExpSnapshot.ocid.in_(list(ocids)),
+            ExpSnapshot.snapshot_date <= on_or_before,
+        )
+        if realm is not None:
+            stmt = stmt.where(ExpSnapshot.realm == realm.value)
+        return (await session.execute(stmt)).scalar()
 
 
 async def snapshots_on(
