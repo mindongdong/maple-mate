@@ -114,10 +114,28 @@
   margin: 0 auto;
   max-width: 560px;
 }
+.mm-tut-sub a {
+  color: var(--teal);
+  font-weight: 700;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
 .mm-tut-media {
   width: 100%;
   max-width: 580px;
   margin: 30px auto 0;
+}
+/* 스크린 1 디스코드 데모(랜딩 히어로 재사용) 튜토리얼 오버라이드:
+   ① 본문 text-align:center 상속 차단(명령 칩·푸터가 중앙 정렬로 깨짐)
+   ② 고정 높이 + flex-end 라 메시지가 쌓이면 위쪽 임베드가 제목째 싹둑 잘림 —
+      높이를 키우고 상단 페이드 마스크로 "지나간 대화" 처럼 자연스럽게 사라지게. */
+.mm-tut-media .mm-chat {
+  text-align: left;
+}
+.mm-tut-media .mm-chat-body {
+  height: 460px;
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 64px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 64px);
 }
 .mm-tut-video {
   display: block;
@@ -440,6 +458,21 @@
   flex-wrap: wrap;
   gap: 8px;
   margin-top: 13px;
+}
+/* 발송물 칩 — 명령이 아니라서 `/` 접두 없는 별도 모양(종 아이콘). */
+.mm-tut-feed-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  background: var(--badge-green-bg);
+  color: var(--badge-green-tx);
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  padding: 4px 12px;
+  font-size: 14px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  white-space: nowrap;
 }
 
 /* 완료 마스코트 (S12) */

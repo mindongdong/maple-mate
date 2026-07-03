@@ -6,8 +6,9 @@
  *   PR1 은 `src: null`(폴백 렌더). PR2 = src/poster 만 채우면 끝.
  * - ⚠️ 드리프트 가드(scripts/check-command-drift.mjs · tests/test_website_command_drift.py)가
  *   이 파일을 정규식으로 읽는다. 명령 객체는 반드시
- *   { name: <'명령'>, visibility?: <'public'|'private'> } 리터럴 형태로 쓰고
- *   (따옴표는 실제 값에만), name: 키를 다른 용도로 쓰지 말 것.
+ *   { name: <'명령'>, visibility?: <'public'|'private'>, label?: <'표시문구'> }
+ *   리터럴 형태·이 키 순서로 쓰고(따옴표는 실제 값에만), name: 키를 다른 용도로 쓰지 말 것.
+ *   label 은 칩 표시 전용(검증은 name 기준). broadcasts 는 명령이 아닌 자동 발송물 이름.
  * - visibility 정본 = 작업지시서 §3.1 (봇 코드 ephemeral 실태). 라벨 두 값:
  *   public="다같이 봐요" / private="나만 봐요".
  */
@@ -29,6 +30,8 @@ export type Visibility = 'public' | 'private'
 export type TutorialCommand = {
   name: string
   visibility?: Visibility
+  /** 칩에 name 대신 보여줄 문구(예: 토글 명령의 "켜기/끄기" 병기). */
+  label?: string
 }
 
 export type TutorialMedia =
@@ -45,11 +48,13 @@ export type TutorialMedia =
 export type TutorialStep = {
   chapter: string
   title: string
-  sub?: string
+  sub?: React.ReactNode
   media?: TutorialMedia
   /** 'doors' = 명령 칩 + 공개/본인만 라벨 목록 · 'summary' = 공개/비공개 2버킷 총정리 */
   layout?: 'doors' | 'summary'
   commands: TutorialCommand[]
+  /** summary 전용 — 명령이 아닌 자동 발송물(채널 공개) 이름 목록. */
+  broadcasts?: string[]
 }
 
 export const TUTORIAL_STEPS: TutorialStep[] = [
@@ -65,7 +70,7 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     chapter: '초대하기',
     title: '먼저, 서버에 메이트를 초대하세요',
-    sub: '서버만 고르고 승인하면 끝 — 관리자 권한은 안 받아요.',
+    sub: '서버만 고르고 승인하면 끝, 권한은 봇이 메시지를 보내기 위한 최소한의 권한만 설정했어요.',
     media: {
       type: 'video',
       src: null, // PR2: '/tutorial/invite.mp4' + poster '/tutorial/invite-poster.png'
@@ -96,11 +101,10 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     chapter: '등록 없이 되는 것',
     title: '초대 직후, 등록 없이 바로 되는 것',
-    sub: '/가이드 와 세 가지 알림은 지금 바로 켤 수 있어요.',
+    sub: '세 가지 알림은 등록 없이 지금 바로 켤 수 있어요.',
     media: { type: 'image', node: <AlertsDemo /> },
     layout: 'doors',
     commands: [
-      { name: '가이드' },
       { name: '경험치알림' },
       { name: '공지알림' },
       { name: '썬데이알림' },
@@ -118,14 +122,15 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     },
     commands: [{ name: '캐릭터등록', visibility: 'private' }],
   },
-  // ---- 5-2. 열리는 문(캐릭터) ----
+  // ---- 5-2. 열리는 문(캐릭터) ---- 🎬⑥ (영상 제공 시: /tutorial/doors-character.mp4)
   {
     chapter: '캐릭터 등록',
     title: '캐릭터 등록으로 열리는 명령들',
     sub: '전부 서버에 공개 — 친구들과 비교하고 자랑하는 용도예요.',
     media: {
-      type: 'image',
-      node: (
+      type: 'video',
+      src: null, // 영상 제공 시: '/tutorial/doors-character.mp4' + poster '/tutorial/doors-character-poster.png'
+      fallback: (
         <ShotCollage
           shots={[
             { src: '/shots/spec.png', alt: '/스펙 비교 결과 카드' },
@@ -147,7 +152,14 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   {
     chapter: 'API 키',
     title: '스타포스·잠재·스케줄러엔 넥슨 API 키가 필요해요',
-    sub: 'openapi.nexon.com 에서 3분이면 발급돼요 — 폼 값은 시작하기 문서와 같아요.',
+    sub: (
+      <>
+        <a href="https://openapi.nexon.com" target="_blank" rel="noreferrer">
+          openapi.nexon.com
+        </a>{' '}
+        에서 바로 발급 가능해요. 애플리케이션 등록만 하고 키 값 복사해서 보관해주세요.
+      </>
+    ),
     media: {
       type: 'video',
       src: null, // PR2: '/tutorial/key-issue.mp4' + poster '/tutorial/key-issue-poster.png'
@@ -167,14 +179,15 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     },
     commands: [{ name: '키등록', visibility: 'private' }],
   },
-  // ---- 6-3. 열리는 문(API 키) ----
+  // ---- 6-3. 열리는 문(API 키) ---- 🎬⑦ (영상 제공 시: /tutorial/doors-apikey.mp4)
   {
     chapter: 'API 키',
     title: 'API 키로 열리는 명령들',
     sub: '스타포스·잠재는 서버에 공개, 스케줄러 숙제는 나만 봐요.',
     media: {
-      type: 'image',
-      node: (
+      type: 'video',
+      src: null, // 영상 제공 시: '/tutorial/doors-apikey.mp4' + poster '/tutorial/doors-apikey-poster.png'
+      fallback: (
         <ShotCollage
           shots={[
             { src: '/shots/starforce.png', alt: '/스타포스 지출 비교 카드' },
@@ -193,16 +206,16 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   // ---- 7. 사용 기조: 대상 지정 ----
   {
     chapter: '사용 기조',
-    title: '대상을 안 적으면, 내 기준으로 실행돼요',
-    sub: '대상을 적으면 그 사람 기준 — 모든 조회 명령의 공통 기조예요.',
+    title: '대상을 안 적으면, 서버 등록자 전원과 비교해요',
+    sub: '대상을 적으면 그 사람들만 비교해요. 인원 제한 없이 등록한 모두가 들어가요 (/스펙만 1~5명 지정).',
     media: { type: 'anim', node: <TargetDemo /> },
-    commands: [{ name: '스펙', visibility: 'public' }],
+    commands: [{ name: '유니온', visibility: 'public' }],
   },
   // ---- 7-2. 사용 기조: 공개/비공개 총정리 ----
   {
     chapter: '사용 기조',
     title: '어디까지 보일까? 한눈 정리',
-    sub: '등록·키 입력·숙제는 나만, 비교·리더보드는 다같이.',
+    sub: '등록·키 입력·숙제·알림 설정은 나만, 비교·리더보드·알림 발송은 다같이.',
     layout: 'summary',
     commands: [
       { name: '스펙', visibility: 'public' },
@@ -217,7 +230,11 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
       { name: '캐릭터목록', visibility: 'private' },
       { name: '대표지정', visibility: 'private' },
       { name: '스케줄러', visibility: 'private' },
+      { name: '공지알림', visibility: 'private', label: '공지알림 켜기/끄기' },
+      { name: '썬데이알림', visibility: 'private', label: '썬데이알림 켜기/끄기' },
+      { name: '경험치알림', visibility: 'private', label: '경험치알림 켜기/끄기' },
     ],
+    broadcasts: ['공지 알림', '썬데이 알림', '경험치 리더보드'],
   },
   // ---- 8. 완료 ----
   {

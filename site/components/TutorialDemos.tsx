@@ -98,9 +98,17 @@ export function SlashDemo() {
 /* ---- S4: 등록 없이 바로 — 알림 3종 미리보기 ---- */
 
 const ALERTS = [
-  { icon: Bell, label: '공지 알림', body: '메이플 공지·업데이트가 올라오면 바로' },
-  { icon: TrendingUp, label: '경험치 리더보드', body: '매일 정한 시각에 자동 발송' },
-  { icon: Sun, label: '썬데이 메이플', body: '일요일 이벤트를 미리 알림' },
+  {
+    icon: Bell,
+    label: '공지 알림',
+    body: '일정 시간마다 공지를 확인해서 새로 생기면 발송해요',
+  },
+  { icon: TrendingUp, label: '경험치 리더보드', body: '매일 오전 10시에 자동 발송해요' },
+  {
+    icon: Sun,
+    label: '썬데이 메이플',
+    body: '매주 금요일 오전 10시 10분에 썬데이 메이플을 알려줘요',
+  },
 ]
 
 export function AlertsDemo() {
@@ -126,12 +134,12 @@ export function AlertsDemo() {
 export function RegisterDemo() {
   return (
     <DiscordPanel>
-      <UserCmd cmd="/캐릭터등록 캐릭터명:무기콤보" />
+      <UserCmd cmd="/캐릭터등록 캐릭터명:메이트" />
       <BotReply>
         <div className="mm-embed">
           <div className="mm-embed-title">캐릭터 등록 완료</div>
           <div className="mm-tut-embed-body">
-            <b>무기콤보</b> · Lv.274 · 나이트로드
+            <b>메이트</b> · Lv.274 · 나이트로드
             <br />
             이제 스펙·유니온·경험치 비교에서 바로 쓸 수 있어요.
           </div>
@@ -144,10 +152,15 @@ export function RegisterDemo() {
 
 /* ---- S7: 넥슨 API 키 발급 — 브라우저 폼 목업 ---- */
 
+// getting-started.mdx 폼 표와 동일 값(전체 7행).
 const KEY_FORM_ROWS = [
   ['게임 선택', '메이플스토리'],
   ['애플리케이션 타입', '서비스 단계'],
+  ['대표 언어', '한국어'],
   ['출시할 서비스명', '메이트'],
+  ['서비스 소개', '스케줄러 기능 및 큐브, 스타포스 내역 조회'],
+  ['개발 환경', '기타 (Pc App, 서버간 통신 등)'],
+  ['URL 정보', 'https://maplemate.site/'],
 ]
 
 export function KeyIssueDemo() {
@@ -197,23 +210,23 @@ export function KeyRegisterDemo() {
   )
 }
 
-/* ---- S10: 대상 지정 기조 — 안 적으면 나, 적으면 그 사람 ---- */
+/* ---- S10: 대상 지정 기조 — 안 적으면 전원, 적으면 그 사람들만 ---- */
 
 export function TargetDemo() {
   return (
     <div className="mm-tut-target">
       <div className="mm-tut-target-col">
-        <span className="mm-chat-cmd">/스펙</span>
+        <span className="mm-chat-cmd">/유니온</span>
         <ArrowDown size={16} strokeWidth={2} className="mm-tut-target-arrow" aria-hidden />
         <div className="mm-tut-target-out">
-          내 대표 캐릭터 <b>무기콤보</b> 기준
+          <b>서버 등록자 전원</b> 비교
         </div>
       </div>
       <div className="mm-tut-target-col">
-        <span className="mm-chat-cmd">/스펙 대상:@수아</span>
+        <span className="mm-chat-cmd">/유니온 대상:@수아</span>
         <ArrowDown size={16} strokeWidth={2} className="mm-tut-target-arrow" aria-hidden />
         <div className="mm-tut-target-out">
-          <b>수아</b>의 대표 캐릭터 기준
+          <b>수아</b>의 대표 캐릭터만 비교
         </div>
       </div>
     </div>
