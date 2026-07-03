@@ -15,7 +15,7 @@
 from __future__ import annotations
 
 import sys
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 _ROOT = Path(__file__).resolve().parents[2]
@@ -27,11 +27,20 @@ from maple_mate.bot.item_card import (  # noqa: E402
     render_item_cards,
 )
 from maple_mate.bot.leaderboard_image import render_progress_graph  # noqa: E402
+from maple_mate.bot.scheduler_card import render_scheduler_card  # noqa: E402
 from maple_mate.bot.table_image import (  # noqa: E402
     GradeBadges,
     Highlight,
     NumGrid,
     render_table_image,
+)
+from maple_mate.scheduler.service import (  # noqa: E402
+    CYCLE_DAILY,
+    CYCLE_MONTHLY,
+    CYCLE_WEEKLY,
+    BossItem,
+    ContentItem,
+    Homework,
 )
 
 _OUT = _ROOT / "site" / "public" / "shots"
@@ -239,6 +248,56 @@ def build_item() -> bytes:
     return render_item_cards(cards)
 
 
+def build_scheduler() -> bytes:
+    """/스케줄러 숙제 카드 — 홍길동전사(Lv.275) 하루치 숙제를 실제 렌더러로 그린다.
+
+    시안(spike/design_out/scheduler_A_png_card.png) 밀도로 완료/미완이 섞이게 구성해
+    진행바·회수형 게이지·완료 흐림·2컬럼 보스가 다 보이도록 한다(현실적 수치).
+    """
+    hw = Homework(
+        character_name="홍길동전사",
+        world_name="크로아",
+        character_level=275,
+        daily=[
+            ContentItem(
+                "[일일 퀘스트] 몬스터파크", 0, 100, type="quest", quest_state="2"
+            ),
+            ContentItem(
+                "[일일 퀘스트] 유령선 EX", 0, 100, type="quest", quest_state="1"
+            ),
+            ContentItem(
+                "[일일 퀘스트] 스타포스 필드", 0, 100, type="quest", quest_state="1"
+            ),
+            ContentItem(
+                "[일일 퀘스트] 경험치 획득", 0, 100, type="quest", quest_state="1"
+            ),
+            ContentItem("몬스터파크", 7, 14),  # 회수형 진행중 → 미니 게이지
+        ],
+        weekly=[
+            ContentItem(
+                "[주간 퀘스트] 검은 마법사 처치", 0, 100, type="quest", quest_state="2"
+            ),
+            ContentItem("에픽 던전 : 하이마운틴", 5, 0),  # 이진 완료(now>0)
+            ContentItem("에픽 던전 : 데스브링어", 0, 1),  # 이진 미완료
+            ContentItem("무릉도장", 0, 1),  # 이진 미완료
+            ContentItem("[길드] 지하 수로", 6200, 0),  # 길드(점수제)
+        ],
+        boss=[
+            BossItem("스우", "hard", True, CYCLE_WEEKLY),
+            BossItem("데미안", "hard", True, CYCLE_WEEKLY),
+            BossItem("루시드", "hard", False, CYCLE_WEEKLY),
+            BossItem("윌", "hard", False, CYCLE_WEEKLY),
+            BossItem("더스크", "chaos", False, CYCLE_WEEKLY),
+            BossItem("듄켈", "hard", False, CYCLE_WEEKLY),
+            BossItem("검은 마법사", "hard", False, CYCLE_MONTHLY),
+            BossItem("자쿰", "chaos", True, CYCLE_DAILY),
+        ],
+        weekly_boss_clear_count=8,
+        weekly_boss_clear_limit=12,
+    )
+    return render_scheduler_card(hw, datetime(2026, 7, 3, 9, 0), frozenset())
+
+
 def _write(name: str, data: bytes) -> None:
     path = _OUT / name
     path.write_bytes(data)
@@ -254,6 +313,7 @@ def main() -> None:
     _write("starforce.png", build_starforce())
     _write("potential.png", build_potential())
     _write("item.png", build_item())
+    _write("scheduler.png", build_scheduler())
     print("완료.")
 
 
