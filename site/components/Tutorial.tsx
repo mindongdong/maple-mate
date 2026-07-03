@@ -9,6 +9,7 @@ import { useRouter, useSearchParams } from 'next/navigation'
 import {
   ArrowLeft,
   ArrowRight,
+  Bell,
   BookOpen,
   Clock,
   Eye,
@@ -73,8 +74,14 @@ function DoorsList({ commands }: { commands: TutorialCommand[] }) {
   )
 }
 
-/** 'summary' 스크린 — 공개/비공개 2버킷 총정리. */
-function VisibilitySummary({ commands }: { commands: TutorialCommand[] }) {
+/** 'summary' 스크린 — 공개/비공개 2버킷 총정리. 발송물(명령 아님)은 공개 버킷에 종 칩. */
+function VisibilitySummary({
+  commands,
+  broadcasts = [],
+}: {
+  commands: TutorialCommand[]
+  broadcasts?: string[]
+}) {
   const buckets = [
     { key: 'public' as const, title: '다같이 봐요', icon: Eye },
     { key: 'private' as const, title: '나만 봐요', icon: Lock },
@@ -92,9 +99,17 @@ function VisibilitySummary({ commands }: { commands: TutorialCommand[] }) {
               .filter((c) => c.visibility === key)
               .map((c) => (
                 <span className="mm-chip" key={c.name}>
-                  {c.name}
+                  {c.label ?? c.name}
                 </span>
               ))}
+            {key === 'public'
+              ? broadcasts.map((b) => (
+                  <span className="mm-tut-feed-chip" key={b}>
+                    <Bell size={12} strokeWidth={2.2} aria-hidden />
+                    {b}
+                  </span>
+                ))
+              : null}
           </div>
         </div>
       ))}
@@ -219,7 +234,10 @@ export function Tutorial() {
         ) : null}
         {step.layout === 'doors' ? <DoorsList commands={step.commands} /> : null}
         {step.layout === 'summary' ? (
-          <VisibilitySummary commands={step.commands} />
+          <VisibilitySummary
+            commands={step.commands}
+            broadcasts={step.broadcasts}
+          />
         ) : null}
       </main>
 

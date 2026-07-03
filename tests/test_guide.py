@@ -15,7 +15,7 @@ import discord
 import pytest
 
 from maple_mate.bot.core import MapleMateBot
-from maple_mate.guide.commands import COMMANDS_URL, build_guide_embed, build_guide_view
+from maple_mate.guide.commands import TUTORIAL_URL, build_guide_embed, build_guide_view
 
 
 @pytest.fixture(scope="module")
@@ -51,13 +51,13 @@ def test_guide_embed_is_minimal_onboarding():
         assert name in embed.description
 
 
-def test_guide_view_links_to_commands_page():
-    """버튼 1개 — link 스타일로 웹사이트 명령어 페이지에 연결."""
+def test_guide_view_links_to_tutorial_page():
+    """버튼 1개 — link 스타일로 웹사이트 튜토리얼에 연결."""
     view = build_guide_view()
     [button] = view.children
     assert isinstance(button, discord.ui.Button)
     assert button.style is discord.ButtonStyle.link
-    assert button.url == COMMANDS_URL == "https://maplemate.site/commands"
+    assert button.url == TUTORIAL_URL == "https://maplemate.site/tutorial"
 
 
 async def test_guide_responds_ephemeral_embed_with_view(bot):

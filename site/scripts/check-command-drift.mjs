@@ -28,14 +28,16 @@ for (const group of data.groups ?? []) {
 }
 
 // ---- 튜토리얼 스텝 명령 참조 검증 (data/tutorial-steps.tsx) ----
-// 명령 객체는 `{ name: '이름' }`/`{ name: '이름', visibility: '...' }` 리터럴 고정(파일 상단 주석).
+// 명령 객체는 name(·visibility·label 선택, 이 순서) 리터럴 고정(파일 상단 주석).
+// label 은 칩 표시 전용이라 여기선 캡처만 하고 검증하지 않는다.
 // /가이드 는 사이트 카드에서 뺀 명령(_SITE_EXEMPT)이지만 튜토리얼에선 언급 허용.
 const TUTORIAL_EXEMPT = new Set(['가이드'])
 const tutorialSrc = readFileSync(
   join(here, '..', 'data', 'tutorial-steps.tsx'),
   'utf8',
 )
-const cmdRe = /\{\s*name:\s*'([^']+)'(?:\s*,\s*visibility:\s*'([^']+)')?\s*\}/g
+const cmdRe =
+  /\{\s*name:\s*'([^']+)'(?:\s*,\s*visibility:\s*'([^']+)')?(?:\s*,\s*label:\s*'[^']+')?\s*\}/g
 const tutorialRefs = [...tutorialSrc.matchAll(cmdRe)]
 if (tutorialRefs.length === 0) {
   errors.push('tutorial-steps.tsx 에서 명령 참조를 못 읽음 — 리터럴 형식이 깨졌는지 확인')

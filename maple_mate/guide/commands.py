@@ -1,6 +1,6 @@
 """`/가이드` 디스코드 어댑터 — 봇 기능 안내 (얇은 전달 계층).
 
-상세 명령 안내는 웹사이트 명령어 페이지(COMMANDS_URL)로 위임하고, 임베드는
+상세 안내는 웹사이트 인터랙티브 튜토리얼(TUTORIAL_URL)로 위임하고, 임베드는
 디스코드 안에서 바로 행동 가능한 **온보딩 최소본**(소개 + 등록 순서)만 담는다.
 명령 커버리지는 tests/test_website_command_drift.py(봇트리↔commands.json)가
 지킨다. `/핑`(헬스체크)을 흡수 — 가이드가 응답하는 것 자체가 봇 생존 증명이다.
@@ -14,7 +14,7 @@ from discord import app_commands
 
 from ..bot.embeds import make_embed
 
-COMMANDS_URL = "https://maplemate.site/commands"
+TUTORIAL_URL = "https://maplemate.site/tutorial"
 
 _ONBOARDING = (
     "메이트는 디스코드 채널 유저들의 메이플스토리 캐릭터 스펙·이력을 비교하는 봇이에요.\n"
@@ -32,13 +32,13 @@ def build_guide_embed() -> discord.Embed:
 
 
 def build_guide_view() -> discord.ui.View:
-    """웹사이트 명령어 페이지로 가는 링크 버튼 뷰(순수 함수)."""
+    """웹사이트 튜토리얼로 가는 링크 버튼 뷰(순수 함수)."""
     view = discord.ui.View()
     view.add_item(
         discord.ui.Button(
             style=discord.ButtonStyle.link,
-            label="📖 명령어 전체 보기",
-            url=COMMANDS_URL,
+            label="🎓 5분 튜토리얼 보기",
+            url=TUTORIAL_URL,
         )
     )
     return view

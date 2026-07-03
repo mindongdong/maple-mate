@@ -27,8 +27,10 @@ _COMMANDS_JSON = _SITE / "data" / "commands.json"
 _TUTORIAL_STEPS = _SITE / "data" / "tutorial-steps.tsx"
 
 # 튜토리얼 명령 객체 리터럴(파일 상단 주석으로 형식 고정) 파서.
+# label 은 칩 표시 전용(검증 대상 아님) — 매칭만 허용한다.
 _TUTORIAL_CMD_RE = re.compile(
-    r"\{\s*name:\s*'([^']+)'(?:\s*,\s*visibility:\s*'([^']+)')?\s*\}"
+    r"\{\s*name:\s*'([^']+)'(?:\s*,\s*visibility:\s*'([^']+)')?"
+    r"(?:\s*,\s*label:\s*'[^']+')?\s*\}"
 )
 
 # 공개/비공개 정본 매핑 (작업지시서 §3.1 — 봇 코드 ephemeral 실태 기준).
@@ -45,6 +47,10 @@ _EXPECTED_VISIBILITY = {
     "키등록": "private",
     "캐릭터목록": "private",
     "대표지정": "private",
+    # 알림 토글 그룹 — 응답은 전부 ephemeral(발송물은 채널 공개, 별도 broadcasts 로 표기).
+    "공지알림": "private",
+    "썬데이알림": "private",
+    "경험치알림": "private",
 }
 
 # 트리에는 있지만 사이트 카드에서 의도적으로 뺀 명령.
