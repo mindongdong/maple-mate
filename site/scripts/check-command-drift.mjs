@@ -2,7 +2,8 @@
 /**
  * commands.json 구조 검증 (사이트측 sanity check).
  * 봇 트리와의 진짜 드리프트 가드는 pytest(tests/test_website_command_drift.py)가 담당한다.
- * 여기서는 JSON 파싱·필수 필드·tier 유효성·이름 중복만 본다.
+ * 여기서는 JSON 파싱·필수 필드·tier 유효성·이름 중복,
+ * 그리고 튜토리얼 스텝(data/tutorial-steps.tsx)이 참조하는 명령 이름의 실재만 본다.
  */
 import { readFileSync } from 'node:fs'
 import { fileURLToPath } from 'node:url'
@@ -26,9 +27,34 @@ for (const group of data.groups ?? []) {
   }
 }
 
+// ---- 튜토리얼 스텝 명령 참조 검증 (data/tutorial-steps.tsx) ----
+// 명령 객체는 `{ name: '이름' }`/`{ name: '이름', visibility: '...' }` 리터럴 고정(파일 상단 주석).
+// /가이드 는 사이트 카드에서 뺀 명령(_SITE_EXEMPT)이지만 튜토리얼에선 언급 허용.
+const TUTORIAL_EXEMPT = new Set(['가이드'])
+const tutorialSrc = readFileSync(
+  join(here, '..', 'data', 'tutorial-steps.tsx'),
+  'utf8',
+)
+const cmdRe = /\{\s*name:\s*'([^']+)'(?:\s*,\s*visibility:\s*'([^']+)')?\s*\}/g
+const tutorialRefs = [...tutorialSrc.matchAll(cmdRe)]
+if (tutorialRefs.length === 0) {
+  errors.push('tutorial-steps.tsx 에서 명령 참조를 못 읽음 — 리터럴 형식이 깨졌는지 확인')
+}
+for (const [, name, visibility] of tutorialRefs) {
+  if (!seen.has(name) && !TUTORIAL_EXEMPT.has(name)) {
+    errors.push(`tutorial-steps.tsx 가 commands.json 에 없는 명령을 참조: /${name}`)
+  }
+  if (visibility && visibility !== 'public' && visibility !== 'private') {
+    errors.push(`tutorial-steps.tsx /${name} visibility 불명: ${visibility}`)
+  }
+}
+
 if (errors.length) {
   console.error('commands.json 검증 실패:')
   for (const e of errors) console.error('  - ' + e)
   process.exit(1)
 }
-console.log(`commands.json OK — ${seen.size}개 명령, ${data.groups.length}개 그룹`)
+console.log(
+  `commands.json OK — ${seen.size}개 명령, ${data.groups.length}개 그룹 · ` +
+    `tutorial-steps ${tutorialRefs.length}개 명령 참조 검증`,
+)
