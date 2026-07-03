@@ -206,8 +206,8 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
   // ---- 7. 사용 기조: 대상 지정 ----
   {
     chapter: '사용 기조',
-    title: '대상을 안 적으면, 서버 등록자 전원과 비교해요',
-    sub: '대상을 적으면 그 사람들만 비교해요. 인원 제한 없이 등록한 모두가 들어가요 (/스펙만 1~5명 지정).',
+    title: '대상을 안 적으면, 레벨 상위 최대 10명과 비교해요',
+    sub: '등록자가 많으면 대표 캐릭터 레벨 순으로 최대 10명까지 표에 들어가요. 대상을 지정하면 그 사람들만 비교해요 (최대 5명, /스펙은 지정 필수).',
     media: { type: 'anim', node: <TargetDemo /> },
     commands: [{ name: '유니온', visibility: 'public' }],
   },

@@ -219,7 +219,7 @@ export function TargetDemo() {
         <span className="mm-chat-cmd">/유니온</span>
         <ArrowDown size={16} strokeWidth={2} className="mm-tut-target-arrow" aria-hidden />
         <div className="mm-tut-target-out">
-          <b>서버 등록자 전원</b> 비교
+          <b>레벨 상위 최대 10명</b> 비교
         </div>
       </div>
       <div className="mm-tut-target-col">
