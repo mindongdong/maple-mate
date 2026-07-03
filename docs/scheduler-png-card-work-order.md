@@ -3,7 +3,7 @@
 > **근거 결정:** 표시 규칙 [ADR-0013](adr/0013-scheduler-display-redesign.md)(카테고리·todo-first — **표현 매체만 본 작업으로 개정**, 정보 구조는 불변), 카테고리 필터 [ADR-0014](adr/0014-scheduler-category-filter.md), DM 통일 [ADR-0017](adr/0017-notification-unification.md).
 > **하우스 스타일 레퍼런스:** [my-character-work-order.md](my-character-work-order.md), [scheduler-category-filter-work-order.md](scheduler-category-filter-work-order.md).
 > **그릴링 출처:** `/grill-me` 세션(2026-07-03). 사용자 문제 제기: 스케줄러 숙제 임베드가 "아무리 노력해도 안 예쁘고 텍스트라 한계" — 사이트 목업 수준의 디자인을 원함. PNG 카드 vs Components V2 시안 2종을 실제 렌더링해 비교 후 **PNG 카드(A안) 확정**.
-> **상태:** 그릴링·시안 확정 완료, 구현 미착수.
+> **상태:** 구현 완료 — 봇 PR1 [#48](https://github.com/mindongdong/maple-mate/pull/48)(squash `d2ccea7`)·사이트 PR2 [#49](https://github.com/mindongdong/maple-mate/pull/49)(squash `c6e4ae9`) 머지. 남은 것: 봇 배포 → 실 디스코드 눈 확인(§7).
 
 ---
 
@@ -99,6 +99,8 @@ qa_scheduler 하네스로 실 데이터 카드 PNG 열람(본서버+챌린저스
 3. 랜딩 Pillars의 스케줄러 미니샷 문구·모양이 새 카드와 어긋나지 않는지 점검(필요 시 카피만 미세조정).
 → 검증: `npm run build`·드리프트 테스트 그린, 라이트/다크 눈 확인.
 
+**As-built (PR #49, 2026-07-03):** 3항목 계획대로 구현. ①`build_scheduler()` — 홍길동전사 픽스처는 사이트 정본값 **Lv.275**·크로아(시안의 287 아님), `shots/scheduler.png` 812×1416, 커밋 PNG=스크립트 출력 byte-identical 검증 ②`SchedulerEmbed`·orphan CSS 제거(`.mm-todo-sub`는 알림·등록 임베드 사용으로 존치), commands 사용처 `shot()` 교체 ③Pillars 카피 2줄 조정 — 길드는 점수제(체크박스 없음)라 `지하수로 ✅ 완료`→`몬스터파크 ✅ 완료`, `주간 보스 5/12`→`8/12 처치`. 빌드·드리프트·ruff·CI 전부 그린, 코드리뷰 승인(블로킹 0).
+
 ## 6. 리스크·미결
 
 - **리눅스 폰트 렌더 차이**: 시안은 AppleSDGothic 기준 — 배포 전 qa 하네스 PNG를 도커(리눅스)에서도 1회 뽑아 자간·볼드 확인 권장.
@@ -107,8 +109,8 @@ qa_scheduler 하네스로 실 데이터 카드 PNG 열람(본서버+챌린저스
 
 ## 7. 완료 기준
 
-- [ ] `/스케줄러`·DM 알림이 §1 시안과 동일한 PNG 카드로 발송(온디맨드 ephemeral 유지)
-- [ ] 카테고리 필터·전부완료 그린·챌린저스 뱃지·todo-first 정렬·빈 카테고리 생략 전부 카드에서 동작(테스트로 고정)
-- [ ] 전체 pytest·ruff 그린, 임베드 잔재 코드 0
-- [ ] 실 디스코드 DM·온디맨드 각 1회 눈 확인
-- [ ] (PR2) 사이트 스케줄러 예시 = 진짜 렌더러 PNG
+- [x] `/스케줄러`·DM 알림이 §1 시안과 동일한 PNG 카드로 발송(온디맨드 ephemeral 유지) — PR #48
+- [x] 카테고리 필터·전부완료 그린·챌린저스 뱃지·todo-first 정렬·빈 카테고리 생략 전부 카드에서 동작(테스트로 고정) — QA 하네스 실데이터 14시나리오 포함
+- [x] 전체 pytest·ruff 그린, 임베드 잔재 코드 0 — 800 pass
+- [ ] 실 디스코드 DM·온디맨드 각 1회 눈 확인 — **봇 배포 후 운영자 작업**(리눅스 폰트 볼드·자간 포함)
+- [x] (PR2) 사이트 스케줄러 예시 = 진짜 렌더러 PNG — PR #49
