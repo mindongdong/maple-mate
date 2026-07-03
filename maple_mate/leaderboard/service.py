@@ -1,16 +1,15 @@
 """경험치 리더보드 페치·집계·prune·백필 (전달-무관). discord/apscheduler 비의존.
 
-- fetch_and_store: 대상별 ranking_overall(ocid, D-1) → 스냅샷 upsert(미등재/미준비는 스킵).
+- fetch_and_store: 대상별 character/basic(ocid, D-1) → 스냅샷 upsert(미준비는 스킵, ADR-0020).
 - backfill: 과거 ~8일 중 빈 날만 멱등 적재(매 실행 호출 — 캐릭터(ocid)별 공백 자가복구).
-- build_rows: 순수 — (레벨, 레벨내 exp%) 내림차순 정렬·순위 부여·어제 Δ 계산·미등재 제외 카운트(_rank_key).
+- build_rows: 순수 — (레벨, 레벨내 exp%) 내림차순 정렬·순위 부여·미준비 제외 카운트(_rank_key).
 - live_levels/with_live_levels/append_live_point: 표시 레벨을 character/basic 라이브(최신)로 덮어쓰기.
 - history_progress: 그래프용 캐릭터별 7일 진행도(레벨+exp%) 시계열(전달-무관).
 - prune_old_snapshots: snapshot_date 가 90일 경과한 행 삭제(09:00 운영 잡 편승).
 
 스냅샷 키 = (guild_id, discord_user_id, ocid, snapshot_date) — 캐릭터(ocid) 차원 포함(ADR-0018).
 집계·매칭 키도 전부 ocid 다(labels = ocid → 표시 라벨) — 같은 유저의 캐릭터 N개가 한 판에 공존하는
-`/내캐릭터 경험치`와 유저당 대표 1캐릭인 서버 리더보드가 같은 파이프라인을 쓴다. Δ = 어제(D-1) −
-그제(D-2) = 어제 하루 획득: 이전 스냅샷 없으면 None('—'), 음수(데이터 보정 등)는 None 클램프.
+`/내캐릭터 경험치`와 유저당 대표 1캐릭인 서버 리더보드가 같은 파이프라인을 쓴다.
 """
 
 from __future__ import annotations
@@ -45,13 +44,12 @@ RETENTION_DAYS = 90
 
 @dataclass(frozen=True)
 class LeaderRow:
-    """순위표 1행(전달 계층이 표로 렌더). total_exp(정렬키)는 비노출이라 DTO 에 없음(Q2).
+    """순위표 1행(전달 계층이 표로 렌더).
 
     ocid 는 라이브 레벨 덮어쓰기(with_live_levels)의 매칭 키(캐릭터 차원, ADR-0018 —
     `/내캐릭터`는 한 유저의 캐릭터 N행이라 유저 키로는 구분 불가). nickname 은 표시 라벨
     (서버=대표 닉, 내캐릭터=char_label). exp_rate 는 레벨 내 경험치 백분율(있을 때만
-    'Lv.287 (45.2%)'). delta=어제 하루 획득(없으면 None='—'). world_rank=전체 서버 순위(#).
-    level·exp_rate 는 표시 시 character/basic 라이브 값으로 덮어써진다.
+    'Lv.287 (45.2%)'). level·exp_rate 는 표시 시 character/basic 라이브 값으로 덮어써진다.
     """
 
     ocid: str
@@ -59,8 +57,6 @@ class LeaderRow:
     nickname: str
     level: int
     exp_rate: float | None
-    delta: int | None
-    world_rank: int | None
 
 
 def yesterday_kst(now: datetime) -> date:
@@ -84,14 +80,13 @@ async def _upsert_snapshot(
     ocid: str,
     snapshot_date: date,
     realm: str,
-    entry: dict,
+    character_level: int,
     exp_rate: float | None,
 ) -> None:
-    """ranking_overall 응답 1건 → (guild, user, ocid, date) 스냅샷 upsert(재실행 시 최신값 덮어씀).
+    """character/basic 응답 1건 → (guild, user, ocid, date) 스냅샷 upsert(재실행 시 최신값 덮어씀).
 
     realm 은 캐릭터 world 에서 파생된 디스크리미넌트(본서버/챌린저스) — PK 에서 강등된 일반
-    컬럼이라 set_ 에도 포함해 최신 판정을 따라간다(ADR-0018). exp_rate 는 character/basic
-    best-effort 보강값.
+    컬럼이라 set_ 에도 포함해 최신 판정을 따라간다(ADR-0018).
     """
     async with session_factory() as session:
         stmt = (
@@ -102,9 +97,7 @@ async def _upsert_snapshot(
                 ocid=ocid,
                 snapshot_date=snapshot_date,
                 realm=realm,
-                character_level=int(entry.get("character_level") or 0),
-                total_exp=int(entry.get("character_exp") or 0),
-                world_rank=entry.get("ranking"),
+                character_level=character_level,
                 exp_rate=exp_rate,
             )
             .on_conflict_do_update(
@@ -116,9 +109,7 @@ async def _upsert_snapshot(
                 ],
                 set_={
                     "realm": realm,
-                    "character_level": int(entry.get("character_level") or 0),
-                    "total_exp": int(entry.get("character_exp") or 0),
-                    "world_rank": entry.get("ranking"),
+                    "character_level": character_level,
                     "exp_rate": exp_rate,
                 },
             )
@@ -127,50 +118,28 @@ async def _upsert_snapshot(
         await session.commit()
 
 
-async def _fetch_exp_rate(deps: Deps, ocid: str, date_iso: str) -> float | None:
-    """character/basic best-effort 보강: character_exp_rate("45.23") → 45.23. 실패 시 None.
-
-    주 소스(ranking/overall)는 이미 성공한 상태라 이 호출은 순수 보강이다 — DATA_NOT_READY(00009)
-    포함 어떤 NexonAPIError 든, 파싱 실패든 모두 삼키고 None(error_log 적재·캐릭 제외 안 함).
-    """
-    try:
-        basic = await deps.nexon.character_basic(ocid, date_iso)
-    except NexonAPIError as exc:
-        log.debug(
-            "character/basic best-effort 실패(exp_rate 생략) ocid=%s: %s", ocid, exc
-        )
-        return None
-    raw = basic.get("character_exp_rate")
-    if raw is None:
-        return None
-    try:
-        return float(raw)
-    except (TypeError, ValueError):
-        log.debug(
-            "character_exp_rate 파싱 실패(exp_rate 생략) ocid=%s raw=%r", ocid, raw
-        )
-        return None
-
-
 async def _fetch_one_day(
     deps: Deps,
     target: Target,
     snapshot_date: date,
 ) -> bool:
-    """대상 1명의 1일치 조회→upsert. 미등재/미준비는 False(스킵), 적재 성공은 True.
+    """대상 1명의 1일치 character/basic(date) 조회→upsert. 미준비는 False(스킵), 성공은 True.
 
-    ranking/overall(누적·레벨·전체순위) + character/basic best-effort(exp_rate) 를 함께 적재한다.
-    fetch_and_store(표시일 D-1)와 backfill(과거일) 모두 일별 (레벨, exp%) 진행도 그래프를 위해
-    exp_rate 까지 채운다. 넥슨 장애(타임아웃·429·5xx)·앱키 실패만 error_log.record(readiness 가드).
+    단일 소스 = character/basic — 레벨과 레벨 내 exp% 가 **같은 시점**(그날 마감) 값이라 그래프
+    progress(레벨+exp%/100)의 두 성분이 정합한다(ADR-0020). 종전 주 소스 ranking/overall 의
+    레벨은 하루 뒤처진 값(그날 아침 발표 = 전날 마감 집계)이라, 레벨업 날 exp% 리셋과 짝지어져
+    가짜 하락점을 만들었다. 실패한 날은 행을 만들지 않는다 — 멱등 backfill 이 다음 실행에서 그
+    빈 날을 재시도해 자가복구한다(exp_rate=None 행을 남기던 종전 구조는 결손이 영구였다).
+    넥슨 장애(타임아웃·429·5xx)·앱키 실패만 error_log.record, 미준비(00009)는 조용히 스킵.
     """
     date_iso = snapshot_date.isoformat()
     try:
-        entry = await deps.nexon.ranking_overall(target.ocid, date_iso)
+        basic = await deps.nexon.character_basic(target.ocid, date_iso)
     except NexonAPIError as exc:
         log_type = to_error_log_type(exc.error_class)
         if (
             log_type is not None
-        ):  # 넥슨 가용성·앱키 실패만 적재(미준비/잘못된 닉은 제외)
+        ):  # 넥슨 가용성·앱키 실패만 적재(미준비/잘못된 파라미터는 제외)
             await error_log.record(
                 deps.session_factory,
                 error_type=log_type,
@@ -181,9 +150,19 @@ async def _fetch_one_day(
                 detail=f"{date_iso} {exc.code}: {exc.message}"[:500],
             )
         return False
-    if entry is None:  # 빈 ranking = 미등재/미준비 → 그날 그 캐릭 제외(에러 아님)
+    raw_level = basic.get("character_level")
+    if raw_level is None:  # 응답형 이상 → 그날 그 캐릭 제외(에러 아님)
         return False
-    exp_rate = await _fetch_exp_rate(deps, target.ocid, date_iso)
+    raw_rate = basic.get("character_exp_rate")
+    try:
+        exp_rate = float(raw_rate) if raw_rate is not None else None
+    except (TypeError, ValueError):
+        log.debug(
+            "character_exp_rate 파싱 실패(exp_rate 생략) ocid=%s raw=%r",
+            target.ocid,
+            raw_rate,
+        )
+        exp_rate = None
     await _upsert_snapshot(
         deps.session_factory,
         guild_id=target.guild_id,
@@ -193,7 +172,7 @@ async def _fetch_one_day(
         realm=realm_of(
             target.world
         ).value,  # 캐릭터 world → realm 디스크리미넌트(ADR-0009)
-        entry=entry,
+        character_level=int(raw_level),
         exp_rate=exp_rate,
     )
     return True
@@ -205,7 +184,7 @@ async def fetch_and_store(
     targets: Sequence[Target],
     date_iso: str,
 ) -> int:
-    """대상 전원의 date 스냅샷 조회→upsert. 미등재/미준비로 건너뛴 대상 수(스킵 카운트) 반환."""
+    """대상 전원의 date 스냅샷 조회→upsert. 미준비로 건너뛴 대상 수(스킵 카운트) 반환."""
     snapshot_date = date.fromisoformat(date_iso)
     skipped = 0
     for target in targets:
@@ -248,10 +227,9 @@ async def backfill(
 
     매 실행 호출해도 안전하다(작업지시서 Q11 의 '첫 실행 1회' 게이트 폐기) — _existing_dates 가
     캐릭터(ocid)별로 이미 있는 날을 빼므로 정상 상태(8일 다 참)엔 넥슨 콜 0건이고, 빈 날(봇
-    미가동·뒤늦게 추가된 캐릭터)만 채워 공백이 자가복구된다. 그래프 첫날부터 일별 (레벨, exp%)
-    진행도가 채워지도록 과거일도 character/basic 까지 수집한다(_fetch_one_day 기본 경로). 진행량
-    그래프는 baseline(보통 D-7)부터 exp_rate 가 있어야 정규화된다. 미등재/미준비·넥슨 장애는
-    _fetch_one_day 가 처리.
+    미가동·뒤늦게 추가된 캐릭터·일시 실패로 못 만든 행)만 채워 공백이 자가복구된다. 과거일도
+    character/basic(date) 로 그날 마감 (레벨, exp%) 를 수집한다(_fetch_one_day 단일 경로,
+    ADR-0020). 미준비·넥슨 장애는 _fetch_one_day 가 처리.
     """
     today = datetime.now(KST).date()
     dates = [today - timedelta(days=d) for d in range(1, days + 1)]
@@ -302,43 +280,31 @@ def _rank_key(level: int, exp_rate: float | None) -> tuple[int, float]:
 
 def build_rows(
     today_snaps: Sequence[ExpSnapshot],
-    prev_snaps: Sequence[ExpSnapshot],
     *,
     labels: dict[str, str],
 ) -> tuple[list[LeaderRow], int]:
-    """순수: 오늘 스냅샷을 (레벨, 레벨 내 exp%) 내림차순 정렬·순위 부여·어제 Δ 계산. (행, 미등재수) 반환.
+    """순수: 오늘 스냅샷을 (레벨, 레벨 내 exp%) 내림차순 정렬·순위 부여. (행, 미준비수) 반환.
 
     labels = ocid → 표시 라벨(서버=대표 닉, 내캐릭터=char_label) — 매칭 키가 캐릭터(ocid)라
     같은 유저의 캐릭터 N행이 공존한다(ADR-0018). 정렬 키 = `_rank_key`(레벨, exp%) — 임베드·그래프
-    통일 공식(total_exp 미사용). 같은 (레벨, exp%)면 안정 정렬로 입력 순서를 유지한다. 미등재 제외
-    카운트 = labels 중 today_snaps 에 없는 캐릭터 수. Δ=오늘−어제(없으면 None, 음수 클램프).
+    통일 공식. 같은 (레벨, exp%)면 안정 정렬로 입력 순서를 유지한다. 미준비 제외 카운트 =
+    labels 중 today_snaps 에 없는 캐릭터 수.
     """
-    prev_exp = {s.ocid: s.total_exp for s in prev_snaps}
     ordered = sorted(
         today_snaps,
         key=lambda s: _rank_key(s.character_level, s.exp_rate),
         reverse=True,
     )
-    rows: list[LeaderRow] = []
-    for rank, snap in enumerate(ordered, start=1):
-        prior = prev_exp.get(snap.ocid)
-        delta: int | None
-        if prior is None:
-            delta = None  # 이전 스냅샷 없음 → '—'
-        else:
-            diff = snap.total_exp - prior
-            delta = diff if diff > 0 else None  # 음수/0 은 None 클램프(획득 없음/보정)
-        rows.append(
-            LeaderRow(
-                ocid=snap.ocid,
-                rank=rank,
-                nickname=labels.get(snap.ocid, "?"),
-                level=snap.character_level,
-                exp_rate=snap.exp_rate,  # character/basic best-effort 보강(없으면 None)
-                delta=delta,
-                world_rank=snap.world_rank,
-            )
+    rows = [
+        LeaderRow(
+            ocid=snap.ocid,
+            rank=rank,
+            nickname=labels.get(snap.ocid, "?"),
+            level=snap.character_level,
+            exp_rate=snap.exp_rate,  # character/basic 의 그날 마감 exp%(없으면 None)
         )
+        for rank, snap in enumerate(ordered, start=1)
+    ]
     ranked_ocids = {s.ocid for s in today_snaps}
     excluded = sum(1 for ocid in labels if ocid not in ranked_ocids)
     return rows, excluded
@@ -352,7 +318,7 @@ async def live_levels(
 ) -> dict[str, tuple[int, float | None]]:
     """대상별 character/basic(date 무지정=최신) → {ocid: (레벨, exp%)}. 표시용 라이브 레벨.
 
-    종합 랭킹(전일 D-1)과 달리 character/basic 무지정은 **최신** 캐릭터 상태(현재 레벨·레벨 내 exp%)를
+    스냅샷(전일 D-1 마감)과 달리 character/basic 무지정은 **최신** 캐릭터 상태(현재 레벨·레벨 내 exp%)를
     준다 — 리더보드 표시값을 '오늘 현재'로 만든다(정렬·게이트·그래프 이력은 여전히 스냅샷 기반).
     best-effort: 호출/파싱 실패한 대상은 결과에서 빠져 호출측이 D-1 스냅샷으로 폴백한다.
     """
@@ -432,9 +398,9 @@ async def history_progress(
     `today` = 기준일(D-1, '어제')이고 그래프 오른쪽 끝. 표시 구간은 `today-(days-1)..today`
     (어제를 포함한 최근 7일, baseline 은 보통 D-7). 각 표시일 d 의 progress =
     character_level + exp_rate/100(예: Lv.287 45.2% → 287.452) — 레벨업을 넘어 연속이라 렌더러가
-    이를 7일 전 대비로 정규화한다. exp_rate 가 없거나 그날 스냅샷이 없으면 None(선 끊김). Δ 와 달리
-    직전일을 더 읽지 않는다(절대 progress 만 반환 — 정규화·일평균은 render_progress_graph 가 한다).
-    labels 의 캐릭터 전원을 키로 낸다.
+    이를 7일 전 대비로 정규화한다. exp_rate 가 없거나 그날 스냅샷이 없으면 None(선 끊김).
+    절대 progress 만 반환한다(정규화·일평균은 render_progress_graph 가 한다). labels 의
+    캐릭터 전원을 키로 낸다.
     """
     display_dates = [today - timedelta(days=d) for d in range(days - 1, -1, -1)]
     async with session_factory() as session:

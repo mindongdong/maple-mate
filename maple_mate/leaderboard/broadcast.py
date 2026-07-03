@@ -13,7 +13,7 @@ import io
 import logging
 from collections.abc import Sequence
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime
 
 import discord
 
@@ -30,7 +30,7 @@ from . import service
 
 log = logging.getLogger(__name__)
 
-# 표시 임계(작업지시서 Q10): 랭킹 등재 2명 미만이면 발송/표시 생략.
+# 표시 임계(작업지시서 Q10): D-1 스냅샷 보유 2명 미만이면 발송/표시 생략.
 MIN_RANKED = 2
 
 # 첨부 파일명(임베드 image 매칭).
@@ -78,7 +78,7 @@ def _level_label(level: int, exp_rate: float | None) -> str:
 
 
 def _rank_line(row: service.LeaderRow) -> str:
-    """임베드 순위 1행(위치) — 메달 · **닉** · 레벨(exp%). 전체 서버순위·어제 Δ는 미표기(ADR-0011)."""
+    """임베드 순위 1행(위치) — 메달 · **닉** · 레벨(exp%)만(ADR-0011)."""
     badge = _MEDALS.get(row.rank, f"`{row.rank}.`")
     return f"{badge} **{row.nickname}** — {_level_label(row.level, row.exp_rate)}"
 
@@ -118,7 +118,6 @@ async def build_targets_payload(
     """
     now = datetime.now(KST)
     ref_date = service.yesterday_kst(now)  # D-1(스냅샷 이력 끝)
-    prev_date = ref_date - timedelta(days=1)  # D-2(어제 Δ 계산용)
     today = now.date()
 
     # 스냅샷은 캐릭터(ocid) 단위로 쌓인다 — 표시 대상 캐릭터의 행만 남긴다.
@@ -130,13 +129,10 @@ async def build_targets_payload(
     today_snaps = _mine(
         await service.snapshots_on(deps.session_factory, guild_id, ref_date, realm)
     )
-    prev_snaps = _mine(
-        await service.snapshots_on(deps.session_factory, guild_id, prev_date, realm)
-    )
 
-    # rows = 등재 캐릭터의 단일 출처(순위·미등재 제외) — 게이트 + 임베드 순위판의 베이스.
-    rows, _excluded = service.build_rows(today_snaps, prev_snaps, labels=labels)
-    if len(rows) < min_ranked:  # 등재 수 미달 → 발송/표시 생략
+    # rows = D-1 스냅샷 보유 캐릭터의 단일 출처(순위·미준비 제외) — 게이트 + 임베드 순위판의 베이스.
+    rows, _excluded = service.build_rows(today_snaps, labels=labels)
+    if len(rows) < min_ranked:  # 스냅샷 수 미달 → 발송/표시 생략
         return None
 
     # 표시 레벨을 라이브로(character/basic 무지정=최신). 실패 대상은 D-1 스냅샷 폴백.
@@ -271,7 +267,7 @@ async def run_leaderboard_job(bot: discord.Client, deps: Deps) -> None:
             continue
         skipped = await refresh_guild(deps, guild_id, targets, ref_date)
         if skipped:
-            log.info("경험치 적재: 길드 %s 미등재/미준비 %d명 제외", guild_id, skipped)
+            log.info("경험치 적재: 길드 %s 미준비 %d명 제외", guild_id, skipped)
 
     payloads: dict[tuple[int, Realm], LeaderboardPayload | None] = {}
 
