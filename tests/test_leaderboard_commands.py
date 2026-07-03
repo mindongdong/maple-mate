@@ -1,6 +1,6 @@
 """`/경험치`·`/경험치알림` 명령 계층 단위테스트 (Discord/DB mock).
 
-푸터 라벨, 명령 분기(2명 미만/데이터 없음 → 안내, 그래프 발송), 토글 권한 가드·upsert 호출을
+푸터 라벨, 명령 분기(미등록/데이터 없음 → 안내, 그래프 발송), 토글 권한 가드·upsert 호출을
 검증한다. 실제 발송·select 시각은 라이브 확인(작업지시서 테스트 전략).
 """
 
@@ -8,8 +8,6 @@ from __future__ import annotations
 
 from datetime import date
 from types import SimpleNamespace
-
-import pytest
 
 from maple_mate.leaderboard import broadcast, commands
 from maple_mate.leaderboard.broadcast import (
@@ -128,14 +126,14 @@ async def test_leaderboard_command_sends_public_payload(monkeypatch):
     assert "ephemeral" not in call  # 공개 발송
 
 
-async def test_leaderboard_command_no_data_below_two_registrants(monkeypatch):
-    """등록자 < 2명이면 '2명 이상 등록' 안내."""
+async def test_leaderboard_command_no_targets_prompts_registration(monkeypatch):
+    """등록자 0명이면 '캐릭터 등록' 안내."""
 
     async def fake_build(bot, deps, guild_id, realm=Realm.MAIN):
         return None
 
     async def fake_get_targets(sf, guild_id, realm=None):
-        return [SimpleNamespace(discord_user_id=10, nickname="손바", ocid="o1")]
+        return []
 
     monkeypatch.setattr(commands, "ensure_guild_data", _noop_ensure)
     monkeypatch.setattr(commands, "build_payload", fake_build)
@@ -145,20 +143,18 @@ async def test_leaderboard_command_no_data_below_two_registrants(monkeypatch):
     await commands.handle_leaderboard(deps=deps, interaction=interaction)
     [call] = interaction.followup.sent
     assert call["ephemeral"] is True
-    assert "2명 이상" in (call["embed"].description or "")
+    assert "캐릭터를 등록" in (call["embed"].description or "")
 
 
 async def test_leaderboard_command_no_data_data_not_ready(monkeypatch):
-    """등록자 ≥ 2명인데 payload None이면 '데이터 미준비' 안내."""
+    """등록자가 있는데 payload None(스냅샷 0건)이면 '데이터 미준비' 안내 — 1명이어도 표시가
+    원칙이라(게이트 1명) 이 분기는 넥슨 미준비뿐이다."""
 
     async def fake_build(bot, deps, guild_id, realm=Realm.MAIN):
         return None
 
     async def fake_get_targets(sf, guild_id, realm=None):
-        return [
-            SimpleNamespace(discord_user_id=10, nickname="손바", ocid="o1"),
-            SimpleNamespace(discord_user_id=20, nickname="라딘라면", ocid="o2"),
-        ]
+        return [SimpleNamespace(discord_user_id=10, nickname="손바", ocid="o1")]
 
     monkeypatch.setattr(commands, "ensure_guild_data", _noop_ensure)
     monkeypatch.setattr(commands, "build_payload", fake_build)
@@ -221,36 +217,99 @@ def test_exp_alert_spec_wires_exp_kind_and_channel_setter():
     assert commands._EXP_SPEC.title == "경험치 알림"
 
 
-# ── build_payload: 2명 미만 → None ───────────────────────────────────────────
+# ── build_payload: 스냅샷 0건 → None · 1명 표시 · 기준일 폴백 ─────────────────
 
 
-async def test_build_payload_returns_none_below_min_ranked(monkeypatch):
+async def test_build_payload_returns_none_when_no_snapshots(monkeypatch):
+    # 스냅샷이 아예 없으면(신규 길드 + 넥슨 미준비) 표시 불가 → None.
     async def fake_get_targets(sf, guild_id, realm=None):
-        return [
-            SimpleNamespace(discord_user_id=10, nickname="손바", ocid="o1"),
-        ]
+        return [SimpleNamespace(discord_user_id=10, nickname="손바", ocid="o1")]
+
+    async def fake_latest(sf, guild_id, ocids, on_or_before, realm=None):
+        return None  # 스냅샷 0건
+
+    monkeypatch.setattr(broadcast, "get_targets", fake_get_targets)
+    monkeypatch.setattr(broadcast.service, "latest_snapshot_date", fake_latest)
+    deps = SimpleNamespace(session_factory=object())
+    result = await broadcast.build_payload(object(), deps, 1)
+    assert result is None
+
+
+def test_min_ranked_is_one():
+    # Q10 개정(2026-07-04): 1명이어도 1라인 그래프 표시 — 어떤 경우에도 조회 가능.
+    assert broadcast.MIN_RANKED == 1
+
+
+def _single_target_payload_patches(monkeypatch, *, latest: date):
+    """1명 등록 + 기준일 latest 스냅샷 → payload 생성 경로의 공통 페이크 배선."""
+    targets = [SimpleNamespace(discord_user_id=10, nickname="손바", ocid="o1")]
+
+    async def fake_get_targets(sf, guild_id, realm=None):
+        return targets
+
+    async def fake_latest(sf, guild_id, ocids, on_or_before, realm=None):
+        return latest
 
     async def fake_snapshots_on(sf, guild_id, snap_date, realm=None):
+        assert snap_date == latest  # 게이트·순위판이 폴백 기준일을 읽는다
         return [
             SimpleNamespace(
                 discord_user_id=10,
                 ocid="o1",
                 snapshot_date=snap_date,
                 character_level=287,
-                exp_rate=None,
+                exp_rate=50.0,
             )
         ]
 
+    async def fake_live_levels(deps, tgts):
+        return {}
+
+    captured: dict = {}
+
+    async def fake_history_progress(sf, guild_id, labels, today, *, realm=None):
+        captured["history_ref"] = today
+        return {label: [(latest, 287.5)] for label in labels.values()}
+
+    def fake_render(series, ref_date):
+        captured["render_ref"] = ref_date
+        return SimpleNamespace(getvalue=lambda: b"PNG")
+
     monkeypatch.setattr(broadcast, "get_targets", fake_get_targets)
+    monkeypatch.setattr(broadcast.service, "latest_snapshot_date", fake_latest)
     monkeypatch.setattr(broadcast.service, "snapshots_on", fake_snapshots_on)
-    deps = SimpleNamespace(session_factory=object())
-    result = await broadcast.build_payload(object(), deps, 1)
-    assert result is None  # 등재 1명 < MIN_RANKED(2)
+    monkeypatch.setattr(broadcast.service, "live_levels", fake_live_levels)
+    monkeypatch.setattr(broadcast.service, "history_progress", fake_history_progress)
+    monkeypatch.setattr(
+        broadcast.leaderboard_image, "render_progress_graph", fake_render
+    )
+    return captured
 
 
-@pytest.mark.parametrize("count", [0, 1])
-async def test_min_ranked_is_two(count):
-    assert broadcast.MIN_RANKED == 2
+async def test_build_payload_single_registrant_renders(monkeypatch):
+    # 등록 1명 = 1라인 그래프(게이트 1명) — payload 가 생성된다.
+    from datetime import datetime, timedelta
+
+    d1 = (datetime.now(broadcast.KST) - timedelta(days=1)).date()
+    _single_target_payload_patches(monkeypatch, latest=d1)
+    deps = SimpleNamespace(session_factory=object(), nexon=object())
+    payload = await broadcast.build_payload(object(), deps, 1)
+    assert payload is not None
+    assert "손바" in (payload.embed.description or "")
+
+
+async def test_build_payload_falls_back_to_latest_snapshot_date(monkeypatch):
+    # 자정~넥슨 전일 데이터 생성 사이(D-1 미준비): 기준일이 가장 최근 스냅샷 일자(D-2)로
+    # 내려가 그래프·순위판이 그대로 뜬다(특정 시각 가정 없음).
+    from datetime import datetime, timedelta
+
+    d2 = (datetime.now(broadcast.KST) - timedelta(days=2)).date()
+    captured = _single_target_payload_patches(monkeypatch, latest=d2)
+    deps = SimpleNamespace(session_factory=object(), nexon=object())
+    payload = await broadcast.build_payload(object(), deps, 1)
+    assert payload is not None
+    assert payload.ref_date == d2  # 기준일 = 폴백된 최근 스냅샷 일자
+    assert captured["history_ref"] == d2  # 7일 이력 창도 같은 기준일로 끝난다
 
 
 async def test_build_payload_caps_embed_and_graph_to_top_ten(monkeypatch):
@@ -263,6 +322,9 @@ async def test_build_payload_caps_embed_and_graph_to_top_ten(monkeypatch):
 
     async def fake_get_targets(sf, guild_id, realm=None):
         return targets
+
+    async def fake_latest(sf, guild_id, ocids, on_or_before, realm=None):
+        return on_or_before  # D-1 스냅샷 존재(폴백 없음)
 
     async def fake_snapshots_on(sf, guild_id, snap_date, realm=None):
         # 레벨 내림차순이 되도록 character_level 을 i 로 부여(유저01 이 최고 레벨).
@@ -290,6 +352,7 @@ async def test_build_payload_caps_embed_and_graph_to_top_ten(monkeypatch):
         return SimpleNamespace(getvalue=lambda: b"PNG")
 
     monkeypatch.setattr(broadcast, "get_targets", fake_get_targets)
+    monkeypatch.setattr(broadcast.service, "latest_snapshot_date", fake_latest)
     monkeypatch.setattr(broadcast.service, "snapshots_on", fake_snapshots_on)
     monkeypatch.setattr(broadcast.service, "live_levels", fake_live_levels)
     monkeypatch.setattr(broadcast.service, "history_progress", fake_history_progress)

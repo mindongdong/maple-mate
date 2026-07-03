@@ -253,6 +253,55 @@ async def test_history_progress_same_user_two_characters_separate_series():
     assert dict(series["부캐"])[d] == 260.1
 
 
+# ── latest_snapshot_date: 게이트·표시 기준일(가장 최근 스냅샷 일자, ≤ D-1) ────
+
+
+def _scalar_factory(value, captured: list | None = None):
+    class _Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def execute(self, stmt):
+            if captured is not None:
+                captured.append(stmt)
+            return SimpleNamespace(scalar=lambda: value)
+
+    return lambda: _Session()
+
+
+async def test_latest_snapshot_date_returns_max_date():
+    # D-1 미준비(자정~넥슨 생성 사이)면 max(snapshot_date)=D-2 가 기준일로 내려온다.
+    d2 = date(2026, 7, 2)
+    out = await service.latest_snapshot_date(
+        _scalar_factory(d2), 1, ["oc1"], date(2026, 7, 3)
+    )
+    assert out == d2
+
+
+async def test_latest_snapshot_date_none_when_empty():
+    # 스냅샷 0건(신규 길드 + 넥슨 미준비) → None(호출측이 표시 불가 처리).
+    out = await service.latest_snapshot_date(
+        _scalar_factory(None), 1, ["oc1"], date(2026, 7, 3)
+    )
+    assert out is None
+
+
+async def test_latest_snapshot_date_bounds_query_by_date_and_ocids():
+    # 쿼리가 on_or_before 상한과 ocid 목록으로 제한되는지(컴파일 파라미터로 검증).
+    captured: list = []
+    await service.latest_snapshot_date(
+        _scalar_factory(None, captured), 7, ["ocA", "ocB"], date(2026, 7, 3)
+    )
+    [stmt] = captured
+    params = stmt.compile().params
+    assert date(2026, 7, 3) in params.values()
+    # IN 절은 확장 파라미터(리스트 1개)로 컴파일된다 — ocid 목록이 통째로 바인딩되는지 확인.
+    assert ["ocA", "ocB"] in params.values()
+
+
 # ── prune 경계: snapshot_date < 오늘 KST − 90일 ─────────────────────────────
 
 

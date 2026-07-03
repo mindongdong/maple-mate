@@ -30,8 +30,9 @@ from . import service
 
 log = logging.getLogger(__name__)
 
-# 표시 임계(작업지시서 Q10): D-1 스냅샷 보유 2명 미만이면 발송/표시 생략.
-MIN_RANKED = 2
+# 표시 임계(작업지시서 Q10 개정, 2026-07-04): 스냅샷 보유 1명이어도 표시 — 1명 = 1라인
+# 그래프(어떤 경우에도 조회 가능). 0명(스냅샷 자체 없음)만 발송/표시 생략.
+MIN_RANKED = 1
 
 # 첨부 파일명(임베드 image 매칭).
 _GRAPH_FILE = "leaderboard_graph.png"
@@ -108,17 +109,25 @@ async def build_targets_payload(
     min_ranked: int,
     realm: Realm | None = None,
 ) -> LeaderboardPayload | None:
-    """Target 리스트 → D-1 스냅샷 게이트 → 라이브 레벨 덮어쓰기 → Top10 순위판+7일 추이 그래프.
+    """Target 리스트 → 최근 스냅샷 게이트 → 라이브 레벨 덮어쓰기 → Top10 순위판+7일 추이 그래프.
 
     서버 리더보드(`build_payload`)와 `/내캐릭터 경험치`가 공유하는 코어(ADR-0018). labels =
     ocid → 표시 라벨. 수집이 등록 전 캐릭터로 확장돼도(결정 5) 스냅샷을 targets 의 (user, ocid)
-    쌍으로 필터하므로 표시 대상은 호출측이 정한다. **표시 레벨은 character/basic 라이브(오늘
-    현재)** 로 덮어쓰고, 그래프 끝에도 오늘 라이브 점을 붙여 임베드·그래프가 모두 '현재'로
-    일치한다(ADR-0011). 정렬·게이트·이력은 스냅샷 기반 유지. 렌더는 to_thread(루프 비차단).
+    쌍으로 필터하므로 표시 대상은 호출측이 정한다. 기준일 = 대상들의 **가장 최근 스냅샷 일자**
+    (보통 D-1 — 자정~넥슨 전일 데이터 생성 사이엔 D-2 로 자연 폴백, 특정 시각 가정 없음).
+    **표시 레벨은 character/basic 라이브(오늘 현재)** 로 덮어쓰고, 그래프 끝에도 오늘 라이브
+    점을 붙여 임베드·그래프가 모두 '현재'로 일치한다(ADR-0011) — 폴백 시에도 신선도 무손실.
+    정렬·게이트·이력은 스냅샷 기반 유지. 렌더는 to_thread(루프 비차단).
     """
     now = datetime.now(KST)
-    ref_date = service.yesterday_kst(now)  # D-1(스냅샷 이력 끝)
     today = now.date()
+
+    # 기준일 = 가장 최근 스냅샷 일자(≤ D-1). 스냅샷 0건(신규 길드 + 넥슨 미준비)이면 표시 불가.
+    ref_date = await service.latest_snapshot_date(
+        deps.session_factory, guild_id, list(labels), service.yesterday_kst(now), realm
+    )
+    if ref_date is None:
+        return None
 
     # 스냅샷은 캐릭터(ocid) 단위로 쌓인다 — 표시 대상 캐릭터의 행만 남긴다.
     pairs = {(t.discord_user_id, t.ocid) for t in targets}
@@ -130,7 +139,7 @@ async def build_targets_payload(
         await service.snapshots_on(deps.session_factory, guild_id, ref_date, realm)
     )
 
-    # rows = D-1 스냅샷 보유 캐릭터의 단일 출처(순위·미준비 제외) — 게이트 + 임베드 순위판의 베이스.
+    # rows = 기준일 스냅샷 보유 캐릭터의 단일 출처(순위·미준비 제외) — 게이트 + 임베드 순위판의 베이스.
     rows, _excluded = service.build_rows(today_snaps, labels=labels)
     if len(rows) < min_ranked:  # 스냅샷 수 미달 → 발송/표시 생략
         return None
@@ -275,7 +284,7 @@ async def run_leaderboard_job(bot: discord.Client, deps: Deps) -> None:
     sent = 0
     for guild_id, channel_id in channels:
         ready = await _ready_payloads(bot, deps, guild_id, payloads)
-        if not ready:  # 두 realm 모두 등재 2명 미만 → 그 채널 생략(Q10)
+        if not ready:  # 두 realm 모두 스냅샷 0건 → 그 채널 생략(Q10 개정)
             continue
         channel = await _resolve_channel(bot, guild_id, channel_id)
         if channel is None:
