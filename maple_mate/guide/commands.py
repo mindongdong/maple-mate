@@ -10,6 +10,7 @@
 from __future__ import annotations
 
 import discord
+from discord import app_commands
 
 from ..bot.embeds import make_embed
 
@@ -50,6 +51,8 @@ def setup(bot: discord.Client) -> None:
         name="가이드",
         description="봇 사용법 안내와 명령어 페이지 링크를 보여줍니다.",
     )
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=False)
     async def guide(interaction: discord.Interaction) -> None:
         await interaction.response.send_message(
             embed=build_guide_embed(), view=build_guide_view(), ephemeral=True

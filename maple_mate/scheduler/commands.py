@@ -15,6 +15,7 @@ from discord import app_commands
 
 from ..bot import cooldowns
 from ..bot.embeds import defer, make_embed
+from ..bot.scope import GUILD_INSTALLS, MSG_UNAVAILABLE, OPEN_CONTEXTS, resolve_scope
 from ..dependencies import Deps
 from ..nexon.client import KST
 from . import service
@@ -31,7 +32,6 @@ from .service import DEFAULT_HOUR
 _TITLE_HOMEWORK = "스케줄러 숙제"
 _TITLE_REMINDER = "스케줄러 알림"
 
-_MSG_GUILD_ONLY = "서버(길드) 안에서만 쓸 수 있어요."
 _MSG_NO_HOMEWORK = (
     "인게임 메이플 스케줄러에 등록된 숙제가 없어요."
     " 게임에서 콘텐츠를 스케줄러에 등록하면 여기 떠요."
@@ -72,9 +72,10 @@ async def handle_scheduler(
     필터 후 빈 캐릭터는 생략한다. 무상태 — excluded 는 이번 호출에만 적용(저장 안 함).
     """
     await defer(interaction, ephemeral=True)
-    if interaction.guild_id is None:
+    scope = resolve_scope(interaction)
+    if scope is None:
         await interaction.followup.send(
-            embed=make_embed(_TITLE_HOMEWORK, _MSG_GUILD_ONLY), ephemeral=True
+            embed=make_embed(_TITLE_HOMEWORK, MSG_UNAVAILABLE), ephemeral=True
         )
         return
     if is_all_excluded(excluded):  # 4묶음 전부 끄기 → 빌드(페치) 전 안내
@@ -83,9 +84,7 @@ async def handle_scheduler(
         )
         return
 
-    homeworks, error = await build_homeworks(
-        deps, interaction.guild_id, interaction.user.id
-    )
+    homeworks, error = await build_homeworks(deps, scope, interaction.user.id)
     if error is not None:  # 미등록·키없음·캐릭터 0 → 가드 메시지
         await interaction.followup.send(
             embed=make_embed(_TITLE_HOMEWORK, error), ephemeral=True
@@ -120,9 +119,10 @@ async def handle_reminder_on(
     카테고리 파라미터는 미지정=기존 유지(병합), 켜기/끄기=델타(ADR-0014 결정 2). 시각만 바꿔도
     꺼둔 묶음이 유지된다. 병합 결과가 4묶음 전부 끄기면 저장하지 않고 거부한다(결정 5).
     """
-    if interaction.guild_id is None:
+    scope = resolve_scope(interaction)
+    if scope is None:
         await interaction.response.send_message(
-            embed=make_embed(_TITLE_REMINDER, _MSG_GUILD_ONLY), ephemeral=True
+            embed=make_embed(_TITLE_REMINDER, MSG_UNAVAILABLE), ephemeral=True
         )
         return
     if not 0 <= hour <= 23:
@@ -133,7 +133,7 @@ async def handle_reminder_on(
 
     # fail fast: 키·캐릭터가 없으면 구독 자체를 거부한다(결정 7a — 죽은 구독 예방).
     _key, _chars, error = await service.resolve_self_characters(
-        deps.session_factory, interaction.guild_id, interaction.user.id
+        deps.session_factory, scope, interaction.user.id
     )
     if error is not None:
         await interaction.response.send_message(
@@ -143,7 +143,7 @@ async def handle_reminder_on(
 
     # 기존 제외집합 로드 → tri-state 병합 → all-off 거부(저장 안 함) → upsert.
     existing = await service.get_subscription(
-        deps.session_factory, interaction.guild_id, interaction.user.id
+        deps.session_factory, scope, interaction.user.id
     )
     base = existing.excluded if existing is not None else frozenset()
     excluded = merge_excluded(base, daily=daily, weekly=weekly, boss=boss, guild=guild)
@@ -155,7 +155,7 @@ async def handle_reminder_on(
 
     await service.set_subscription(
         deps.session_factory,
-        guild_id=interaction.guild_id,
+        guild_id=scope,
         discord_user_id=interaction.user.id,
         hour=hour,
         excluded=excluded,
@@ -172,15 +172,16 @@ async def handle_reminder_on(
 
 async def handle_reminder_off(deps: Deps, interaction: discord.Interaction) -> None:
     """`/스케줄러알림 끄기` 본체: 구독 delete. 켜진 적 없으면 안내 분기."""
-    if interaction.guild_id is None:
+    scope = resolve_scope(interaction)
+    if scope is None:
         await interaction.response.send_message(
-            embed=make_embed(_TITLE_REMINDER, _MSG_GUILD_ONLY), ephemeral=True
+            embed=make_embed(_TITLE_REMINDER, MSG_UNAVAILABLE), ephemeral=True
         )
         return
 
     existed = await service.clear_subscription(
         deps.session_factory,
-        guild_id=interaction.guild_id,
+        guild_id=scope,
         discord_user_id=interaction.user.id,
     )
     if existed:
@@ -209,6 +210,8 @@ def setup(bot: discord.Client) -> None:
         name="스케줄러",
         description="본인 등록 캐릭터 전체의 인게임 스케줄러 숙제 현황을 보여줍니다 (개인 키 필요).",
     )
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=False)
     @app_commands.rename(**_CATEGORY_RENAME)
     @app_commands.describe(**_ONDEMAND_DESCRIBE)
     @app_commands.choices(**_CATEGORY_CHOICES)
@@ -223,9 +226,13 @@ def setup(bot: discord.Client) -> None:
         excluded = parse_ondemand(daily, weekly, boss, guild)
         await handle_scheduler(deps, interaction, excluded)
 
+    # G0 미판정(작업지시서 §7): 유저 설치엔 숨김(users=False). 크론 DM 실검증 통과 시
+    # allowed_installs 를 OPEN_INSTALLS 로 플립 한 줄이 후속 — scope 배선은 이미 완료.
     group = app_commands.Group(
         name="스케줄러알림",
         description="매일 정해진 시각에 스케줄러 숙제를 DM으로 받는 구독을 켜거나 끕니다.",
+        allowed_installs=GUILD_INSTALLS,
+        allowed_contexts=OPEN_CONTEXTS,
     )
 
     @group.command(
