@@ -123,6 +123,7 @@ class HistoryTarget:
     nickname: str
     ocid: str
     api_key_encrypted: str | None
+    level: int | None = None  # 대표 레벨 — 무인자 상한 선정 기준(ADR-0008)
 
 
 async def get_history_targets(
@@ -168,6 +169,7 @@ async def get_history_targets(
                 else anchor.maple_nickname,
                 ocid=anchor.ocid,
                 api_key_encrypted=reg.api_key_encrypted,
+                level=rep.level if rep is not None else anchor.level,
             )
         )
     if user_ids is not None:

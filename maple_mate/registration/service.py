@@ -379,6 +379,7 @@ class Target:
     nickname: str
     ocid: str
     world: str | None = None  # 대표의 realm 신호(ADR-0009) — 리더보드 적재·라벨용
+    level: int | None = None  # 대표 레벨 — 무인자 상한 선정 기준(ADR-0008)
 
 
 @dataclass(frozen=True)
@@ -437,6 +438,7 @@ async def get_targets(
                 nickname=rep.maple_nickname,
                 ocid=rep.ocid,
                 world=rep.world,
+                level=rep.level,
             )
         )
     if user_ids is not None:

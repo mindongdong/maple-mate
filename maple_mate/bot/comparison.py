@@ -163,6 +163,43 @@ async def resolve_targets(
     return targets, missing
 
 
+# ── 무인자 팬아웃 경계 (ADR-0008) ──────────────────────────────────────────
+#
+# 무인자 실행(등록자 전원)은 인원이 늘수록 PNG 가 세로로 무한히 길어지고(가독성),
+# 넥슨 팬아웃(전역 4req/s 스로틀)으로 응답이 느려진다 → 대표 레벨 상위 K 명으로 경계.
+# 대상을 지정하면 파라미터 슬롯(최대 5명)이 이미 상한이라 여기 적용하지 않는다.
+
+MAX_UNSPECIFIED_TARGETS = 10
+
+
+def cap_by_level(
+    targets: Sequence, cap: int = MAX_UNSPECIFIED_TARGETS
+) -> tuple[list, int]:
+    """무인자 대상 상한 — 대표 레벨 내림차순 상위 cap 명. 반환 = (선정 목록, 전체 N).
+
+    동레벨·레벨미상(None=-1)은 닉네임 가나다순으로 결정적 타이브레이크.
+    Target·HistoryTarget 둘 다 받는다(level·nickname 덕 타이핑).
+    """
+    total = len(targets)
+    if total <= cap:
+        return list(targets), total
+    ranked = sorted(
+        targets,
+        key=lambda t: (-(t.level if t.level is not None else -1), t.nickname),
+    )
+    return ranked[:cap], total
+
+
+def fanout_note(
+    total: int, cap: int = MAX_UNSPECIFIED_TARGETS, *, noun: str = "등록자"
+) -> str:
+    """상한 절단 안내 한 줄 — 잘렸을 때만 데이터 임베드 푸터 맨 앞에 붙인다."""
+    return (
+        f"{noun} {total}명 중 대표 레벨 상위 {cap}명만 비교했어요 · "
+        f"특정 인원은 대상 지정(최대 5명)으로 볼 수 있어요"
+    )
+
+
 def data_footer(raw_date: str | None, now: datetime | None = None) -> str:
     """넥슨 응답 date → 푸터 텍스트. null(무지정 최신 스냅샷) → '최신 기준'."""
     now = now or datetime.now(timezone.utc)
