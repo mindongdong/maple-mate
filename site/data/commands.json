@@ -1,5 +1,5 @@
 {
-  "_comment": "메이트 명령어 정본 메타데이터. 명령어 페이지 렌더 + 이름 드리프트 테스트(tests/test_website_command_drift.py)가 읽는 단일 소스. tier: free=등록없이(green) · character=캐릭터등록(indigo) · apikey=API키(amber). 비틱은 봇 트리에서 숨김(ADR-0017)이라 제외.",
+  "_comment": "메이트 명령어 정본 메타데이터. 명령어 페이지 렌더 + 이름 드리프트 테스트(tests/test_website_command_drift.py)가 읽는 단일 소스. tier: free=등록없이(green) · character=캐릭터등록(indigo) · apikey=API키(amber). 비틱은 봇 트리에서 숨김(ADR-0017)이라 제외. 가이드는 사이트로 연결만 하는 안내 명령이라 문서 카드에서 제외(드리프트 테스트 _SITE_EXEMPT).",
   "tiers": {
     "free": { "label": "등록 없이 바로", "icon": "unlock", "tone": "green" },
     "character": { "label": "캐릭터 등록하면", "icon": "user", "tone": "indigo" },
@@ -11,7 +11,6 @@
       "title": "등록·관리",
       "icon": "user-plus",
       "commands": [
-        { "name": "가이드", "tier": "free", "summary": "모든 명령과 전제조건을 6가지 그룹으로 정리해 보여줍니다. 처음 온 멤버 안내에 좋아요.", "tip": "쿨다운 없이 언제든 호출 가능하고, 메시지는 본인에게만 보입니다." },
         { "name": "캐릭터등록", "tier": "free", "summary": "메이플 캐릭터를 이 서버에 등록합니다. 유저당 여러 개를 등록할 수 있어요." },
         { "name": "키등록", "tier": "character", "summary": "넥슨 개인 API 키를 등록해 스타포스·잠재 기록 조회를 엽니다.", "tip": "키는 암호화해 보관합니다. 자세한 내용은 개인정보·보안을 참고하세요." },
         { "name": "대표지정", "tier": "character", "summary": "스펙·경험치 등 공개 명령에 쓸 대표 캐릭터를 지정합니다." },
