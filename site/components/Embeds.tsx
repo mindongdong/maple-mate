@@ -1,13 +1,12 @@
 /**
  * 디스코드 임베드 목업 (실데이터 금지 → 데모용 가짜 닉/수치).
- * 비교·리더보드 결과는 봇 실제 렌더러 PNG(site/public/shots/)로 대체했고, 여기 남은 건
- * PNG 가 없는 텍스트 임베드 명령(가이드·스케줄러·정기 알림·등록 결과)과 랜딩 히어로 목업뿐.
+ * 비교·리더보드·스케줄러 결과는 봇 실제 렌더러 PNG(site/public/shots/)로 대체했고, 여기 남은 건
+ * PNG 가 없는 텍스트 임베드 명령(가이드·정기 알림·등록 결과)과 랜딩 히어로 목업뿐.
  *
  * 임베드 내부의 메달 이모지(🥇🥈🥉)·체크(⬜✅)는 "디스코드 화면"을 표현하므로 허용.
  * 사이트 크롬(네비·배지·노트)의 Lucide 통일 정책(D13)과 구분된다.
  */
 import * as React from 'react'
-import { History } from 'lucide-react'
 
 /** 경험치 리더보드 — 실제 /경험치 임베드와 동일한 순위 텍스트(메달 · **닉** — Lv.X (Y%)).
  *  실제 임베드엔 진행 바가 없으므로 바 없이 텍스트로만. 랜딩 히어로 목업 전용. */
@@ -40,23 +39,6 @@ export function LeaderboardEmbed({ rows = 5 }: { rows?: number }) {
         ))}
       </div>
       <div className="mm-embed-footer">기준: 오늘(07/01) 현재 · NEXON Open API</div>
-    </div>
-  )
-}
-
-/** 스케줄러 숙제 DM — todo-first(숫자만, 미완료 전부 나열). */
-export function SchedulerEmbed() {
-  return (
-    <div className="mm-embed mm-embed--orange">
-      <div className="mm-embed-title mm-embed-title--orange">
-        <History size={12} strokeWidth={2.5} aria-hidden />
-        오늘의 숙제 — 홍길동전사
-      </div>
-      <div className="mm-todo-row"><span className="mm-todo-check">⬜</span>에픽던전 · 지하수로</div>
-      <div className="mm-todo-row"><span className="mm-todo-check done">✅</span><span className="done">일일 보스 3</span></div>
-      <div className="mm-todo-row"><span className="mm-todo-check">⬜</span>주간 보스 <span style={{ color: '#72767d' }}>· 5/12 처치</span></div>
-      <div className="mm-todo-row"><span className="mm-todo-check">⬜</span>몬스터파크 <span style={{ color: '#72767d' }}>· 9/14회</span></div>
-      <div className="mm-todo-sub">매일 정한 시각에 DM · 등록 캐릭터 전부</div>
     </div>
   )
 }

@@ -9,7 +9,6 @@ import { Icon } from '@/lib/icons'
 import { groupById, type Command } from '@/lib/commands'
 import {
   GuideEmbed,
-  SchedulerEmbed,
   AlertEmbed,
   RegisterEmbed,
 } from './Embeds'
@@ -47,7 +46,7 @@ function embedFor(name: string): { node: ReactNode; caption: string } | null {
     case '경험치':
       return { node: shot('exp.png', '경험치 리더보드 그래프 — 최근 7일 레벨 추이'), caption: '/경험치 · 최근 7일 레벨 추이 그래프' }
     case '스케줄러':
-      return { node: <SchedulerEmbed />, caption: '/스케줄러 · 본인만' }
+      return { node: shot('scheduler.png', '스케줄러 숙제 카드 — 오늘 남은 숙제 체크리스트'), caption: '/스케줄러 · 본인만' }
     case '스케줄러알림':
       return { node: <AlertEmbed title="스케줄러 숙제 알림" line="매일 정한 시각에 숙제 체크리스트를 개인 DM으로 보냅니다." sub="대상: 본인 DM · 켜기 · 끄기" />, caption: '/스케줄러알림 · 매일 정한 시각 DM' }
     case '경험치알림':

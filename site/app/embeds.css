@@ -39,7 +39,6 @@
   font-size: 13px;
   line-height: 1.5;
 }
-.mm-embed--orange { border-left-color: #e0700a; }
 .mm-embed-title {
   font-weight: 700;
   color: #5ec8c8;
@@ -49,7 +48,6 @@
   align-items: center;
   gap: 8px;
 }
-.mm-embed-title--orange { color: #e0700a; }
 .mm-embed-footer {
   margin-top: 12px;
   font-size: 10px;
@@ -65,8 +63,5 @@
 .mm-rank-name { font-weight: 700; color: #f2f3f5; }
 .mm-rank-lv { color: #b0bac8; }
 
-/* 스케줄러 숙제 DM 행 */
-.mm-todo-row { background: #2c2f33; border-radius: 4px; padding: 6px 9px; font-size: 11px; color: #b0bac8; margin-bottom: 5px; display: flex; align-items: center; gap: 8px; }
-.mm-todo-check { flex-shrink: 0; font-size: 12px; }
-.mm-todo-row .done { color: #5fd08a; }
+/* 임베드 부제(알림·등록 결과) */
 .mm-todo-sub { font-size: 10px; color: #72767d; margin-top: 6px; }
