@@ -29,6 +29,20 @@
   font-size: 11px;
 }
 
+/* 스크린샷 2장 나란히 (시작하기 봇 초대 화면) — 모바일에서는 세로 스택 */
+.mm-shot-pair {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: start;
+  margin-top: 16px;
+}
+@media (max-width: 640px) {
+  .mm-shot-pair {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* 디스코드 임베드 (다크 고정 — 실제 임베드 룩) */
 .mm-embed {
   background: #1e2124;

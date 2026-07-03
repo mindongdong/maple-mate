@@ -19,6 +19,10 @@ from maple_mate.bot.core import MapleMateBot
 
 _COMMANDS_JSON = Path(__file__).resolve().parents[1] / "site" / "data" / "commands.json"
 
+# 트리에는 있지만 사이트 카드에서 의도적으로 뺀 명령.
+# `/가이드`는 웹사이트로 연결하는 안내 명령이라 사이트에서 다시 문서화할 이유가 없다.
+_SITE_EXEMPT = {"가이드"}
+
 
 @pytest.fixture(scope="module")
 def tree_command_names() -> set[str]:
@@ -38,8 +42,8 @@ def site_command_names() -> set[str]:
 def test_site_documents_every_public_command(
     tree_command_names: set[str], site_command_names: set[str]
 ) -> None:
-    """공개 명령이 전부 사이트에 문서화돼 있어야 한다(누락 금지)."""
-    missing = tree_command_names - site_command_names
+    """공개 명령이 전부 사이트에 문서화돼 있어야 한다(누락 금지, _SITE_EXEMPT 제외)."""
+    missing = tree_command_names - site_command_names - _SITE_EXEMPT
     assert not missing, (
         f"웹사이트 명령어 문서 누락: {sorted(missing)} "
         f"— site/data/commands.json 에 카드를 추가하세요."

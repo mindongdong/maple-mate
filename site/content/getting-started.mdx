@@ -6,6 +6,7 @@ description: 봇 초대부터 캐릭터·API 키 등록까지 5분이면 끝. �
 import { Steps, Cards } from 'nextra/components'
 import { BadgeLegend } from '@/components/Badge'
 import { Note } from '@/components/Note'
+import { ScreenshotFrame } from '@/components/ScreenshotFrame'
 
 # 시작하기
 
@@ -19,9 +20,27 @@ import { Note } from '@/components/Note'
 
 ### 봇 초대하기
 
-디스코드 서버에 메이트를 초대하세요. 서버 관리자 한 명이 한 번만 하면 됩니다.
+디스코드 서버에 메이트를 초대하세요. 서버 유저 한 명이 한 번만 진행하면 됩니다.
 관리자 권한은 요구하지 않아요.
 초대 직후부터 `/가이드`·`/경험치알림`·`/공지알림`·`/썬데이알림` 은 **등록 없이** 바로 쓸 수 있어요.
+
+초대 링크를 열면 아래처럼 확인 화면이 떠요. 따로 고민할 건 없습니다 —
+봇을 추가할 서버만 고르고 그대로 진행하면 설치 끝이에요.
+
+<div className="mm-shot-pair">
+  <ScreenshotFrame compact caption="① 봇을 추가할 서버를 고르고 계속하기를 누르세요.">
+    <img src="/shots/invite-1.png" alt="디스코드 봇 초대 1단계 — 서버 선택 화면" className="mm-shot-img" />
+  </ScreenshotFrame>
+  <ScreenshotFrame compact caption="② 승인을 누르면 설치 완료!">
+    <img src="/shots/invite-2.png" alt="디스코드 봇 초대 2단계 — 권한 확인 화면" className="mm-shot-img" />
+  </ScreenshotFrame>
+</div>
+
+<Note>
+  이때 표시되는 권한(채널 보기·메시지 보내기·링크/파일 첨부)은 봇이 서버에서
+  메시지를 보내기 위한 **최소한의 권한**이에요. 아무 문제 없으니 걱정하지 말고
+  진행하시면 됩니다.
+</Note>
 
 ### 캐릭터 등록 — `/캐릭터등록`
 
@@ -30,9 +49,11 @@ import { Note } from '@/components/Note'
 
 ### 넥슨 API 키 등록 — `/키등록`
 
-스타포스·잠재 기록과 스케줄러 숙제는 넥슨 개인 API 키가 필요합니다. 이 데이터는
-계정 소유자만 열어볼 수 있는 개인 정보라서예요. 남의 기록을 몰래 보는 게 아니라,
-**내 기록을 서버에서 함께 견주기** 위한 거예요.
+스타포스·잠재 기록과 스케줄러 숙제는 넥슨 개인 API 키가 필요합니다.
+API 키는 넥슨 계정 소유자가 본인의 상세한 정보(스타포스, 잠재, 스케줄러)를 조회하기
+위해 사용하는 키입니다. 등록하면 **암호화해서 안전하게 보관**하고 API 키가 유출되지
+않도록 설정했지만, 혹여나 유출되더라도 API 키는 메이플 캐릭터 정보 조회 외의
+목적으로는 사용할 수 없으니 안심하시고 등록하셔도 됩니다.
 
 **API 키 발급 방법** — 3분이면 끝나요.
 
