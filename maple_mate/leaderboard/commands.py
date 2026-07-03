@@ -13,6 +13,7 @@ from discord import app_commands
 from ..bot import cooldowns
 from ..bot.embeds import defer, make_embed
 from ..bot.modes import MODE_CHOICES, MODE_DESCRIBE, parse_mode
+from ..bot.scope import GUILD_CONTEXTS, GUILD_INSTALLS
 from ..dependencies import Deps
 from ..notification import service as channel_service
 from ..notification.target import TARGET_CHOICES, TARGET_DESCRIBE
@@ -92,6 +93,8 @@ def setup_leaderboard(bot: discord.Client) -> None:
         name="경험치",
         description="등록 캐릭터들의 최근 7일 레벨 추이 그래프를 보여줍니다.",
     )
+    @app_commands.allowed_installs(guilds=True, users=False)
+    @app_commands.allowed_contexts(guilds=True, dms=False, private_channels=False)
     @app_commands.rename(mode="모드")
     @app_commands.describe(mode=MODE_DESCRIBE)
     @app_commands.choices(mode=MODE_CHOICES)
@@ -102,9 +105,13 @@ def setup_leaderboard(bot: discord.Client) -> None:
     ) -> None:
         await handle_leaderboard(deps, interaction, parse_mode(mode))
 
+    # 미개방(ADR-0019 결정 3 — 리더보드는 서버 개념 전제): 알림도 서버 리더보드 산출물이라
+    # 함께 길드 전용으로 명시(기본값 드리프트 방지).
     group = app_commands.Group(
         name="경험치알림",
         description="매일 경험치 리더보드를 채널 또는 본인 DM으로 받을지 켜거나 끕니다.",
+        allowed_installs=GUILD_INSTALLS,
+        allowed_contexts=GUILD_CONTEXTS,
     )
 
     @group.command(

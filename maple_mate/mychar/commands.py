@@ -17,6 +17,7 @@ from discord import app_commands
 
 from ..bot import comparison, cooldowns
 from ..bot.embeds import append_source, defer, make_embed
+from ..bot.scope import MSG_UNAVAILABLE, OPEN_CONTEXTS, OPEN_INSTALLS, resolve_scope
 from ..character import commands as character
 from ..character.equipment_slots import SLOT_CHOICES
 from ..dependencies import Deps
@@ -27,7 +28,6 @@ from ..registration.commands import character_choices
 from ..registration.realm import is_challengers
 from ..registration.service import Target
 
-_DM_ONLY = "서버(길드) 안에서만 쓸 수 있어요."
 _NO_CHARACTERS = "등록된 캐릭터가 없어요. `/캐릭터등록`으로 추가해 주세요."
 _EXP_NOT_READY = (
     "아직 종합 랭킹 데이터를 못 받았어요(전일 데이터 준비 전이거나 랭킹 미등재)."
@@ -64,17 +64,18 @@ async def _resolve_my_targets(
 ) -> tuple[list[Target], str | None] | None:
     """내 캐릭터 Target 해석 + 상한 절단. None 이면 이미 에러 응답 완료.
 
-    0캐릭·DM 에러는 본인에게만(ephemeral) — 공개 defer 뒤에는 ephemeral 전환이
+    0캐릭·불가 컨텍스트 에러는 본인에게만(ephemeral) — 공개 defer 뒤에는 ephemeral 전환이
     안 되므로 defer 전에 판정한다(단일 유저 SELECT 1회라 3초 창 안에 충분).
     """
-    if interaction.guild_id is None:
+    scope = resolve_scope(interaction)
+    if scope is None:
         await interaction.response.send_message(
-            embed=make_embed("내 캐릭터", _DM_ONLY), ephemeral=True
+            embed=make_embed("내 캐릭터", MSG_UNAVAILABLE), ephemeral=True
         )
         return None
     targets = await reg.get_my_character_targets(
         deps.session_factory,
-        interaction.guild_id,
+        scope,
         interaction.user.id,
         ocids or None,
     )
@@ -174,14 +175,16 @@ async def handle_my_exp(deps: Deps, interaction: discord.Interaction) -> None:
     무인자 = 등록 전체(상한 10 = Top10 파이프라인과 정합, 결정 4). realm 혼합 한 그래프
     (절대 레벨 그대로 — ADR-0011 원칙과 정합), 1캐릭 = 1라인 허용(2명 게이트는 서버
     리더보드 전용). 백필은 멱등이라 스케줄러가 웜이면 넥슨 0콜, 콜드면 캐릭당 ≤8콜.
+    DM 워크스페이스(guild 0)는 크론 수집 대상이 아니라 이 멱등 백필이 데이터 원천(§3-3).
     """
-    if interaction.guild_id is None:
+    scope = resolve_scope(interaction)
+    if scope is None:
         await interaction.response.send_message(
-            embed=make_embed("내 캐릭터 경험치", _DM_ONLY), ephemeral=True
+            embed=make_embed("내 캐릭터 경험치", MSG_UNAVAILABLE), ephemeral=True
         )
         return
     targets = await reg.get_my_character_targets(
-        deps.session_factory, interaction.guild_id, interaction.user.id
+        deps.session_factory, scope, interaction.user.id
     )
     if not targets:
         await interaction.response.send_message(
@@ -190,11 +193,11 @@ async def handle_my_exp(deps: Deps, interaction: discord.Interaction) -> None:
         return
     await defer(interaction)
 
-    await exp_service.backfill(deps, interaction.guild_id, targets)
+    await exp_service.backfill(deps, scope, targets)
 
     payload = await leaderboard.build_targets_payload(
         deps,
-        interaction.guild_id,
+        scope,
         targets,
         labels={t.ocid: char_label(t) for t in targets},
         title="📈 내 캐릭터 경험치",
@@ -218,15 +221,18 @@ def setup(bot: discord.Client) -> None:
     group = app_commands.Group(
         name="내캐릭터",
         description="내가 등록한 캐릭터들을 모아서 비교합니다.",
+        allowed_installs=OPEN_INSTALLS,
+        allowed_contexts=OPEN_CONTEXTS,
     )
 
     async def _char_autocomplete(
         interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
-        if interaction.guild_id is None:
+        scope = resolve_scope(interaction)
+        if scope is None:
             return []
         characters = await reg.get_characters(
-            deps.session_factory, interaction.guild_id, interaction.user.id
+            deps.session_factory, scope, interaction.user.id
         )
         return character_choices(characters, current)
 

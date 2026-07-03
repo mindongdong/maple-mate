@@ -392,6 +392,8 @@ def setup(bot: discord.Client) -> None:
         name="스펙",
         description="전투력·어빌리티·심볼·HEXA를 비교합니다 (1~5명 지정 필수).",
     )
+    @app_commands.allowed_installs(guilds=True, users=False)
+    @app_commands.allowed_contexts(guilds=True, dms=False, private_channels=False)
     @app_commands.rename(
         member1="유저1",
         member2="유저2",
@@ -428,6 +430,8 @@ def setup(bot: discord.Client) -> None:
         name="아이템",
         description="부위별 스타포스·잠재·옵션을 비교합니다 (대상 미지정 시 서버 전체).",
     )
+    @app_commands.allowed_installs(guilds=True, users=False)
+    @app_commands.allowed_contexts(guilds=True, dms=False, private_channels=False)
     @app_commands.rename(
         part="부위",
         member1="대상1",

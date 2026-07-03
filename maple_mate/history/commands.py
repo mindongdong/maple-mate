@@ -388,6 +388,8 @@ def setup(bot: discord.Client) -> None:
         name="스타포스",
         description="스타포스 운지수·손익메소를 비교합니다 (개인 키 등록자 대상, 대상 미지정 시 서버 전체).",
     )
+    @app_commands.allowed_installs(guilds=True, users=False)
+    @app_commands.allowed_contexts(guilds=True, dms=False, private_channels=False)
     @app_commands.choices(period=_PERIOD_CHOICES)
     @app_commands.rename(
         period="기간",

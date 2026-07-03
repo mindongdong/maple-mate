@@ -130,6 +130,8 @@ def setup(bot: discord.Client) -> None:
         name="유니온",
         description="유니온 레벨·아티팩트·챔피언 등급분포를 비교합니다 (대상 미지정 시 서버 전체).",
     )
+    @app_commands.allowed_installs(guilds=True, users=False)
+    @app_commands.allowed_contexts(guilds=True, dms=False, private_channels=False)
     @app_commands.rename(
         member1="대상1",
         member2="대상2",

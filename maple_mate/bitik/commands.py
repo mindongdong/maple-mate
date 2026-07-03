@@ -22,6 +22,7 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 from ..bot import bitik_card, comparison, cooldowns
 from ..bot.embeds import KST, append_source, defer, make_embed
 from ..bot.modes import MODE_CHOICES, MODE_DESCRIBE, parse_mode
+from ..bot.scope import GUILD_CONTEXTS, GUILD_INSTALLS
 from ..character.service import format_eok
 from ..dependencies import Deps
 from ..error_log import service as error_log
@@ -540,8 +541,12 @@ async def handle_bitik_pickup(
 def setup(bot: discord.Client) -> None:
     deps: Deps = bot.deps  # type: ignore[attr-defined]
 
+    # 미개방(ADR-0019 결정 3 — 봇 DM 엔 관객이 없다). 트리 미등록 상태지만 부활 대비 명시.
     group = app_commands.Group(
-        name="비틱", description="스타포스·잠재·득템 자랑 카드를 채널에 올립니다."
+        name="비틱",
+        description="스타포스·잠재·득템 자랑 카드를 채널에 올립니다.",
+        allowed_installs=GUILD_INSTALLS,
+        allowed_contexts=GUILD_CONTEXTS,
     )
 
     @group.command(

@@ -16,11 +16,10 @@ from discord import app_commands
 
 from ..bot import cooldowns
 from ..bot.embeds import defer, make_embed
+from ..bot.scope import MSG_UNAVAILABLE, resolve_scope
 from ..dependencies import Deps
 from . import service
 from .realm import is_challengers
-
-_DM_ONLY = "서버(길드) 안에서만 쓸 수 있어요."
 
 
 def _char_label(nickname: str, level: int | None, world: str | None = None) -> str:
@@ -59,16 +58,17 @@ async def handle_character_register(
     deps: Deps, interaction: discord.Interaction, nickname: str
 ) -> None:
     await defer(interaction, ephemeral=True)
-    if interaction.guild_id is None:
+    scope = resolve_scope(interaction)
+    if scope is None:
         await interaction.followup.send(
-            embed=make_embed("캐릭터 등록 실패", _DM_ONLY), ephemeral=True
+            embed=make_embed("캐릭터 등록 실패", MSG_UNAVAILABLE), ephemeral=True
         )
         return
 
     result = await service.register_character(
         nexon=deps.nexon,
         session_factory=deps.session_factory,
-        guild_id=interaction.guild_id,
+        guild_id=scope,
         discord_user_id=interaction.user.id,
         nickname=nickname.strip(),
     )
@@ -79,7 +79,7 @@ async def handle_character_register(
         return
 
     has_key = await service.has_personal_key(
-        deps.session_factory, interaction.guild_id, interaction.user.id
+        deps.session_factory, scope, interaction.user.id
     )
     lines = [
         f"**{_char_label(result.nickname, result.level)}** 등록 완료 — 현재 {result.character_count}개.",
@@ -103,9 +103,10 @@ async def handle_key_register(
     deps: Deps, interaction: discord.Interaction, api_key: str
 ) -> None:
     await defer(interaction, ephemeral=True)
-    if interaction.guild_id is None:
+    scope = resolve_scope(interaction)
+    if scope is None:
         await interaction.followup.send(
-            embed=make_embed("키 등록 실패", _DM_ONLY), ephemeral=True
+            embed=make_embed("키 등록 실패", MSG_UNAVAILABLE), ephemeral=True
         )
         return
 
@@ -113,7 +114,7 @@ async def handle_key_register(
         nexon=deps.nexon,
         cipher=deps.cipher,
         session_factory=deps.session_factory,
-        guild_id=interaction.guild_id,
+        guild_id=scope,
         discord_user_id=interaction.user.id,
         api_key=api_key.strip(),
     )
@@ -135,14 +136,15 @@ async def handle_set_representative(
     deps: Deps, interaction: discord.Interaction, ocid: str
 ) -> None:
     await defer(interaction, ephemeral=True)
-    if interaction.guild_id is None:
+    scope = resolve_scope(interaction)
+    if scope is None:
         await interaction.followup.send(
-            embed=make_embed("대표 지정 실패", _DM_ONLY), ephemeral=True
+            embed=make_embed("대표 지정 실패", MSG_UNAVAILABLE), ephemeral=True
         )
         return
 
     nickname = await service.set_representative(
-        deps.session_factory, interaction.guild_id, interaction.user.id, ocid
+        deps.session_factory, scope, interaction.user.id, ocid
     )
     if nickname is None:
         await interaction.followup.send(
@@ -164,14 +166,15 @@ async def handle_set_representative(
 
 async def handle_character_list(deps: Deps, interaction: discord.Interaction) -> None:
     await defer(interaction, ephemeral=True)
-    if interaction.guild_id is None:
+    scope = resolve_scope(interaction)
+    if scope is None:
         await interaction.followup.send(
-            embed=make_embed("캐릭터 목록", _DM_ONLY), ephemeral=True
+            embed=make_embed("캐릭터 목록", MSG_UNAVAILABLE), ephemeral=True
         )
         return
 
     characters = await service.get_characters(
-        deps.session_factory, interaction.guild_id, interaction.user.id
+        deps.session_factory, scope, interaction.user.id
     )
     if not characters:
         await interaction.followup.send(
@@ -184,7 +187,7 @@ async def handle_character_list(deps: Deps, interaction: discord.Interaction) ->
         return
 
     has_key = await service.has_personal_key(
-        deps.session_factory, interaction.guild_id, interaction.user.id
+        deps.session_factory, scope, interaction.user.id
     )
     lines = []
     for c in characters:
@@ -214,6 +217,8 @@ def setup(bot: discord.Client) -> None:
         name="캐릭터등록",
         description="메이플 캐릭터를 이 서버에 등록합니다 (유저당 여러 개 가능).",
     )
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=False)
     @app_commands.rename(nickname="닉네임")
     @app_commands.describe(nickname="메이플 캐릭터 닉네임")
     @cooldowns.settings_cooldown()
@@ -226,6 +231,8 @@ def setup(bot: discord.Client) -> None:
         name="키등록",
         description="넥슨 개인 API 키를 등록합니다 (스타포스·잠재 등 이력류 조회 개방).",
     )
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=False)
     @app_commands.rename(api_key="api키")
     @app_commands.describe(api_key="넥슨 개인 API 키")
     @cooldowns.settings_cooldown()
@@ -238,6 +245,8 @@ def setup(bot: discord.Client) -> None:
         name="대표지정",
         description="공개 명령(스펙·경험치 등)에 쓸 대표 캐릭터를 지정합니다.",
     )
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=False)
     @app_commands.rename(ocid="캐릭터")
     @app_commands.describe(ocid="대표로 지정할 본인 등록 캐릭터")
     @cooldowns.settings_cooldown()
@@ -250,10 +259,11 @@ def setup(bot: discord.Client) -> None:
     async def _representative_autocomplete(
         interaction: discord.Interaction, current: str
     ) -> list[app_commands.Choice[str]]:
-        if interaction.guild_id is None:
+        scope = resolve_scope(interaction)
+        if scope is None:
             return []
         characters = await service.get_characters(
-            deps.session_factory, interaction.guild_id, interaction.user.id
+            deps.session_factory, scope, interaction.user.id
         )
         return character_choices(characters, current)
 
@@ -261,6 +271,8 @@ def setup(bot: discord.Client) -> None:
         name="캐릭터목록",
         description="등록한 캐릭터·레벨·대표·키 등록 여부를 봅니다 (본인만 보임).",
     )
+    @app_commands.allowed_installs(guilds=True, users=True)
+    @app_commands.allowed_contexts(guilds=True, dms=True, private_channels=False)
     @cooldowns.spec_cooldown()
     async def character_list_command(interaction: discord.Interaction) -> None:
         await handle_character_list(deps, interaction)

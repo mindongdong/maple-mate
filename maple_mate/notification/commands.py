@@ -11,6 +11,7 @@ import discord
 from discord import app_commands
 
 from ..bot import cooldowns
+from ..bot.scope import GUILD_INSTALLS, OPEN_CONTEXTS
 from ..dependencies import Deps
 from . import notice_service, service
 from .target import TARGET_CHOICES, TARGET_DESCRIBE
@@ -40,9 +41,16 @@ _SUNDAY_SPEC = AlertSpec(
 def _alert_group(
     spec: AlertSpec, deps: Deps, name: str, what: str
 ) -> app_commands.Group:
-    """`켜기`/`끄기`(각 `대상` 인자) 서브커맨드를 가진 알림 그룹을 만든다(공지·썬데이 공유)."""
+    """`켜기`/`끄기`(각 `대상` 인자) 서브커맨드를 가진 알림 그룹을 만든다(공지·썬데이 공유).
+
+    G0 미판정(유저설치 작업지시서 §7): 유저 설치엔 숨김(GUILD_INSTALLS). 크론 DM 실검증
+    통과 시 OPEN_INSTALLS 로 플립 한 줄이 후속 — DM 채널대상 거부 등 배선은 toggle 에 완료.
+    """
     group = app_commands.Group(
-        name=name, description=f"{what}을 채널 또는 본인 DM으로 받을지 켜거나 끕니다."
+        name=name,
+        description=f"{what}을 채널 또는 본인 DM으로 받을지 켜거나 끕니다.",
+        allowed_installs=GUILD_INSTALLS,
+        allowed_contexts=OPEN_CONTEXTS,
     )
 
     @group.command(name="켜기", description=f"{what}을 켭니다 (권한 불필요).")
