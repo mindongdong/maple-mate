@@ -97,6 +97,10 @@ async def test_job_skips_when_no_subscriptions(monkeypatch):
     assert calls == ["subs"]  # 구독 0 → 넥슨/발송 없음
 
 
+async def _card_payload(hw, now, excluded):
+    return "content", b"png"  # build_card_payload 스텁(렌더 우회)
+
+
 async def test_job_dms_each_character(monkeypatch):
     subs = [Subscription(1, 10, 21)]
     dmed: list[int] = []
@@ -107,7 +111,7 @@ async def test_job_dms_each_character(monkeypatch):
     async def build_homeworks(deps, g, u):
         return [SimpleNamespace(is_empty=False) for _ in range(3)], None  # 캐릭터 3개
 
-    async def send_dm(bot, user_id, embed):
+    async def send_dm(bot, user_id, content, file):
         dmed.append(user_id)
         return True
 
@@ -115,7 +119,7 @@ async def test_job_dms_each_character(monkeypatch):
         broadcast.service, "subscriptions_at_hour", subscriptions_at_hour
     )
     monkeypatch.setattr(broadcast, "build_homeworks", build_homeworks)
-    monkeypatch.setattr(broadcast, "build_embed", lambda hw, now, excluded: "e")
+    monkeypatch.setattr(broadcast, "build_card_payload", _card_payload)
     monkeypatch.setattr(
         broadcast.service, "is_empty_filtered", lambda hw, excluded: hw.is_empty
     )
@@ -138,15 +142,15 @@ async def test_job_skips_empty_characters(monkeypatch):
             SimpleNamespace(is_empty=False),
         ], None
 
-    async def send_dm(bot, user_id, embed):
-        sent.append(embed)
+    async def send_dm(bot, user_id, content, file):
+        sent.append(content)
         return True
 
     monkeypatch.setattr(
         broadcast.service, "subscriptions_at_hour", subscriptions_at_hour
     )
     monkeypatch.setattr(broadcast, "build_homeworks", build_homeworks)
-    monkeypatch.setattr(broadcast, "build_embed", lambda hw, now, excluded: "e")
+    monkeypatch.setattr(broadcast, "build_card_payload", _card_payload)
     monkeypatch.setattr(
         broadcast.service, "is_empty_filtered", lambda hw, excluded: hw.is_empty
     )
@@ -165,7 +169,7 @@ async def test_job_continues_when_dm_blocked(monkeypatch):
     async def build_homeworks(deps, g, u):
         return [SimpleNamespace(is_empty=False)], None
 
-    async def send_dm(bot, user_id, embed):
+    async def send_dm(bot, user_id, content, file):
         attempted.append(user_id)
         return user_id != 10  # 10 은 DM 차단(False) — raise 하지 않고 스킵
 
@@ -173,7 +177,7 @@ async def test_job_continues_when_dm_blocked(monkeypatch):
         broadcast.service, "subscriptions_at_hour", subscriptions_at_hour
     )
     monkeypatch.setattr(broadcast, "build_homeworks", build_homeworks)
-    monkeypatch.setattr(broadcast, "build_embed", lambda hw, now, excluded: "e")
+    monkeypatch.setattr(broadcast, "build_card_payload", _card_payload)
     monkeypatch.setattr(
         broadcast.service, "is_empty_filtered", lambda hw, excluded: hw.is_empty
     )
