@@ -1,9 +1,9 @@
-"""leaderboard ORM — 캐릭터별·일자별 누적 경험치 스냅샷 (작업지시서 빌드 단위 #1·#3).
+"""leaderboard ORM — 캐릭터별·일자별 경험치 진행도 스냅샷 (작업지시서 빌드 단위 #1·#3).
 
 스냅샷 키 = (guild_id, discord_user_id, ocid, snapshot_date) — 캐릭터(ocid) 차원 포함
 (`/내캐릭터 경험치`, ADR-0018). 같은 ocid 가 복수 길드/유저면 각각 행(친구 그룹 단일 길드 전제,
-작업지시서 파생 결정). total_exp 는 누적(14자리)이라 BigInteger, 정렬키로만 쓰고 표에는
-노출하지 않는다(Q2). world_rank 는 응답 ranking 값(미등재면 행 자체 없음).
+작업지시서 파생 결정). 값 = character/basic(date) 의 그날 마감 (레벨, 레벨 내 exp%) 단일
+소스(ADR-0020 — 종전 ranking/overall 의 total_exp·world_rank 는 표시 폐기와 함께 제거).
 """
 
 from __future__ import annotations
@@ -30,12 +30,8 @@ class ExpSnapshot(Base):
     realm: Mapped[str] = mapped_column(String(16), nullable=False)
 
     character_level: Mapped[int] = mapped_column(Integer, nullable=False)
-    # 누적 총 경험치(스파이크 실측 72조@Lv287) → BigInteger. 정렬키, 표 비노출.
-    total_exp: Mapped[int] = mapped_column(BigInteger, nullable=False)
-    # 종합 랭킹의 전체 서버 순위(응답 ranking). 미관측 케이스 방어로 nullable.
-    world_rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
     # 레벨 내 경험치 백분율(character/basic 의 character_exp_rate, "45.23"→45.23).
-    # ranking/overall(주 소스)엔 없고 best-effort 보강이라 실패 시 None → nullable.
+    # 레벨과 같은 응답에서 오지만 필드 결손 방어로 nullable(결손이면 그날 그래프 선 끊김).
     exp_rate: Mapped[float | None] = mapped_column(Float, nullable=True)
 
     fetched_at: Mapped[datetime] = mapped_column(

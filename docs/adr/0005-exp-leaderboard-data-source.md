@@ -1,6 +1,6 @@
 # ADR-0005 — 경험치 리더보드 누적 경험치 소스로 `ranking/overall` 단일 채택
 
-- **상태:** 채택 (Accepted)
+- **상태:** 폐기 (Superseded by [ADR-0020](0020-exp-snapshot-basic-single-source.md)) — ranking/overall 의 date=D 레벨이 하루 뒤처진 값(D-1 마감 집계)이라 그래프에 가짜 하락점을 만들었고, 본 ADR 의 채택 근거(total_exp 정렬·Δ·전체순위)는 ADR-0011 에서 표시 폐기됨. 소스는 character/basic 단일로 전환.
 - **일자:** 2026-06-14
 - **관련 문서:** [exp-leaderboard-work-order.md](../exp-leaderboard-work-order.md)(빌드 단위·G0 스파이크), [CONTEXT.md](../../CONTEXT.md)(조회 데이터 분류 — 종합 랭킹), [ADR-0001](0001-nexon-personal-key-model.md)(앱키 vs 개인키)
 - **이력:** 경험치 리더보드 그릴링(2026-06-14) Q6 + 라이브 스파이크 G0([spike/verify_ranking.py](../../spike/verify_ranking.py), gitignore)로 확정. PR #16.

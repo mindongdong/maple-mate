@@ -32,23 +32,21 @@ def test_footer_label_says_today_current():
 # ── 임베드 순위판(위치) 텍스트 (ADR-0011) ────────────────────────────────────
 
 
-def _row(rank, nick, level, exp_rate, world_rank):
+def _row(rank, nick, level, exp_rate):
     return LeaderRow(
         ocid=f"o{rank}",
         rank=rank,
         nickname=nick,
         level=level,
         exp_rate=exp_rate,
-        delta=None,
-        world_rank=world_rank,
     )
 
 
 def test_embed_ranking_lists_medal_and_level_only():
     # 메달 · 닉 · 레벨(exp%)만 — 전체 서버순위·그래프 안내문구는 미표기(ADR-0011 피드백).
     rows = [
-        _row(1, "손바", 287, 79.0, 12345),
-        _row(2, "라딘라면", 287, 41.0, 45678),
+        _row(1, "손바", 287, 79.0),
+        _row(2, "라딘라면", 287, 41.0),
     ]
     desc = _build_embed(rows, date(2026, 6, 22)).description or ""
     assert "🥇 **손바** — Lv.287 (79%)" in desc
@@ -59,7 +57,7 @@ def test_embed_ranking_lists_medal_and_level_only():
 
 def test_embed_ranking_caps_at_top_ten():
     # 순위판은 Top10까지만(그래프도 같은 10명). 11위 이하는 임베드에 안 나온다.
-    rows = [_row(i, f"유저{i:02d}", 300 - i, 50.0, None) for i in range(1, 13)]
+    rows = [_row(i, f"유저{i:02d}", 300 - i, 50.0) for i in range(1, 13)]
     desc = _build_embed(rows, date(2026, 6, 22)).description or ""
     for i in range(1, 11):
         assert f"유저{i:02d}" in desc
@@ -69,9 +67,7 @@ def test_embed_ranking_caps_at_top_ten():
 def test_embed_ranking_graceful_without_exp_rate():
     # exp% 보강 실패(None) → 'Lv.287'(괄호 % 생략, ADR-0005 그레이스풀).
     desc = (
-        _build_embed(
-            [_row(1, "네벨루크", 281, None, None)], date(2026, 6, 22)
-        ).description
+        _build_embed([_row(1, "네벨루크", 281, None)], date(2026, 6, 22)).description
         or ""
     )
     assert "🥇 **네벨루크** — Lv.281" in desc
@@ -241,8 +237,6 @@ async def test_build_payload_returns_none_below_min_ranked(monkeypatch):
                 ocid="o1",
                 snapshot_date=snap_date,
                 character_level=287,
-                total_exp=1,
-                world_rank=1,
                 exp_rate=None,
             )
         ]
@@ -278,8 +272,6 @@ async def test_build_payload_caps_embed_and_graph_to_top_ten(monkeypatch):
                 ocid=t.ocid,
                 snapshot_date=snap_date,
                 character_level=300 - i,
-                total_exp=1,
-                world_rank=i,
                 exp_rate=50.0,
             )
             for i, t in enumerate(targets, start=1)
