@@ -368,6 +368,13 @@ async def handle_item(
             await interaction.followup.send(embed=make_embed("아이템", empty))
         return
 
+    # 무인자 = 대표 레벨 상위 K명 경계(ADR-0008). 지정 시엔 파라미터 5개가 이미 상한.
+    note: str | None = None
+    if not members:
+        targets, total = comparison.cap_by_level(targets)
+        if total > len(targets):
+            note = comparison.fanout_note(total)
+
     outcomes = await fetch_item_outcomes(deps, targets, slot)
     outcomes = outcomes + missing
 
@@ -379,6 +386,8 @@ async def handle_item(
         return
 
     footer = append_source(comparison.data_footer(successes[0].data.date))
+    if note:
+        footer = f"{note}\n{footer}"
     embed, file = await build_item_cards(
         deps, successes, outcomes, slot, title=title, footer=footer
     )
@@ -428,7 +437,7 @@ def setup(bot: discord.Client) -> None:
 
     @bot.tree.command(  # type: ignore[attr-defined]
         name="아이템",
-        description="부위별 스타포스·잠재·옵션을 비교합니다 (대상 미지정 시 서버 전체).",
+        description="부위별 스타포스·잠재·옵션을 비교합니다 (미지정 시 레벨 상위 최대 10명).",
     )
     @app_commands.allowed_installs(guilds=True, users=False)
     @app_commands.allowed_contexts(guilds=True, dms=False, private_channels=False)
@@ -443,7 +452,7 @@ def setup(bot: discord.Client) -> None:
     )
     @app_commands.describe(
         part="조회할 장비 부위",
-        member1="비교 대상 (미지정 시 이 서버 등록자 전원)",
+        member1="비교 대상 (미지정 시 이 서버 등록자 중 레벨 상위 최대 10명)",
         member2="추가 비교 대상",
         member3="추가 비교 대상",
         member4="추가 비교 대상",

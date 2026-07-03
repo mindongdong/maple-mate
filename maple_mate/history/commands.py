@@ -330,6 +330,15 @@ async def handle_starforce(
         if t.api_key_encrypted is None
     ]
 
+    # 무인자 = 키 등록자만 + 대표 레벨 상위 K명 경계(ADR-0008).
+    # '키 미등록' 행이 상한 슬롯을 차지하지 않도록 무인자에선 숨긴다(지정 시엔 그대로 안내).
+    note: str | None = None
+    if user_ids is None:
+        no_key = []
+        keyed, total = comparison.cap_by_level(keyed)
+        if total > len(keyed):
+            note = comparison.fanout_note(total, noun="키 등록자")
+
     if not keyed:
         outcomes = missing + no_key
         if outcomes:
@@ -375,9 +384,10 @@ async def handle_starforce(
 
     # 데이터 임베드(성공 표)에만 넥슨 출처표시 — 전체실패 에러 임베드(위)는 결과데이터 아님.
     # 표 PNG 렌더(CPU)는 워커 스레드로 — 이벤트루프 비차단(D6).
-    embed, file = await asyncio.to_thread(
-        _build_table, results, outcomes, append_source(footer)
-    )
+    data_footer = append_source(footer)
+    if note:
+        data_footer = f"{note}\n{data_footer}"
+    embed, file = await asyncio.to_thread(_build_table, results, outcomes, data_footer)
     await interaction.followup.send(embed=embed, file=file)
 
 
@@ -386,7 +396,7 @@ def setup(bot: discord.Client) -> None:
 
     @bot.tree.command(  # type: ignore[attr-defined]
         name="스타포스",
-        description="스타포스 운지수·손익메소를 비교합니다 (개인 키 등록자 대상, 대상 미지정 시 서버 전체).",
+        description="스타포스 운지수·손익메소를 비교합니다 (개인 키 등록자 대상, 미지정 시 레벨 상위 최대 10명).",
     )
     @app_commands.allowed_installs(guilds=True, users=False)
     @app_commands.allowed_contexts(guilds=True, dms=False, private_channels=False)
@@ -405,7 +415,7 @@ def setup(bot: discord.Client) -> None:
         period="조회 기간 프리셋 (기본 최근7일, 시작/종료일 지정 시 무시)",
         start="시작일 YYYY-MM-DD (선택)",
         end="종료일 YYYY-MM-DD (선택)",
-        member1="비교할 유저 (미지정 시 이 서버 키 등록자 전원)",
+        member1="비교할 유저 (미지정 시 이 서버 키 등록자 중 레벨 상위 최대 10명)",
         member2="추가 비교 대상",
         member3="추가 비교 대상",
         member4="추가 비교 대상",
