@@ -35,13 +35,14 @@ export function Hero() {
             챙겨줍니다.
           </p>
           <div className="mm-hero-cta">
-            <a className="mm-btn-primary" href={INVITE_URL} target="_blank" rel="noreferrer">
+            {/* 주 CTA = 인터랙티브 튜토리얼(D5) — 초대 링크는 보조로 강등 */}
+            <a className="mm-btn-primary" href="/tutorial">
+              5분 만에 시작하기
+              <ArrowRight size={15} strokeWidth={2} aria-hidden />
+            </a>
+            <a className="mm-btn-ghost" href={INVITE_URL} target="_blank" rel="noreferrer">
               <DiscordGlyph />
               봇 초대하기
-            </a>
-            <a className="mm-btn-ghost" href="/getting-started">
-              빠른 시작
-              <ArrowRight size={15} strokeWidth={2} aria-hidden />
             </a>
           </div>
         </div>
