@@ -47,8 +47,8 @@ export function Pillars() {
             </p>
             <div className="mm-pillar-shot">
               <div className="mm-mini-dm"><span className="mm-mini-dot" />에픽던전 ⬜ 미완료</div>
-              <div className="mm-mini-dm"><span className="mm-mini-dot orange" />지하수로 ✅ 완료</div>
-              <div className="mm-mini-dm"><span className="mm-mini-dot" />주간 보스 5/12</div>
+              <div className="mm-mini-dm"><span className="mm-mini-dot orange" />몬스터파크 ✅ 완료</div>
+              <div className="mm-mini-dm"><span className="mm-mini-dot" />주간 보스 8/12 처치</div>
             </div>
           </article>
 
