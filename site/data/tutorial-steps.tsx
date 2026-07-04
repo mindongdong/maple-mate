@@ -13,6 +13,7 @@
  *   public="다같이 봐요" / private="나만 봐요".
  */
 import type * as React from 'react'
+import { CommandSequenceDemo } from '@/components/CommandSequenceDemo'
 import { DiscordDemo } from '@/components/DiscordDemo'
 import {
   AlertsDemo,
@@ -122,23 +123,12 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     },
     commands: [{ name: '캐릭터등록', visibility: 'private' }],
   },
-  // ---- 5-2. 열리는 문(캐릭터) ---- 🎬⑥ (영상 제공 시: /tutorial/doors-character.mp4)
+  // ---- 5-2. 열리는 문(캐릭터) ---- ✨ 명령 시퀀스 애니(CommandSequenceDemo S6)
   {
     chapter: '캐릭터 등록',
     title: '캐릭터 등록으로 열리는 명령들',
     sub: '전부 서버에 공개 — 친구들과 비교하고 자랑하는 용도예요.',
-    media: {
-      type: 'video',
-      src: null, // 영상 제공 시: '/tutorial/doors-character.mp4' + poster '/tutorial/doors-character-poster.png'
-      fallback: (
-        <ShotCollage
-          shots={[
-            { src: '/shots/spec.png', alt: '/스펙 비교 결과 카드' },
-            { src: '/shots/exp.png', alt: '/경험치 리더보드 그래프' },
-          ]}
-        />
-      ),
-    },
+    media: { type: 'anim', node: <CommandSequenceDemo script="S6" /> },
     layout: 'doors',
     commands: [
       { name: '스펙', visibility: 'public' },
@@ -179,23 +169,12 @@ export const TUTORIAL_STEPS: TutorialStep[] = [
     },
     commands: [{ name: '키등록', visibility: 'private' }],
   },
-  // ---- 6-3. 열리는 문(API 키) ---- 🎬⑦ (영상 제공 시: /tutorial/doors-apikey.mp4)
+  // ---- 6-3. 열리는 문(API 키) ---- ✨ 명령 시퀀스 애니(CommandSequenceDemo S9)
   {
     chapter: 'API 키',
     title: 'API 키로 열리는 명령들',
     sub: '스타포스·잠재는 서버에 공개, 스케줄러 숙제는 나만 봐요.',
-    media: {
-      type: 'video',
-      src: null, // 영상 제공 시: '/tutorial/doors-apikey.mp4' + poster '/tutorial/doors-apikey-poster.png'
-      fallback: (
-        <ShotCollage
-          shots={[
-            { src: '/shots/starforce.png', alt: '/스타포스 지출 비교 카드' },
-            { src: '/shots/scheduler.png', alt: '/스케줄러 숙제 현황 카드' },
-          ]}
-        />
-      ),
-    },
+    media: { type: 'anim', node: <CommandSequenceDemo script="S9" /> },
     layout: 'doors',
     commands: [
       { name: '스타포스', visibility: 'public' },

@@ -1,0 +1,89 @@
+{
+ "run": "starforce_rand",
+ "renders": [
+  {
+   "render": "render_table_image",
+   "args": [
+    [
+     "순위",
+     "대상",
+     "운빨수치",
+     "총 사용 메소",
+     "기준건수"
+    ],
+    [
+     [
+      "1",
+      "지훈",
+      {
+       "__type": "Highlight",
+       "text": "상위 96%"
+      },
+      "7379만",
+      "5건"
+     ],
+     [
+      "2",
+      "수아",
+      "상위 99% 초과",
+      "3억 3950만",
+      "16건"
+     ]
+    ]
+   ],
+   "kwargs": {
+    "aligns": [
+     "center",
+     "left",
+     "right",
+     "right",
+     "right"
+    ]
+   }
+  }
+ ],
+ "messages": [
+  {
+   "method": "response.defer",
+   "ephemeral": false
+  },
+  {
+   "method": "followup.send",
+   "embeds": [
+    {
+     "footer": {
+      "text": "키 등록자 전원(3명)을 비교했어요\n2026-06-28 ~ 2026-07-04 · NEXON Open API"
+     },
+     "image": {
+      "url": "attachment://starforce.png"
+     },
+     "fields": [
+      {
+       "inline": false,
+       "name": "⚠️ 조회 실패 (1명)",
+       "value": "• **민준** — 기간 내 10성 이상 강화 기록이 없어요."
+      },
+      {
+       "inline": false,
+       "name": "ℹ️ 계정 전체 합산",
+       "value": "이력은 등록 캐릭터 본인 계정의 **전체 캐릭터(부캐 포함)** 를 합산한 값이에요."
+      },
+      {
+       "inline": false,
+       "name": "ℹ️ 10성 이상 강화만 집계",
+       "value": "**10성 이상** 강화만 비교해요. 강화 당시 썬데이 이벤트도 반영했어요."
+      }
+     ],
+     "flags": 0,
+     "color": 16747520,
+     "type": "rich",
+     "description": "👤 지훈 <@111111111111111111>  ·  수아 <@222222222222222222>",
+     "title": "스타포스 운빨 비교"
+    }
+   ],
+   "files": [
+    "starforce.png"
+   ]
+  }
+ ]
+}
