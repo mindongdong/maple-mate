@@ -85,13 +85,21 @@ def _rank_line(row: service.LeaderRow) -> str:
 
 
 def _build_embed(
-    rows: Sequence[service.LeaderRow], now_date: date, title: str | None = None
+    rows: Sequence[service.LeaderRow],
+    now_date: date,
+    title: str | None = None,
+    *,
+    note: str | None = None,
 ) -> discord.Embed:
-    """순위판(라이브 레벨 Top10) 텍스트 + 7일 추이 그래프 임베드. 제목 미지정 = 본서버 리더보드."""
+    """순위판(라이브 레벨 Top10) 텍스트 + 7일 추이 그래프 임베드. 제목 미지정 = 본서버 리더보드.
+
+    note(대상 지정 시 '미등록/데이터 없음' 안내)가 있으면 순위판 위에 한 줄 얹는다.
+    """
     ranking = "\n".join(_rank_line(r) for r in rows[:_TOP_N])
+    description = f"{note}\n\n{ranking}" if note else ranking
     embed = discord.Embed(
         title=title if title is not None else _embed_title(Realm.MAIN),
-        description=ranking,
+        description=description,
         color=discord.Color.from_rgb(255, 140, 0),
     )
     embed.set_image(url=f"attachment://{_GRAPH_FILE}")
@@ -108,6 +116,7 @@ async def build_targets_payload(
     title: str,
     min_ranked: int,
     realm: Realm | None = None,
+    requested_users: int | None = None,
 ) -> LeaderboardPayload | None:
     """Target 리스트 → 최근 스냅샷 게이트 → 라이브 레벨 덮어쓰기 → Top10 순위판+7일 추이 그래프.
 
@@ -118,6 +127,9 @@ async def build_targets_payload(
     **표시 레벨은 character/basic 라이브(오늘 현재)** 로 덮어쓰고, 그래프 끝에도 오늘 라이브
     점을 붙여 임베드·그래프가 모두 '현재'로 일치한다(ADR-0011) — 폴백 시에도 신선도 무손실.
     정렬·게이트·이력은 스냅샷 기반 유지. 렌더는 to_thread(루프 비차단).
+
+    requested_users(대상 지정 실행에서만 넘김) = 지정된 서로 다른 유저 수. 표시된 유저 수와
+    비교해 빠진 인원을 임베드 상단에 '미등록/데이터 없음' 한 줄로 안내한다(무인자 = None → 안내 없음).
     """
     now = datetime.now(KST)
     today = now.date()
@@ -164,9 +176,18 @@ async def build_targets_payload(
     graph_buf = await asyncio.to_thread(
         leaderboard_image.render_progress_graph, series, ref_date
     )
+    # 대상 지정 시: 표시된 유저 수와 요청 수를 비교해 빠진 인원(미등록·데이터 없음)을 한 줄 안내.
+    note: str | None = None
+    if requested_users is not None:
+        by_ocid = {t.ocid: t.discord_user_id for t in targets}
+        displayed_users = {by_ocid[r.ocid] for r in display_rows if r.ocid in by_ocid}
+        dropped = requested_users - len(displayed_users)
+        if dropped > 0:
+            note = f"{dropped}명은 미등록/데이터 없음이라 제외했어요."
+
     return LeaderboardPayload(
         graph_png=graph_buf.getvalue(),
-        embed=_build_embed(display_rows, today, title),
+        embed=_build_embed(display_rows, today, title, note=note),
         ref_date=ref_date,
     )
 
@@ -189,6 +210,35 @@ async def build_payload(
         title=_embed_title(realm),
         min_ranked=MIN_RANKED,
         realm=realm,
+    )
+
+
+async def build_specified_payload(
+    deps: Deps,
+    guild_id: int,
+    user_ids: Sequence[int],
+    realm: Realm = Realm.MAIN,
+) -> LeaderboardPayload | None:
+    """대상 지정 `/경험치` payload — 지정 유저들의 **대표 캐릭터만** 순위판+그래프(정렬 (레벨, exp%) 유지).
+
+    무인자 리더보드(`build_payload`)와 달리 Top-10 상한이 무의미(≤5명)하고 매일 발송·DM 구독과
+    무관하다. 미등록·데이터 없는 지정 유저는 빼고 표시하고 빠진 인원을 임베드에 안내한다. 전원 불가면
+    None(호출자가 안내). 온디맨드 백필(ensure_guild_data)은 호출자가 무인자와 동일하게 선행한다.
+    """
+    targets = await get_targets(
+        deps.session_factory, guild_id, user_ids=user_ids, realm=realm
+    )
+    if not targets:
+        return None
+    return await build_targets_payload(
+        deps,
+        guild_id,
+        targets,
+        labels={t.ocid: t.nickname for t in targets},
+        title=_embed_title(realm),
+        min_ranked=MIN_RANKED,
+        realm=realm,
+        requested_users=len({uid for uid in user_ids}),
     )
 
 
