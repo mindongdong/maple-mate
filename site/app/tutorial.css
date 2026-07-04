@@ -240,6 +240,222 @@
   background: #dbdee1;
 }
 
+/* ============================================================
+   명령 시퀀스 애니 (S6·S9 · CommandSequenceDemo)
+   채팅 룩은 .mm-tut-media .mm-chat* 오버라이드로(hero.css 무변경).
+   팝업·입력바·게이트·칩·임베드 첨부는 .mm-tut-seq-* 네임스페이스.
+   ============================================================ */
+
+/* 대화가 길어 높이·마스크 재조정(§4-1: 460px). position 은 팝업·입력바 오버레이 기준. */
+.mm-tut-seq {
+  position: relative;
+}
+.mm-tut-media .mm-tut-seq .mm-chat-body {
+  height: 460px;
+  padding-bottom: 74px; /* 하단 고정 입력바와 겹치지 않게 */
+  -webkit-mask-image: linear-gradient(to bottom, transparent 0, #000 72px);
+  mask-image: linear-gradient(to bottom, transparent 0, #000 72px);
+}
+
+/* 명령 팝업(입력바 위에 겹쳐 뜸) */
+.mm-tut-seq-popup {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 62px;
+  z-index: 3;
+  box-shadow: 0 10px 26px rgba(0, 0, 0, 0.45);
+}
+
+/* 입력바 — 하단 고정, 명령·칩·게이트 버튼 */
+.mm-tut-seq-input {
+  position: absolute;
+  left: 12px;
+  right: 12px;
+  bottom: 12px;
+  z-index: 4;
+  gap: 10px;
+}
+.mm-tut-seq-inputline {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.mm-tut-seq-cmd {
+  font-size: 14px;
+  font-weight: 700;
+  color: #b3bbff;
+  white-space: nowrap;
+}
+.mm-tut-seq-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  min-width: 0;
+}
+.mm-tut-seq-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  background: #404249;
+  color: #b5bac1;
+  border-radius: 5px;
+  padding: 2px 7px;
+  font-size: 11.5px;
+  font-weight: 600;
+  white-space: nowrap;
+}
+.mm-tut-seq-chip.is-filled {
+  background: rgba(94, 200, 200, 0.18);
+  color: #8fe0e0;
+}
+/* fill 국면에서 지금 값을 고르는 칩("칩에서 모드 선택" 장면) */
+.mm-tut-seq-chip.is-picking {
+  background: rgba(94, 200, 200, 0.28);
+  color: #d7f5f5;
+  box-shadow: 0 0 0 1.5px var(--teal);
+}
+.mm-tut-seq-chip b {
+  font-weight: 700;
+  color: #d7f5f5;
+}
+
+/* fill 값 선택 팝업(choice 선택지 / member 멤버 목록) */
+.mm-tut-seq-mav {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 10px;
+  font-weight: 700;
+}
+.mm-tut-seq-mname {
+  font-size: 13px;
+  font-weight: 600;
+  color: #dbdee1;
+}
+
+/* 게이트 전송 버튼 — 실제 <button>(키보드 접근). 무장 시 펄스 + 힌트. */
+.mm-tut-seq-send {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  border: none;
+  background: #4e5058;
+  color: #b5bac1;
+  cursor: default;
+}
+.mm-tut-seq-send.is-armed {
+  background: var(--teal);
+  color: #fff;
+  cursor: pointer;
+}
+.mm-tut-seq-hint {
+  position: absolute;
+  right: 4px;
+  bottom: 46px;
+  background: var(--teal);
+  color: #fff;
+  font-size: 11.5px;
+  font-weight: 700;
+  padding: 5px 11px;
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.35);
+}
+.mm-tut-seq-hint::after {
+  content: '';
+  position: absolute;
+  right: 12px;
+  bottom: -5px;
+  width: 10px;
+  height: 10px;
+  background: inherit;
+  transform: rotate(45deg);
+}
+
+/* 임베드 안 첨부 PNG(봇 렌더러 결과) */
+.mm-tut-seq-shot {
+  display: block;
+  width: 100%;
+  margin-top: 10px;
+  border-radius: 6px;
+  border: 1px solid #2c2f33;
+}
+.mm-tut-seq-targets {
+  font-size: 11.5px;
+  color: #b0bac8;
+  margin-bottom: 2px;
+}
+.mm-tut-seq-field {
+  margin-top: 9px;
+}
+.mm-tut-seq-field-name {
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #dcddde;
+}
+.mm-tut-seq-field-val {
+  font-size: 11px;
+  color: #b0bac8;
+  line-height: 1.5;
+  margin-top: 2px;
+}
+.mm-tut-seq-field-val b {
+  color: #d7f5f5;
+}
+
+/* 스케줄러 결과(ephemeral · content 텍스트 + PNG) */
+.mm-tut-seq-sched-line {
+  font-size: 12.5px;
+  color: #dcddde;
+  font-weight: 600;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .mm-tut-seq-send.is-armed {
+    animation: mm-tut-seq-pulse 1.2s ease-in-out infinite;
+  }
+  .mm-tut-seq-hint {
+    animation: mm-tut-in 0.3s ease both;
+  }
+  /* 값 선택 팝업: 목록이 먼저 뜨고 잠시 뒤 선택 항목이 하이라이트(fill 1.5s 안). */
+  .mm-tut-seq-pick .mm-tut-popup-item.is-active {
+    animation:
+      mm-tut-in 0.3s ease both,
+      mm-tut-seq-select 1.4s steps(1) both;
+  }
+}
+@keyframes mm-tut-seq-select {
+  0%, 42% {
+    background: transparent;
+  }
+  43%, 100% {
+    background: #404249;
+  }
+}
+@keyframes mm-tut-seq-pulse {
+  0%, 100% {
+    box-shadow: 0 0 0 0 rgba(14, 140, 146, 0.55);
+    transform: scale(1);
+  }
+  50% {
+    box-shadow: 0 0 0 7px rgba(14, 140, 146, 0);
+    transform: scale(1.08);
+  }
+}
+
 /* 알림 3종 미리보기 (S4) */
 .mm-tut-alerts {
   display: flex;
