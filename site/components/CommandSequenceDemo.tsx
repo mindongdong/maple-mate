@@ -65,12 +65,12 @@ function UserLine({ text }: { text: string }) {
   return (
     <div className="mm-chat-line mm-chat-msg">
       <span className="mm-chat-av" style={{ background: '#e0a030' }}>
-        지
+        수
       </span>
       <div className="mm-chat-content">
         <div className="mm-chat-meta">
           <span className="mm-chat-name" style={{ color: '#e0a030' }}>
-            지훈
+            수찬
           </span>
         </div>
         <span className="mm-chat-cmd">{text}</span>
@@ -133,11 +133,11 @@ function CommandPopup({ run }: { run: Run }) {
   )
 }
 
-/** 멤버 목록 팝업 캐스트(작업지시서 §3 — 지훈·수아·민준). */
+/** 멤버 목록 팝업 캐스트(작업지시서 §3 — 수찬·동민·진혁). */
 const MEMBERS = [
-  { n: '지훈', c: '#e0a030' },
-  { n: '수아', c: '#5865f2' },
-  { n: '민준', c: '#3ba55d' },
+  { n: '수찬', c: '#e0a030' },
+  { n: '동민', c: '#5865f2' },
+  { n: '진혁', c: '#3ba55d' },
 ]
 
 /** run 의 pick 파라미터 목록(채우는 장면 순서 기준). */
@@ -147,7 +147,7 @@ function pickParamsOf(run: Run): RunParam[] {
 
 /**
  * fill 국면 값 선택 팝업 — pick:'choice' 는 선택지 목록(본서버/챌린저스),
- * pick:'member' 는 멤버 목록(지훈·수아·민준). 선택될 항목이 하이라이트된다.
+ * pick:'member' 는 멤버 목록(수찬·동민·진혁). 선택될 항목이 하이라이트된다.
  */
 function ValuePicker({ prm }: { prm: RunParam }) {
   const target = prm.v?.replace(/^@/, '')
