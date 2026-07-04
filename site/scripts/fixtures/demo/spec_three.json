@@ -1,0 +1,317 @@
+{
+ "run": "spec_three",
+ "renders": [
+  {
+   "render": "render_table_image",
+   "args": [
+    [
+     "순위",
+     "캐릭터",
+     "전투력",
+     "스킬",
+     "마스터리",
+     "강화",
+     "공용",
+     "스탯 코어 I",
+     "스탯 코어 II",
+     "스탯 코어 III"
+    ],
+    [
+     [
+      "1",
+      "불꽃아크",
+      {
+       "__type": "Highlight",
+       "text": "1억 8553만"
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        4,
+        5
+       ],
+       "slots": 2,
+       "bold_first": false,
+       "highlight_first": false
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        29,
+        9,
+        18,
+        9
+       ],
+       "slots": 4,
+       "bold_first": false,
+       "highlight_first": false
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        15,
+        3,
+        2,
+        1
+       ],
+       "slots": 4,
+       "bold_first": false,
+       "highlight_first": false
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        1,
+        6,
+        5
+       ],
+       "slots": 3,
+       "bold_first": false,
+       "highlight_first": false
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        4,
+        10,
+        6
+       ],
+       "slots": 3,
+       "bold_first": true,
+       "highlight_first": false
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        3,
+        10,
+        7
+       ],
+       "slots": 3,
+       "bold_first": true,
+       "highlight_first": false
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        5,
+        5,
+        10
+       ],
+       "slots": 3,
+       "bold_first": true,
+       "highlight_first": true
+      }
+     ],
+     [
+      "2",
+      "홍길동전사",
+      "1억 8191만",
+      {
+       "__type": "NumGrid",
+       "values": [
+        1,
+        5
+       ],
+       "slots": 2,
+       "bold_first": false,
+       "highlight_first": false
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        29,
+        19,
+        1,
+        24
+       ],
+       "slots": 4,
+       "bold_first": false,
+       "highlight_first": false
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        9,
+        1,
+        1,
+        1
+       ],
+       "slots": 4,
+       "bold_first": false,
+       "highlight_first": false
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        1,
+        6,
+        3
+       ],
+       "slots": 3,
+       "bold_first": false,
+       "highlight_first": false
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        4,
+        10,
+        6
+       ],
+       "slots": 3,
+       "bold_first": true,
+       "highlight_first": false
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        8,
+        9,
+        3
+       ],
+       "slots": 3,
+       "bold_first": true,
+       "highlight_first": true
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        4,
+        10,
+        6
+       ],
+       "slots": 3,
+       "bold_first": true,
+       "highlight_first": false
+      }
+     ],
+     [
+      "3",
+      "바람궁수",
+      "1억 7656만",
+      {
+       "__type": "NumGrid",
+       "values": [
+        4,
+        4
+       ],
+       "slots": 2,
+       "bold_first": false,
+       "highlight_first": false
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        19,
+        9,
+        11,
+        9
+       ],
+       "slots": 4,
+       "bold_first": false,
+       "highlight_first": false
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        16,
+        1,
+        1,
+        1
+       ],
+       "slots": 4,
+       "bold_first": false,
+       "highlight_first": false
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        1,
+        5,
+        1
+       ],
+       "slots": 3,
+       "bold_first": false,
+       "highlight_first": false
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        5,
+        9,
+        6
+       ],
+       "slots": 3,
+       "bold_first": true,
+       "highlight_first": true
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        4,
+        6,
+        10
+       ],
+       "slots": 3,
+       "bold_first": true,
+       "highlight_first": false
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        5,
+        6,
+        9
+       ],
+       "slots": 3,
+       "bold_first": true,
+       "highlight_first": true
+      }
+     ]
+    ]
+   ],
+   "kwargs": {
+    "aligns": [
+     "center",
+     "left",
+     "left",
+     "center",
+     "center",
+     "center",
+     "center",
+     "center",
+     "center",
+     "center"
+    ]
+   }
+  }
+ ],
+ "messages": [
+  {
+   "method": "response.defer",
+   "ephemeral": false
+  },
+  {
+   "method": "followup.send",
+   "embeds": [
+    {
+     "footer": {
+      "text": "최신 기준 · NEXON Open API"
+     },
+     "image": {
+      "url": "attachment://spec.png"
+     },
+     "flags": 0,
+     "color": 16747520,
+     "type": "rich",
+     "description": "👤 불꽃아크 <@333333333333333333>  ·  홍길동전사 <@222222222222222222>  ·  바람궁수 <@111111111111111111>",
+     "title": "스펙 비교"
+    }
+   ],
+   "files": [
+    "spec.png"
+   ]
+  }
+ ]
+}

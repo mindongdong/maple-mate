@@ -1,0 +1,127 @@
+{
+ "run": "item_weapon",
+ "renders": [
+  {
+   "render": "render_item_cards",
+   "args": [
+    [
+     {
+      "__type": "ItemCard",
+      "label": "바람궁수 · 무기",
+      "found": true,
+      "item_name": "제네시스 보우",
+      "starforce": "22",
+      "icon_png": {
+       "__bytes_b64": "iVBORw0KGgoAAAANSUhEUgAAACIAAAAkCAYAAADsHujfAAAEKElEQVRYhb2XMXbjOBBEv2acKGyHE7ZDh3C4IXUE+AjyEaQjyEeQUmfkEcgjCKkz4QhGqgwbAKAgWvbsjuXp9/gkgiRQ7KquBmdcKSwi9XlHCNPr07E6ZlcCUB8AHggdIUyuhzL+WyAW0WrC0BH8JyAUMEADaEdo8ngHuLywWEQf8UuL7Czi8py+nvvnJxPfA9wzP94z55Xj8UIm/gGajrB85ah93/Py8sI98zmg+TCvHO9fOcorRwPMgV/A8Rfzo+cYAG4ugegIy+rNFPAW8SW1Oa+as7Ds+x7nHOv1mr7vWSwWOs2eMQaAzrmStTAQ2nx5NqvergFsR7DxkJiZ3QUs4sicA84ioSNAoq8AHxdWVZbLJbvdDsn6DRNJiAjOOYwxhBDw3kODiEXUIlsgWiQCMR7SbznP//cW6atjD0RjTNxv06+qRlUdnwGill/VGN+aqHnMWnu6zyYgzaXF99vTZJvN5mzychhjYnxrojEmGmMugd7X9xZA1RwA8ceUy3gQOgIW4eEJ9tuU7mEYAGhXsGpOnK8ax+w2XXPOYZFgkQHossZ2uVo65xwA3nss8tiid2XdWVXnm45gIS3+8ASWBKrmVkMgqCLesz8ID3eB1Qoen9M9WdQD0GVtFT3Vhlf8xOeszMrDYpFVTuc7WuJBRtpUNXGsGkUkisioAXOiZWuRpqnc1oIkPZ4BikzDIrZF27J44TEeJMYYoxUZwV0SZK2BrI1ltoSP4gxErZFSomw2G1RPczze3uKqEvTe472n73uapikvMpZkdtjaoS+BOHP10dBC4sxZxK3XawNJE7O7wH6b7nl4SkIFeB5gsViMIMZ5Pu5rH4I4i+wn1iI9mRIzKbV2RV2e41HGmqapNWJbdErNe03kGKlZJmGN6XTDqTp0Mp9Fxix0hJGeYRhKWxgA94ivG+anmbjJExeLNwXI084gAqHWyjNnAAqIDMCTOm4HuEnX/pyOAiJbfMvE0usS7vt+pKRFRyqK41qkzdT+ZzqmQLRYfFlstO2qNCv+z86vAoKkkdH1igXvexltu+gjp398sNCRNfFndNRRZ6MY0rSBaWVWnGenbdEvZeIdkAKmdk2LvFnkUK6XNk9Fx/8p0c9iVu3MNh1BN5sNu92udMiBU+Oq96Q7col+iY4qbki2Ptp7BcKVxQqQPEYeuxoIgJu85acAkVPDDHlbWEB6Pt7dfwkEwE2LSrUHraOMl4+lj5rIl0EA/OgIZx9HIQQ0LW6onPY7QUD2kY7QdwQt278q50L6QLoE5mogCpBgkUU9OGlycoGTq4IYgWQwQ3HWw15RVfIedorj6iAgaaQI0UOqmrts7yUqXr4FBJz2IwEYLPJcslJF+Xr/NhBnkR029ZlTVzVZqH9k21+Jupdo3vr/dRBw/j3K3wRxifP4m+vfEv8CdqKbaFeUF6MAAAAASUVORK5CYII="
+      },
+      "potential": {
+       "__type": "CardPotential",
+       "grade": "레전드리",
+       "options": [
+        "보스 몬스터 데미지 +35%",
+        "몬스터 방어율 무시 +30%",
+        "공격력 +9%"
+       ]
+      },
+      "additional": {
+       "__type": "CardPotential",
+       "grade": "레전드리",
+       "options": [
+        "공격력 +21%",
+        "DEX +9%"
+       ]
+      },
+      "add_option": "INT +36, LUK +36, 공격력 +153, 보스데미지 +12%, 데미지 +6%",
+      "upgrade": "주문서 8회",
+      "upgrade_stats": "DEX +32, 공격력 +72"
+     },
+     {
+      "__type": "ItemCard",
+      "label": "홍길동전사 · 무기",
+      "found": true,
+      "item_name": "제네시스 라즐리",
+      "starforce": "22",
+      "icon_png": {
+       "__bytes_b64": "iVBORw0KGgoAAAANSUhEUgAAACMAAAAlCAYAAADIgFBEAAAD1klEQVRYhb2XrXfjOBTFf+0MCXyFu+wFBooWunChCheGLvTCgSncZemfYNGymJYlNCyiZRU10wJJjvPRdjLr9p2j42PZlq/ufVd6ugKwIKRWIjgIfHF8syAW0S3dH8AtoAAzCFvovhSNBbVQA7E0CysLdo7IB5+PGtckeRTAGIMxBgcVUAdCZQ/l+3QwMPjhuvEFkLFIDXwZoOtznevGo6rcEwxJwi8BVMAcOGc6DexWAVXFwZcB+p6BnNh4Og3sdjC9U5z3pkFqRxALm+E3Yy4B13nQjQW/2WwOHt4MGBpINgdsaqLN2I6zYCwsgaiqMe4kCkTNLe4kqmqx/XAJqG124hhRcsYDzkLrvWd6J7zu9hMuOZRdhjGmPDKkicio+ZQHtA2yZsCQZhYkM2SMietlz0y00FiYZ3bHB2ShB1R+XOQqgPhkyYaA5hZ25wABcb2kBzTIpSZPZFzJGsRYWJaZi0hs6j0LBdAQqIXYIONLNtw8VTU29f7KEUOf7rIiFZkVETlh6BygAbClTU67KK7eAkOaWUUa1AI4QERYzgP3D/v310u4f1B2q8DVNGChBR5Jq3WJD1fsb+c6t9DNUmHlB4PMVJV//nzhb6cs5wH3nBA/PMFqEfj9LtViP1KxRp6QyW1mEaD79aLtUsk4zZ/joq3OCa7HSX6WmWH8QCZbum4GXrsu1N1kBh2brkMncKvw5PcM1RU8+vTtYrHg37bFABNVnkPQWWYJmMBhefshGJeA9JJt6XrJZhJ43Ah/3XY8ZQDPPgF6zvfeeyaajKWqtC8vky3oFqoZ/GaRAN3LxdINJTtudXV6X1d7OY0x0ZQtBXqJG6R33lk3vQeGvcvUIuoIVWIwMfLQpqu1mVkHzit4D6qEkMwkIeD3495x6LyL2NGchNYiTWFDVWNdpUSOMUYraS87Zq20Bnm1UDeIwhs18Hvh0gHPuzSTDQQPKVlV94vu/c0Nm3C6pKxWK6qqymMFB2wcZ168NBpELSyG9hWRnp31MuWNMeaEnbyxVsNK8fv/AePyYupIGehFeF2nuhmXMqINBhHhoU3f2OTKFnAW2dyPwUoeWJp0torGmKiqvWsoeVGf3bvGLcQKGJuOMKsCqIDiKFlLX1VVpW/8yIDqBnllsCUAcbVaFSZ2BchisRiC/BRApmdnwEZhwcKyQcyw/xxDF1v7jQgWaQHWO+kt3rYtDeIA59IS0C+y3vti8XGZOs4dEhuvuciqzhz0ern0UNpxYnCyWGYwdYO8dz6PeijrZXvTzwESdQQh7/LvVHYx7oSraf94VCwHoH7itRNp/gPceXHIWKNjIAAAAABJRU5ErkJggg=="
+      },
+      "potential": {
+       "__type": "CardPotential",
+       "grade": "레전드리",
+       "options": [
+        "공격력 +30%"
+       ]
+      },
+      "additional": {
+       "__type": "CardPotential",
+       "grade": "레전드리",
+       "options": [
+        "공격력 +21%",
+        "캐릭터 기준 9레벨 당 INT +1"
+       ]
+      },
+      "add_option": "STR +22, 공격력 +110, 보스데미지 +8%",
+      "upgrade": "주문서 8회",
+      "upgrade_stats": "STR +32, 공격력 +72"
+     },
+     {
+      "__type": "ItemCard",
+      "label": "불꽃아크 · 무기",
+      "found": true,
+      "item_name": "제네시스 투핸드해머",
+      "starforce": "22",
+      "icon_png": {
+       "__bytes_b64": "iVBORw0KGgoAAAANSUhEUgAAACQAAAAkCAYAAADhAJiYAAAEK0lEQVRYhcWYrXbjSBBGb3aXGNbAwA40bMOFHTiw/QgOXSbDgQpdpnkEmYZZj2BRM4sOS1OzXtAqpeUojp3MzPqcPlH011dfVX2qFvy/v9iP4ffHJVd5EA/yK4h2FZCB3ZwHEUMCUZgAhA2h+0k8USdo0/83byrUw1jAA6t+eMD2xz4N45yjIz1lPAichG8E4xHvkYoXOSMQPVLVGP9JqOici8aYWJbl6P7nYGogWmtj4YjGmFgXA1Tdn/MRqGFy59w0xFswzrm4qxJM4cY3+SBUdM6dqnI5TDxINMbEXZUuNsachu8aqKuUkbdg4kEiMIRL/+pTXgh1uTI1RjxiNYGnYFQdhTETiX4G6nJlenWMR1b0CZzDWGuHcOmoiwRnrT3NqdIj9sPKZEDWIwUwgtHcMRB3VTomIiO4HKwPnasxaqLXKTMFdJrAIhJ3Fa+UqovXYasx2yxs1yuTAQ0h0xzR3FG1dhXR9kpB2la1spDtPFJ+WJkM6FVSa2KfKqUT5eHbbrcK9PwpZSaghrLXob6T+4+1NtoJT8rPy1T7eIdwaoz6lJrYOqEmcp5D6uI5VI0p+/td9TL+Uzf2HMOc2REIc2b82zzNAbqjo+s6joAJgaMI377uaX4YVjbwt4EmWObzOQBd1+GRMGcme463wC3AnNlxzzF8WqksMYchIrFwKZfiIW1r+U+Nd4xzWqEJpZgzOz51+7keK8sSgK+3e7yHf5Yz1o+BbwUcux/MjGO1WtE0zXA/5xxP3d7OmUFS/6xSf03t3BA6j7SAZI0a6/UaAOvSefXzM8svX0gtFjRNM4Kx1ub39L5vPD3C1V1nH7qixuzIDFHLvXAp4XcVQ79kjIlWw3pSiVe+jCeBBm9SBxdJOWOy6ipctr+HgnFlnubXOajJntolX9L+GwDrBBMCi7tAWaR9LY7HBkSExV1AROi6PhLGYK2l9B1t21IXKZ+MMWwIHnBc2p87xNSYlUd2+pRaUfpuI3NpVUgVUDVVsaFtUY96aYWnOoT3w6WtiI7+ZiMbsBmMvvfyMCqE5lsWOpc7+quQ9QfztRiLZVK1bdskP6alX0pZa5EQdF3F4gGqCh6+W9omEEKqwOVjWhRuOkNddPl8o/lflX1gvEQdciJd3ABdX7ICWBGhJU22eEj5ZB1UtCwfYFsF7tcQD8LdvXDYBhZLq8/TkRaegy9Nrlz7uDp6/1FWj7Q9jHL7DWGVXysigyq7Xqld3Q0w9w+WpmnwyHegAdrck94CEmBUZT1ECBAaQnCIkQTsNoRVWZas12viQbi5ezHiXJkMZuORzYbQXmWQHiRZwPSHhtP3ng6tOF3TxYN8dj13+e+tl7EuBn4rzFtQCpN71qUwZz/HXAtFcl63pFudHJtM4F8K1E+sxWAZf1NqSXbxboP2U4EyqKmPXBd1i/8B/y9t1h98gKgAAAAASUVORK5CYII="
+      },
+      "potential": {
+       "__type": "CardPotential",
+       "grade": "레전드리",
+       "options": [
+        "공격력 +21%",
+        "보스 몬스터 데미지 +30%"
+       ]
+      },
+      "additional": {
+       "__type": "CardPotential",
+       "grade": "레전드리",
+       "options": [
+        "공격력 +21%",
+        "공격 시 15% 확률로 95의 MP 회복"
+       ]
+      },
+      "add_option": "INT +30, LUK +30, HP +3600, 공격력 +210, 보스데미지 +8%",
+      "upgrade": "주문서 8회",
+      "upgrade_stats": "STR +32, 공격력 +72"
+     }
+    ]
+   ],
+   "kwargs": {}
+  }
+ ],
+ "messages": [
+  {
+   "method": "response.defer",
+   "ephemeral": false
+  },
+  {
+   "method": "followup.send",
+   "embeds": [
+    {
+     "footer": {
+      "text": "등록자 전원(3명)을 비교했어요\n최신 기준 · NEXON Open API"
+     },
+     "image": {
+      "url": "attachment://item.png"
+     },
+     "flags": 0,
+     "color": 16747520,
+     "type": "rich",
+     "description": "👤 바람궁수 <@111111111111111111>  ·  홍길동전사 <@222222222222222222>  ·  불꽃아크 <@333333333333333333>",
+     "title": "아이템 — 무기"
+    }
+   ],
+   "files": [
+    "item.png"
+   ]
+  }
+ ]
+}

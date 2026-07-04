@@ -1,0 +1,295 @@
+{
+ "run": "mychar_spec",
+ "renders": [
+  {
+   "render": "render_table_image",
+   "args": [
+    [
+     "순위",
+     "캐릭터",
+     "전투력",
+     "스킬",
+     "마스터리",
+     "강화",
+     "공용",
+     "스탯 코어 I",
+     "스탯 코어 II",
+     "스탯 코어 III"
+    ],
+    [
+     [
+      "1",
+      "바람궁수",
+      {
+       "__type": "Highlight",
+       "text": "1억 7656만"
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        4,
+        4
+       ],
+       "slots": 2,
+       "bold_first": false,
+       "highlight_first": false
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        19,
+        9,
+        11,
+        9
+       ],
+       "slots": 4,
+       "bold_first": false,
+       "highlight_first": false
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        16,
+        1,
+        1,
+        1
+       ],
+       "slots": 4,
+       "bold_first": false,
+       "highlight_first": false
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        1,
+        5,
+        1
+       ],
+       "slots": 3,
+       "bold_first": false,
+       "highlight_first": false
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        5,
+        9,
+        6
+       ],
+       "slots": 3,
+       "bold_first": true,
+       "highlight_first": true
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        4,
+        6,
+        10
+       ],
+       "slots": 3,
+       "bold_first": true,
+       "highlight_first": false
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        5,
+        6,
+        9
+       ],
+       "slots": 3,
+       "bold_first": true,
+       "highlight_first": true
+      }
+     ],
+     [
+      "2",
+      "나이트로드",
+      "9432만",
+      {
+       "__type": "NumGrid",
+       "values": [
+        1,
+        2
+       ],
+       "slots": 2,
+       "bold_first": false,
+       "highlight_first": false
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        5,
+        9,
+        9,
+        9
+       ],
+       "slots": 4,
+       "bold_first": false,
+       "highlight_first": false
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        1,
+        1,
+        1,
+        1
+       ],
+       "slots": 4,
+       "bold_first": false,
+       "highlight_first": false
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        1,
+        1
+       ],
+       "slots": 3,
+       "bold_first": false,
+       "highlight_first": false
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        3,
+        10,
+        7
+       ],
+       "slots": 3,
+       "bold_first": true,
+       "highlight_first": false
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        5,
+        10,
+        5
+       ],
+       "slots": 3,
+       "bold_first": true,
+       "highlight_first": true
+      },
+      {
+       "__type": "NumGrid",
+       "values": [],
+       "slots": 3,
+       "bold_first": true,
+       "highlight_first": false
+      }
+     ],
+     [
+      "3",
+      "눈꽃마법사 (챌린저스4)",
+      "3630만",
+      {
+       "__type": "NumGrid",
+       "values": [
+        1
+       ],
+       "slots": 2,
+       "bold_first": false,
+       "highlight_first": false
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        7,
+        5,
+        6,
+        1
+       ],
+       "slots": 4,
+       "bold_first": false,
+       "highlight_first": false
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        1
+       ],
+       "slots": 4,
+       "bold_first": false,
+       "highlight_first": false
+      },
+      {
+       "__type": "NumGrid",
+       "values": [
+        1,
+        0
+       ],
+       "slots": 3,
+       "bold_first": false,
+       "highlight_first": false
+      },
+      {
+       "__type": "NumGrid",
+       "values": [],
+       "slots": 3,
+       "bold_first": true,
+       "highlight_first": false
+      },
+      {
+       "__type": "NumGrid",
+       "values": [],
+       "slots": 3,
+       "bold_first": true,
+       "highlight_first": false
+      },
+      {
+       "__type": "NumGrid",
+       "values": [],
+       "slots": 3,
+       "bold_first": true,
+       "highlight_first": false
+      }
+     ]
+    ]
+   ],
+   "kwargs": {
+    "aligns": [
+     "center",
+     "left",
+     "left",
+     "center",
+     "center",
+     "center",
+     "center",
+     "center",
+     "center",
+     "center"
+    ]
+   }
+  }
+ ],
+ "messages": [
+  {
+   "method": "response.defer",
+   "ephemeral": false
+  },
+  {
+   "method": "followup.send",
+   "embeds": [
+    {
+     "footer": {
+      "text": "최신 기준 · NEXON Open API"
+     },
+     "image": {
+      "url": "attachment://spec.png"
+     },
+     "flags": 0,
+     "color": 16747520,
+     "type": "rich",
+     "description": "👤 <@111111111111111111>",
+     "title": "내 캐릭터 스펙 비교"
+    }
+   ],
+   "files": [
+    "spec.png"
+   ]
+  }
+ ]
+}

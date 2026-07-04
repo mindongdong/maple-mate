@@ -1,0 +1,75 @@
+{
+ "run": "exp_target",
+ "renders": [
+  {
+   "render": "render_progress_graph",
+   "args": [
+    {
+     "바람궁수": [
+      [
+       "2026-06-27",
+       285.24719
+      ],
+      [
+       "2026-06-28",
+       285.24719
+      ],
+      [
+       "2026-06-29",
+       285.24719
+      ],
+      [
+       "2026-06-30",
+       285.24719
+      ],
+      [
+       "2026-07-01",
+       285.24719
+      ],
+      [
+       "2026-07-02",
+       285.24719
+      ],
+      [
+       "2026-07-03",
+       285.24719
+      ],
+      [
+       "2026-07-04",
+       285.24719
+      ]
+     ]
+    },
+    "2026-07-03"
+   ],
+   "kwargs": {}
+  }
+ ],
+ "messages": [
+  {
+   "method": "response.defer",
+   "ephemeral": false
+  },
+  {
+   "method": "followup.send",
+   "embeds": [
+    {
+     "footer": {
+      "text": "기준: 오늘(07/04) 현재 · NEXON Open API"
+     },
+     "image": {
+      "url": "attachment://leaderboard_graph.png"
+     },
+     "flags": 0,
+     "color": 16747520,
+     "type": "rich",
+     "description": "🥇 **바람궁수** — Lv.285 (25%)",
+     "title": "📈 경험치 리더보드"
+    }
+   ],
+   "files": [
+    "leaderboard_graph.png"
+   ]
+  }
+ ]
+}

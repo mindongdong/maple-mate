@@ -1,0 +1,172 @@
+{
+ "run": "potential_30d",
+ "renders": [
+  {
+   "render": "render_table_image",
+   "args": [
+    [
+     "순위",
+     "대상",
+     "잠재 재설정",
+     "사용 큐브",
+     "사용 메소",
+     "잠재 등업",
+     "에디 등업"
+    ],
+    [
+     [
+      "1",
+      "수아",
+      "759",
+      "513",
+      {
+       "__type": "Highlight",
+       "text": "77억 5933만"
+      },
+      {
+       "__type": "GradeBadges",
+       "items": [
+        [
+         "레전드리",
+         1
+        ]
+       ]
+      },
+      {
+       "__type": "GradeBadges",
+       "items": [
+        [
+         "에픽",
+         2
+        ],
+        [
+         "유니크",
+         1
+        ],
+        [
+         "레전드리",
+         1
+        ]
+       ]
+      }
+     ],
+     [
+      "2",
+      "민준",
+      "1161",
+      "996",
+      "51억 966만",
+      {
+       "__type": "GradeBadges",
+       "items": [
+        [
+         "유니크",
+         1
+        ],
+        [
+         "레전드리",
+         1
+        ]
+       ]
+      },
+      {
+       "__type": "GradeBadges",
+       "items": [
+        [
+         "에픽",
+         2
+        ],
+        [
+         "유니크",
+         2
+        ]
+       ]
+      }
+     ],
+     [
+      "3",
+      "지훈",
+      "663",
+      "510",
+      "26억 7479만",
+      {
+       "__type": "GradeBadges",
+       "items": [
+        [
+         "에픽",
+         4
+        ],
+        [
+         "유니크",
+         4
+        ],
+        [
+         "레전드리",
+         3
+        ]
+       ]
+      },
+      {
+       "__type": "GradeBadges",
+       "items": [
+        [
+         "에픽",
+         2
+        ],
+        [
+         "유니크",
+         1
+        ]
+       ]
+      }
+     ]
+    ]
+   ],
+   "kwargs": {
+    "aligns": [
+     "center",
+     "left",
+     "right",
+     "right",
+     "right",
+     "left",
+     "left"
+    ]
+   }
+  }
+ ],
+ "messages": [
+  {
+   "method": "response.defer",
+   "ephemeral": false
+  },
+  {
+   "method": "followup.send",
+   "embeds": [
+    {
+     "footer": {
+      "text": "키 등록자 전원(3명)을 비교했어요\n2026-06-05 ~ 2026-07-04 · NEXON Open API"
+     },
+     "image": {
+      "url": "attachment://potential.png"
+     },
+     "fields": [
+      {
+       "inline": false,
+       "name": "ℹ️ 계정 전체 합산",
+       "value": "이력은 등록 캐릭터 본인 계정의 **전체 캐릭터(부캐 포함)** 를 합산한 값이에요."
+      }
+     ],
+     "flags": 0,
+     "color": 16747520,
+     "type": "rich",
+     "description": "👤 수아 <@222222222222222222>  ·  민준 <@333333333333333333>  ·  지훈 <@111111111111111111>",
+     "title": "잠재 메소·큐브 비교"
+    }
+   ],
+   "files": [
+    "potential.png"
+   ]
+  }
+ ]
+}

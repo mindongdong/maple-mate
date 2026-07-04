@@ -1,0 +1,74 @@
+{
+ "run": "starforce_target",
+ "renders": [
+  {
+   "render": "render_table_image",
+   "args": [
+    [
+     "순위",
+     "대상",
+     "운빨수치",
+     "총 사용 메소",
+     "기준건수"
+    ],
+    [
+     [
+      "1",
+      "수아",
+      "상위 99% 초과",
+      "3억 3950만",
+      "16건"
+     ]
+    ]
+   ],
+   "kwargs": {
+    "aligns": [
+     "center",
+     "left",
+     "right",
+     "right",
+     "right"
+    ]
+   }
+  }
+ ],
+ "messages": [
+  {
+   "method": "response.defer",
+   "ephemeral": false
+  },
+  {
+   "method": "followup.send",
+   "embeds": [
+    {
+     "footer": {
+      "text": "2026-06-28 ~ 2026-07-04 · NEXON Open API"
+     },
+     "image": {
+      "url": "attachment://starforce.png"
+     },
+     "fields": [
+      {
+       "inline": false,
+       "name": "ℹ️ 계정 전체 합산",
+       "value": "이력은 등록 캐릭터 본인 계정의 **전체 캐릭터(부캐 포함)** 를 합산한 값이에요."
+      },
+      {
+       "inline": false,
+       "name": "ℹ️ 10성 이상 강화만 집계",
+       "value": "**10성 이상** 강화만 비교해요. 강화 당시 썬데이 이벤트도 반영했어요."
+      }
+     ],
+     "flags": 0,
+     "color": 16747520,
+     "type": "rich",
+     "description": "👤 수아 <@222222222222222222>",
+     "title": "스타포스 운빨 비교"
+    }
+   ],
+   "files": [
+    "starforce.png"
+   ]
+  }
+ ]
+}

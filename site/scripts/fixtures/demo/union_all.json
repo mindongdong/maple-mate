@@ -1,0 +1,82 @@
+{
+ "run": "union_all",
+ "renders": [
+  {
+   "render": "render_table_image",
+   "args": [
+    [
+     "순위",
+     "캐릭터",
+     "유니온",
+     "아티팩트",
+     "챔피언"
+    ],
+    [
+     [
+      "1",
+      "불꽃아크",
+      {
+       "__type": "Highlight",
+       "text": "9402"
+      },
+      "52 LV",
+      "SS(1) S(1) A(1)"
+     ],
+     [
+      "2",
+      "홍길동전사",
+      "9333",
+      {
+       "__type": "Highlight",
+       "text": "53 LV"
+      },
+      "SSS(1) SS(1)"
+     ],
+     [
+      "3",
+      "바람궁수",
+      "9205",
+      "50 LV",
+      "A(3)"
+     ]
+    ]
+   ],
+   "kwargs": {
+    "aligns": [
+     "center",
+     "left",
+     "center",
+     "center",
+     "left"
+    ]
+   }
+  }
+ ],
+ "messages": [
+  {
+   "method": "response.defer",
+   "ephemeral": false
+  },
+  {
+   "method": "followup.send",
+   "embeds": [
+    {
+     "footer": {
+      "text": "등록자 전원(3명)을 비교했어요\n2026-07-03 기준 · NEXON Open API"
+     },
+     "image": {
+      "url": "attachment://union.png"
+     },
+     "flags": 0,
+     "color": 16747520,
+     "type": "rich",
+     "description": "👤 불꽃아크 <@333333333333333333>  ·  홍길동전사 <@222222222222222222>  ·  바람궁수 <@111111111111111111>",
+     "title": "유니온 비교"
+    }
+   ],
+   "files": [
+    "union.png"
+   ]
+  }
+ ]
+}
