@@ -19,7 +19,7 @@ function UserCmd({ cmd }: { cmd: string }) {
       <div className="mm-chat-content">
         <div className="mm-chat-meta">
           <span className="mm-chat-name" style={{ color: '#e0a030' }}>
-            수찬
+            동민
           </span>
         </div>
         <span className="mm-chat-cmd">{cmd}</span>
@@ -223,10 +223,10 @@ export function TargetDemo() {
         </div>
       </div>
       <div className="mm-tut-target-col">
-        <span className="mm-chat-cmd">/유니온 대상:@동민</span>
+        <span className="mm-chat-cmd">/유니온 대상:@수찬</span>
         <ArrowDown size={16} strokeWidth={2} className="mm-tut-target-arrow" aria-hidden />
         <div className="mm-tut-target-out">
-          <b>동민</b>의 대표 캐릭터만 비교
+          <b>수찬</b>의 대표 캐릭터만 비교
         </div>
       </div>
     </div>

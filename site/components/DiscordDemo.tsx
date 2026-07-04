@@ -28,9 +28,9 @@ type BotItem = { who: 'bot'; reply: React.ReactNode }
 type Item = UserItem | BotItem
 
 const SCRIPT: Item[] = [
-  { who: 'user', author: '수찬', color: '#e0a030', initial: '수', cmd: '/경험치' },
+  { who: 'user', author: '동민', color: '#e0a030', initial: '동', cmd: '/경험치' },
   { who: 'bot', reply: <LeaderboardEmbed rows={5} /> },
-  { who: 'user', author: '동민', color: '#5865f2', initial: '동', cmd: '/유니온' },
+  { who: 'user', author: '수찬', color: '#5865f2', initial: '수', cmd: '/유니온' },
   { who: 'bot', reply: <UnionMini /> },
 ]
 
