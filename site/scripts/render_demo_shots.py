@@ -14,9 +14,12 @@
 
 from __future__ import annotations
 
+import base64
+import json
 import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from typing import Any
 
 _ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(_ROOT))  # 레포 루트 기준 실행 — maple_mate 패키지 import
@@ -45,6 +48,7 @@ from maple_mate.scheduler.service import (  # noqa: E402
 
 _OUT = _ROOT / "site" / "public" / "shots"
 _ICONS = Path(__file__).resolve().parent / "icons"
+_FIXTURES = Path(__file__).resolve().parent / "fixtures" / "demo"
 
 
 def _icon(name: str) -> bytes:
@@ -298,6 +302,139 @@ def build_scheduler() -> bytes:
     return render_scheduler_card(hw, datetime(2026, 7, 3, 9, 0), frozenset())
 
 
+# --- 픽스처 기반 데모 샷 (site/scripts/fixtures/demo/*.json) --------------------
+#
+# 위 build_* 7종은 손으로 짠 대표 캐스트 샷(기존 site/public/shots/*.png)이다.
+# 아래는 튜토리얼 데모 애니메이션(CommandSequenceDemo)의 결과물 — 시나리오 11런을
+# QA 하네스로 실행한 당시의 "렌더러 입력 그대로"(가명화 완료) JSON 픽스처에서 복원해
+# demo-<run>.png 로 생성한다. 봇 렌더 코드가 바뀌면 재실행·재커밋하면 드리프트 0.
+#
+# 픽스처 마커 규약(추출 스크립트 spike/extract_demo_fixtures.py 의 역): dataclass 는
+# `{"__type": 이름, ...필드}`, bytes(아이콘 PNG)는 `{"__bytes_b64": base64}`,
+# 날짜/시각은 ISO 문자열. 아래 _revive 가 이를 실제 인자로 되돌린다.
+
+# __type 마커 → dataclass 재구성기. 각 람다는 마커 dict(→ 필드 복원 완료)를 받는다.
+# 픽스처에 실제로 등장하는 8종만 등록(다른 마커가 나오면 _revive 가 즉시 실패).
+_MARKERS = {
+    # 표(render_table_image) 셀 데코레이터
+    "Highlight": lambda d: Highlight(d["text"]),
+    "NumGrid": lambda d: NumGrid(
+        tuple(d["values"]), d["slots"], d["bold_first"], d["highlight_first"]
+    ),
+    "GradeBadges": lambda d: GradeBadges(tuple(tuple(it) for it in d["items"])),
+    # 아이템 카드(render_item_cards)
+    "CardPotential": lambda d: CardPotential(d["grade"], tuple(d["options"])),
+    "ItemCard": lambda d: ItemCard(
+        label=d["label"],
+        found=d["found"],
+        item_name=d.get("item_name"),
+        starforce=d.get("starforce"),
+        icon_png=d.get("icon_png"),
+        potential=d.get("potential"),
+        additional=d.get("additional"),
+        add_option=d.get("add_option"),
+        upgrade=d.get("upgrade"),
+        upgrade_stats=d.get("upgrade_stats"),
+    ),
+    # 스케줄러 카드(render_scheduler_card)
+    "ContentItem": lambda d: ContentItem(
+        d["name"],
+        d["now_count"],
+        d["max_count"],
+        type=d["type"],
+        quest_state=d["quest_state"],
+    ),
+    "BossItem": lambda d: BossItem(d["name"], d["difficulty"], d["done"], d["cycle"]),
+    "Homework": lambda d: Homework(
+        character_name=d["character_name"],
+        world_name=d["world_name"],
+        character_level=d["character_level"],
+        daily=d["daily"],
+        weekly=d["weekly"],
+        boss=d["boss"],
+        weekly_boss_clear_count=d["weekly_boss_clear_count"],
+        weekly_boss_clear_limit=d["weekly_boss_clear_limit"],
+    ),
+}
+
+
+def _revive(obj: Any) -> Any:
+    """픽스처 JSON 값을 렌더러 인자로 되돌린다(상향식 재귀).
+
+    - `{"__bytes_b64": ...}`  → base64 디코드 bytes(아이콘 PNG)
+    - `{"__type": 이름, ...}` → 자식 먼저 복원한 뒤 해당 dataclass 로 생성
+    - 그 외 dict/list       → 원소를 재귀 복원
+    - str                   → 그대로(날짜 변환은 렌더러별 매핑에서 처리)
+    """
+    if isinstance(obj, dict):
+        if "__bytes_b64" in obj:
+            return base64.b64decode(obj["__bytes_b64"])
+        if "__type" in obj:
+            marker = obj["__type"]
+            if marker not in _MARKERS:
+                raise KeyError(f"알 수 없는 __type 마커: {marker!r}")
+            fields = {k: _revive(v) for k, v in obj.items() if k != "__type"}
+            return _MARKERS[marker]({"__type": marker, **fields})
+        return {k: _revive(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_revive(x) for x in obj]
+    return obj
+
+
+def _load_render(run: str) -> tuple[str, list[Any], dict[str, Any]]:
+    """픽스처의 첫 render 를 (렌더러명, args, kwargs) 로 복원한다.
+
+    scheduler 는 캐릭터 3장을 캡처했지만 데모는 첫 캐릭터 카드 1장만 쓰므로
+    renders[0] 만 취한다(다른 런은 애초에 render 가 1개뿐).
+    """
+    fixture = json.loads((_FIXTURES / f"{run}.json").read_text(encoding="utf-8"))
+    render = fixture["renders"][0]
+    return render["render"], _revive(render["args"]), _revive(render.get("kwargs", {}))
+
+
+def build_from_fixture(run: str) -> bytes:
+    """픽스처 1런 → PNG bytes. 렌더러별로 날짜 문자열만 date/datetime 으로 승격한다."""
+    name, args, kwargs = _load_render(run)
+    if name == "render_progress_graph":
+        # args = [series{nick: [[iso, level], ...]}, ref_iso] — 날짜 문자열을 date 로.
+        series_raw, ref_iso = args
+        series = {
+            nick: [(date.fromisoformat(d), lvl) for d, lvl in points]
+            for nick, points in series_raw.items()
+        }
+        return render_progress_graph(series, date.fromisoformat(ref_iso)).getvalue()
+    if name == "render_table_image":
+        headers, rows = args
+        return render_table_image(headers, rows, **kwargs)
+    if name == "render_item_cards":
+        (cards,) = args
+        return render_item_cards(cards)
+    if name == "render_scheduler_card":
+        # args = [Homework, iso_datetime, excluded_list] — 시각 문자열을 datetime 으로.
+        hw, now_iso, excluded = args
+        return render_scheduler_card(
+            hw, datetime.fromisoformat(now_iso), frozenset(excluded)
+        )
+    raise ValueError(f"매핑되지 않은 렌더러: {name!r} (run={run})")
+
+
+# 픽스처 11런 — 파일명 순서는 §3 대본 흐름(경험치→스펙→아이템→유니온→내캐릭터,
+# 스타포스→잠재→스케줄러)을 따른다. demo-<run>.png 로 출력.
+_FIXTURE_RUNS = [
+    "exp_main",
+    "exp_challengers",
+    "exp_target",
+    "spec_three",
+    "item_weapon",
+    "union_all",
+    "mychar_spec",
+    "starforce_rand",
+    "starforce_target",
+    "potential_30d",
+    "scheduler",
+]
+
+
 def _write(name: str, data: bytes) -> None:
     path = _OUT / name
     path.write_bytes(data)
@@ -314,6 +451,9 @@ def main() -> None:
     _write("potential.png", build_potential())
     _write("item.png", build_item())
     _write("scheduler.png", build_scheduler())
+    print("데모 애니 픽스처 복원 →")
+    for run in _FIXTURE_RUNS:
+        _write(f"demo-{run}.png", build_from_fixture(run))
     print("완료.")
 
 
