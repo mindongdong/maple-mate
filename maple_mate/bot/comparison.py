@@ -9,6 +9,7 @@
 from __future__ import annotations
 
 import io
+import random
 import unicodedata
 from collections.abc import Sequence
 from datetime import datetime, timezone
@@ -163,39 +164,54 @@ async def resolve_targets(
     return targets, missing
 
 
-# ── 무인자 팬아웃 경계 (ADR-0008) ──────────────────────────────────────────
+# ── 무인자 팬아웃 경계 (ADR-0008 부분개정) ─────────────────────────────────
 #
 # 무인자 실행(등록자 전원)은 인원이 늘수록 PNG 가 세로로 무한히 길어지고(가독성),
-# 넥슨 팬아웃(전역 4req/s 스로틀)으로 응답이 느려진다 → 대표 레벨 상위 K 명으로 경계.
+# 넥슨 팬아웃(전역 4req/s 스로틀)으로 응답이 느려진다 → K=10 명으로 경계.
+# 선정 = **명령 실행 본인 무조건 포함 + 나머지 랜덤**(대표 레벨 상위 → 공평성 개정). 상위권만
+# 반복 노출돼 불공평하다는 판단에 따라 랜덤 비복원 추출로 바꿨다(매 실행 독립).
 # 대상을 지정하면 파라미터 슬롯(최대 5명)이 이미 상한이라 여기 적용하지 않는다.
 
 MAX_UNSPECIFIED_TARGETS = 10
 
 
-def cap_by_level(
-    targets: Sequence, cap: int = MAX_UNSPECIFIED_TARGETS
-) -> tuple[list, int]:
-    """무인자 대상 상한 — 대표 레벨 내림차순 상위 cap 명. 반환 = (선정 목록, 전체 N).
+def select_with_self(
+    targets: Sequence,
+    self_id: int,
+    cap: int = MAX_UNSPECIFIED_TARGETS,
+    *,
+    rng: random.Random | None = None,
+) -> tuple[list, int, bool]:
+    """무인자 대상 선정 — 실행 본인 무조건 포함 + 나머지 랜덤. (선정 목록, 전체 N, 본인 포함 여부).
 
-    동레벨·레벨미상(None=-1)은 닉네임 가나다순으로 결정적 타이브레이크.
-    Target·HistoryTarget 둘 다 받는다(level·nickname 덕 타이핑).
+    N ≤ cap 이면 전원(원 순서 유지, 랜덤 없음). N > cap 이면 본인(있으면) 고정 + 나머지는
+    `random.sample`(비복원)로 cap 을 채운다 — 본인은 선정 목록 맨 앞. 본인이 풀에 없으면
+    조용히 랜덤 cap 명(호출자가 사유별 안내 한 줄 붙임). 매 실행 독립(시드 없음) — `rng`
+    주입은 테스트 결정성용. Target·HistoryTarget 둘 다 받는다(discord_user_id 덕 타이핑).
     """
     total = len(targets)
     if total <= cap:
-        return list(targets), total
-    ranked = sorted(
-        targets,
-        key=lambda t: (-(t.level if t.level is not None else -1), t.nickname),
-    )
-    return ranked[:cap], total
+        return list(targets), total, any(t.discord_user_id == self_id for t in targets)
+    picker = rng or random
+    self_targets = [t for t in targets if t.discord_user_id == self_id]
+    others = [t for t in targets if t.discord_user_id != self_id]
+    self_included = bool(self_targets)
+    take = cap - len(self_targets)
+    chosen = picker.sample(others, take)
+    return self_targets + chosen, total, self_included
 
 
 def fanout_note(
     total: int, cap: int = MAX_UNSPECIFIED_TARGETS, *, noun: str = "등록자"
 ) -> str:
-    """상한 절단 안내 한 줄 — 잘렸을 때만 데이터 임베드 푸터 맨 앞에 붙인다."""
+    """무인자 푸터 한 줄 — 항상 표시, 인원수로 문구 분기(ADR-0008 부분개정 — 상시화).
+
+    N ≤ cap 이면 '전원 비교' 안내, N > cap 이면 '본인 포함 랜덤 cap 명' 안내.
+    """
+    if total <= cap:
+        return f"{noun} 전원({total}명)을 비교했어요"
     return (
-        f"{noun} {total}명 중 대표 레벨 상위 {cap}명만 비교했어요 · "
+        f"{noun} {total}명 중 본인 포함 랜덤 {cap}명을 비교했어요 · "
         f"특정 인원은 대상 지정(최대 5명)으로 볼 수 있어요"
     )
 

@@ -336,6 +336,15 @@ async def build_item_cards(
     )
 
 
+def _self_first(
+    outcomes: list[reg.TargetOutcome], self_id: int
+) -> list[reg.TargetOutcome]:
+    """실행 본인 성공 행을 맨 앞으로(있을 때만), 나머지는 기존 순서 유지(무인자=랜덤·지정=입력)."""
+    mine = [o for o in outcomes if o.target.discord_user_id == self_id]
+    rest = [o for o in outcomes if o.target.discord_user_id != self_id]
+    return mine + rest
+
+
 async def handle_item(
     deps: Deps,
     interaction: discord.Interaction,
@@ -368,12 +377,20 @@ async def handle_item(
             await interaction.followup.send(embed=make_embed("아이템", empty))
         return
 
-    # 무인자 = 대표 레벨 상위 K명 경계(ADR-0008). 지정 시엔 파라미터 5개가 이미 상한.
+    # 무인자 = 본인 포함 랜덤 K명 경계(ADR-0008 부분개정). 지정 시엔 파라미터 5개가 이미 상한.
     note: str | None = None
+    self_note: str | None = None
     if not members:
-        targets, total = comparison.cap_by_level(targets)
-        if total > len(targets):
-            note = comparison.fanout_note(total)
+        targets, total, self_included = comparison.select_with_self(
+            targets, interaction.user.id
+        )
+        note = comparison.fanout_note(total)
+        if not self_included:
+            self_note = (
+                "본인은 챌린저스 캐릭터가 없어 포함되지 않았어요."
+                if realm is Realm.CHALLENGERS
+                else "본인은 미등록이라 포함되지 않았어요. `/캐릭터등록` 부터 해주세요!"
+            )
 
     outcomes = await fetch_item_outcomes(deps, targets, slot)
     outcomes = outcomes + missing
@@ -385,9 +402,13 @@ async def handle_item(
         )
         return
 
+    # 표시 = 본인 맨 앞(대상에 있을 때만) + 나머지는 선정/입력 순서(무인자=랜덤, 지정=입력).
+    successes = _self_first(successes, interaction.user.id)
+
     footer = append_source(comparison.data_footer(successes[0].data.date))
-    if note:
-        footer = f"{note}\n{footer}"
+    for line in (self_note, note):
+        if line:
+            footer = f"{line}\n{footer}"
     embed, file = await build_item_cards(
         deps, successes, outcomes, slot, title=title, footer=footer
     )
@@ -437,7 +458,7 @@ def setup(bot: discord.Client) -> None:
 
     @bot.tree.command(  # type: ignore[attr-defined]
         name="아이템",
-        description="부위별 스타포스·잠재·옵션을 비교합니다 (미지정 시 레벨 상위 최대 10명).",
+        description="부위별 스타포스·잠재·옵션을 비교합니다 (미지정 시 본인 포함 랜덤 최대 10명).",
     )
     @app_commands.allowed_installs(guilds=True, users=False)
     @app_commands.allowed_contexts(guilds=True, dms=False, private_channels=False)
@@ -452,7 +473,7 @@ def setup(bot: discord.Client) -> None:
     )
     @app_commands.describe(
         part="조회할 장비 부위",
-        member1="비교 대상 (미지정 시 이 서버 등록자 중 레벨 상위 최대 10명)",
+        member1="비교 대상 (미지정 시 이 서버 등록자 중 본인 포함 랜덤 최대 10명)",
         member2="추가 비교 대상",
         member3="추가 비교 대상",
         member4="추가 비교 대상",
