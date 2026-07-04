@@ -20,6 +20,17 @@
   **전송 버튼 게이트(클릭 대기)** → 봇 타이핑 → 결과 PNG.
 - **결과물:** 봇 렌더러 진짜 PNG(기존 shots 재사용 + 변형 4종 신규 생성).
 - **봇 코드 무변경, 사이트 전용 단일 PR.**
+- **as-built (2026-07-04, 구현 완료):** §3 대본·§4 설계대로 전부 구현.
+  - `CommandSequenceDemo.tsx` + 대본 상수 `commandSequenceScripts.tsx`(파라미터 키
+    `{ p, v?, pick?, opts? }` — 드리프트 가드 오탐 방지). 느린 run 2·3은 `startAt: 'chips'`
+    로 칩 목록부터 시작, fill 국면엔 choice/멤버 ValuePicker 팝업 표시.
+  - 데모 PNG = `render_demo_shots.py` 픽스처 복원 확장(`build_from_fixture`)으로
+    `site/public/shots/demo-<run>.png` 11종 생성·커밋(기존 7종 바이트 불변).
+  - 임베드 카피 = 픽스처 `messages[]` 그대로(계정 전체 합산 필드·푸터 포함).
+  - §6 검증 전 항목 통과: 빌드·드리프트·pytest 824 그린, 헤드리스 크롬 국면별
+    캡처(팝업/칩/게이트/결과/ValuePicker, S6·S9), 게이트 10s 자동 전송 + CDP 클릭
+    수동 전송(~5.8s 시점 전송 확인), 모바일 500px, reduced-motion 정적, 라이트/다크.
+  - 결정 9의 미추적 잔재 2건 로컬 삭제 완료.
 
 ## 1. 사용자 요청 원문 요지
 
