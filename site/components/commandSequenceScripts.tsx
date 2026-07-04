@@ -224,14 +224,14 @@ export const S6_SCRIPT: Run[] = [
       />
     ),
   },
-  // 3. 느림 · 칩에서 유저1 선택 → 멤버 목록 → @수찬
+  // 3. 느림 · 칩에서 유저1 선택 → 멤버 목록 → @동민
   {
     speed: 'slow',
     cmd: '경험치',
     desc: '레벨 추이 리더보드',
     startAt: 'chips',
     params: expParams({
-      유저1: { p: '유저1', v: '@수찬', pick: 'member' },
+      유저1: { p: '유저1', v: '@동민', pick: 'member' },
     }),
     reply: (
       <RankEmbed
@@ -245,14 +245,14 @@ export const S6_SCRIPT: Run[] = [
       />
     ),
   },
-  // 4. 빠름 · /스펙 유저1:@동민 유저2:@수찬 유저3:@진혁
+  // 4. 빠름 · /스펙 유저1:@수찬 유저2:@동민 유저3:@진혁
   {
     speed: 'fast',
     cmd: '스펙',
     desc: '전투력·스펙 비교',
     params: [
-      { p: '유저1', v: '@동민' },
-      { p: '유저2', v: '@수찬' },
+      { p: '유저1', v: '@수찬' },
+      { p: '유저2', v: '@동민' },
       { p: '유저3', v: '@진혁' },
     ],
     reply: (
@@ -306,7 +306,7 @@ export const S6_SCRIPT: Run[] = [
     reply: (
       <TableEmbed
         title="내 캐릭터 스펙 비교"
-        targets="수찬"
+        targets="동민"
         footer="최신 기준 · NEXON Open API"
         run="mychar_spec"
         alt="/내캐릭터 스펙 비교 카드"
@@ -329,7 +329,7 @@ export const S9_SCRIPT: Run[] = [
     reply: (
       <TableEmbed
         title="스타포스 운빨 비교"
-        targets="수찬 · 동민"
+        targets="동민 · 수찬"
         fields={[
           {
             h: '⚠️ 조회 실패 (1명)',
@@ -348,19 +348,19 @@ export const S9_SCRIPT: Run[] = [
       />
     ),
   },
-  // 2. 느림 · 칩에서 대상1 선택 → 멤버 목록 → @동민
+  // 2. 느림 · 칩에서 대상1 선택 → 멤버 목록 → @수찬
   {
     speed: 'slow',
     cmd: '스타포스',
     desc: '스타포스 운빨 비교',
     startAt: 'chips',
     params: starforceParams({
-      대상1: { p: '대상1', v: '@동민', pick: 'member' },
+      대상1: { p: '대상1', v: '@수찬', pick: 'member' },
     }),
     reply: (
       <TableEmbed
         title="스타포스 운빨 비교"
-        targets="동민"
+        targets="수찬"
         fields={[FIELD_ACCOUNT_SUM, FIELD_STARFORCE_SCOPE]}
         footer="2026-06-28 ~ 2026-07-04 · NEXON Open API"
         run="starforce_target"
@@ -377,7 +377,7 @@ export const S9_SCRIPT: Run[] = [
     reply: (
       <TableEmbed
         title="잠재 메소·큐브 비교"
-        targets="동민 · 진혁 · 수찬"
+        targets="수찬 · 진혁 · 동민"
         fields={[FIELD_ACCOUNT_SUM]}
         footer="키 등록자 전원(3명)을 비교했어요 · 2026-06-05 ~ 2026-07-04 · NEXON Open API"
         run="potential_30d"
