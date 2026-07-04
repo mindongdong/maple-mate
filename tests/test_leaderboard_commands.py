@@ -207,6 +207,76 @@ async def test_leaderboard_command_bootstrap_fetches_when_no_snapshot(monkeypatc
     assert call["embed"] == "embed"  # 이후 정상 발송
 
 
+# ── /경험치 대상 지정 (build_specified_payload 분기) ─────────────────────────
+
+
+def _member(uid: int) -> SimpleNamespace:
+    return SimpleNamespace(id=uid, display_name=f"유저{uid}")
+
+
+async def test_leaderboard_specified_sends_targets_payload(monkeypatch):
+    """대상 지정: build_specified_payload(지정 유저 id) 로 그 유저들만 공개 발송."""
+    payload = LeaderboardPayload(
+        graph_png=b"\x89PNG", embed="targets-embed", ref_date=date(2026, 6, 13)
+    )
+    captured: dict = {}
+
+    async def fake_specified(deps, guild_id, user_ids, realm=Realm.MAIN):
+        captured["user_ids"] = list(user_ids)
+        return payload
+
+    monkeypatch.setattr(commands, "ensure_guild_data", _noop_ensure)
+    monkeypatch.setattr(commands, "build_specified_payload", fake_specified)
+    interaction = _FakeInteraction()
+    await commands.handle_leaderboard(
+        deps=object(), interaction=interaction, members=[_member(7), _member(8)]
+    )
+    assert captured["user_ids"] == [7, 8]  # 지정 유저 id 만 전달
+    [call] = interaction.followup.sent
+    assert call["embed"] == "targets-embed"
+    assert "ephemeral" not in call  # 공개 발송
+
+
+async def test_leaderboard_specified_all_missing_prompts(monkeypatch):
+    """지정 유저가 전원 미등록/데이터 없음(payload None) → 안내(ephemeral)."""
+
+    async def fake_specified(deps, guild_id, user_ids, realm=Realm.MAIN):
+        return None
+
+    monkeypatch.setattr(commands, "ensure_guild_data", _noop_ensure)
+    monkeypatch.setattr(commands, "build_specified_payload", fake_specified)
+    interaction = _FakeInteraction()
+    await commands.handle_leaderboard(
+        deps=object(), interaction=interaction, members=[_member(7)]
+    )
+    [call] = interaction.followup.sent
+    assert call["ephemeral"] is True
+    assert "미등록" in (call["embed"].description or "")
+
+
+async def test_leaderboard_specified_does_not_use_server_build(monkeypatch):
+    """대상 지정 시 서버 리더보드 build_payload 는 호출하지 않는다(무인자 전용)."""
+    called = {"server": False}
+
+    async def fake_server(bot, deps, guild_id, realm=Realm.MAIN):
+        called["server"] = True
+        return None
+
+    async def fake_specified(deps, guild_id, user_ids, realm=Realm.MAIN):
+        return LeaderboardPayload(
+            graph_png=b"\x89PNG", embed="e", ref_date=date(2026, 6, 13)
+        )
+
+    monkeypatch.setattr(commands, "ensure_guild_data", _noop_ensure)
+    monkeypatch.setattr(commands, "build_payload", fake_server)
+    monkeypatch.setattr(commands, "build_specified_payload", fake_specified)
+    interaction = _FakeInteraction()
+    await commands.handle_leaderboard(
+        deps=object(), interaction=interaction, members=[_member(7)]
+    )
+    assert called["server"] is False
+
+
 # ── /경험치알림 스펙 배선 (대상 분기 본체는 test_notification_toggle 에서 검증) ──
 
 
@@ -373,3 +443,86 @@ async def test_build_payload_caps_embed_and_graph_to_top_ten(monkeypatch):
     for i in range(1, 11):
         assert f"유저{i:02d}" in desc
     assert "유저11" not in desc and "유저12" not in desc
+
+
+# ── build_specified_payload: 지정 유저만 표시 + 빠진 인원 안내 ─────────────────
+
+
+def _patch_specified(monkeypatch, targets, snap_users):
+    """대상 지정 payload 경로 페이크. targets = get_targets 반환, snap_users = 스냅샷 있는 유저 id."""
+
+    async def fake_get_targets(sf, guild_id, user_ids=None, realm=None):
+        ids = set(user_ids or [])
+        return [t for t in targets if t.discord_user_id in ids]
+
+    async def fake_latest(sf, guild_id, ocids, on_or_before, realm=None):
+        return on_or_before
+
+    async def fake_snapshots_on(sf, guild_id, snap_date, realm=None):
+        return [
+            SimpleNamespace(
+                discord_user_id=t.discord_user_id,
+                ocid=t.ocid,
+                snapshot_date=snap_date,
+                character_level=270 + t.discord_user_id,
+                exp_rate=50.0,
+            )
+            for t in targets
+            if t.discord_user_id in snap_users
+        ]
+
+    async def fake_live_levels(deps, tgts):
+        return {}
+
+    async def fake_history_progress(sf, guild_id, labels, today, *, realm=None):
+        return {label: [(today, 275.0)] for label in labels.values()}
+
+    def fake_render(series, ref_date):
+        return SimpleNamespace(getvalue=lambda: b"PNG")
+
+    monkeypatch.setattr(broadcast, "get_targets", fake_get_targets)
+    monkeypatch.setattr(broadcast.service, "latest_snapshot_date", fake_latest)
+    monkeypatch.setattr(broadcast.service, "snapshots_on", fake_snapshots_on)
+    monkeypatch.setattr(broadcast.service, "live_levels", fake_live_levels)
+    monkeypatch.setattr(broadcast.service, "history_progress", fake_history_progress)
+    monkeypatch.setattr(
+        broadcast.leaderboard_image, "render_progress_graph", fake_render
+    )
+
+
+async def test_build_specified_payload_shows_only_targets_with_note(monkeypatch):
+    # 지정 3명 중 1명은 미등록(target 없음), 1명은 데이터 없음 → 표시 1명 + '2명 미등록/데이터 없음'.
+    targets = [
+        SimpleNamespace(discord_user_id=1, nickname="손바", ocid="o1"),
+        SimpleNamespace(discord_user_id=2, nickname="라딘", ocid="o2"),
+    ]
+    _patch_specified(monkeypatch, targets, snap_users={1})  # uid2 는 스냅샷 없음
+    deps = SimpleNamespace(session_factory=object(), nexon=object())
+    payload = await broadcast.build_specified_payload(deps, 1, [1, 2, 999])
+    assert payload is not None
+    desc = payload.embed.description or ""
+    assert "손바" in desc and "라딘" not in desc  # 데이터 있는 1명만
+    assert "2명은 미등록/데이터 없음" in desc  # uid2(데이터 없음) + uid999(미등록)
+
+
+async def test_build_specified_payload_none_when_no_registered(monkeypatch):
+    # 지정 유저가 전원 미등록(get_targets 빈 목록) → None(호출자가 안내).
+    async def fake_get_targets(sf, guild_id, user_ids=None, realm=None):
+        return []
+
+    monkeypatch.setattr(broadcast, "get_targets", fake_get_targets)
+    deps = SimpleNamespace(session_factory=object(), nexon=object())
+    assert await broadcast.build_specified_payload(deps, 1, [7, 8]) is None
+
+
+async def test_build_specified_payload_no_note_when_all_shown(monkeypatch):
+    # 지정 2명 전원 표시되면 안내 줄 없음.
+    targets = [
+        SimpleNamespace(discord_user_id=1, nickname="손바", ocid="o1"),
+        SimpleNamespace(discord_user_id=2, nickname="라딘", ocid="o2"),
+    ]
+    _patch_specified(monkeypatch, targets, snap_users={1, 2})
+    deps = SimpleNamespace(session_factory=object(), nexon=object())
+    payload = await broadcast.build_specified_payload(deps, 1, [1, 2])
+    assert payload is not None
+    assert "미등록/데이터 없음" not in (payload.embed.description or "")
