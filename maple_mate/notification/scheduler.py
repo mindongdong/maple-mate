@@ -41,10 +41,9 @@ SUNDAY_MINUTE = 10
 # coalesce=True 와 함께 한 번만 따라잡고, 주차 마커가 중복 발송을 차단한다.
 MISFIRE_GRACE_SAME_DAY = 13 * 3600 + 50 * 60
 
-# /공지알림 폴링: 매일 9~23시 매시 + 0·1시 KST(심야 버그픽스 공지 대응, design §3.6 개정).
-# 발송 대상은 공지+업데이트(이벤트 제외).
-NOTICE_HOURS = "0,1,9-23"
-NOTICE_MINUTE = 0
+# /공지알림 폴링: 24시간 매 30분(정각·30분) KST. 심야 버그픽스 공지도 아침에 몰아보내지 않고
+# 게시 후 ~30분 내 개별 발송한다(design §3.6 개정). 발송 대상은 공지+업데이트(이벤트 제외).
+NOTICE_MINUTE = "0,30"
 
 # 운영 요약: 매일 09:00 KST.
 OPS_SUMMARY_HOUR, OPS_SUMMARY_MINUTE = 9, 0
@@ -473,7 +472,7 @@ def start_scheduler(bot: discord.Client, deps: Deps) -> AsyncIOScheduler:
     )
     scheduler.add_job(
         run_notice_job,
-        trigger=CronTrigger(hour=NOTICE_HOURS, minute=NOTICE_MINUTE, timezone=KST_ZONE),
+        trigger=CronTrigger(minute=NOTICE_MINUTE, timezone=KST_ZONE),
         args=[bot, deps],
         id="notice",
         name="공지 알림",
@@ -519,10 +518,9 @@ def start_scheduler(bot: discord.Client, deps: Deps) -> AsyncIOScheduler:
     )
     scheduler.start()
     log.info(
-        "스케줄러 시작: 썬데이(금 %02d:%02d)·공지(%s시)·경험치(%02d:%02d)·스케줄러 알리미(매시 :%02d) KST 잡 등록",
+        "스케줄러 시작: 썬데이(금 %02d:%02d)·공지(매 30분)·경험치(%02d:%02d)·스케줄러 알리미(매시 :%02d) KST 잡 등록",
         SUNDAY_HOUR,
         SUNDAY_MINUTE,
-        NOTICE_HOURS,
         EXP_HOUR,
         EXP_MINUTE,
         SCHEDULER_REMINDER_MINUTE,

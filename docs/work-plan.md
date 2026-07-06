@@ -79,7 +79,7 @@
 ### 🔔 Phase 4 — 알림 / 스케줄러 ✅ 완료
 - ✅ 스케줄러 인프라(APScheduler, KST) — 봇이 소유(setup_hook 시작 / close 종료)
 - ✅ **/썬데이** (PR #3) — 금 10:10 정기 발송·1회 재시도無, "썬데이 메이플" title 매칭(다중=전부/0=조용히패스), notice_state 주차 중복방지, 상세 배너(제목+링크+기간) 출력, 알림 채널 켜기/끄기.
-- ✅ **/공지알림** (PR #7) — 17회/일(9~23시 매시 + 0·1시 KST — 최초 6회/일에서 확대, 심야 버그픽스 공지 대응) 폴링, 공지(`notice`)+업데이트(`notice-update`), **이벤트 제외**(`/썬데이` 담당). 신규 판정=카테고리별 `notice_id` 최대값(`id > last_id`), **최초가동=baseline만**(과거 미발송), 다건=오래된→최신 전부. 텍스트 임베드(제목+링크+등록일)·10개 청킹. 미니 스파이크는 **불요로 판명**(Spike 0에서 세 엔드포인트 실호출 검증 완료, 미해결 결정 #3 해소). 리뷰 반영: **마커 전진-only**(짧은 페이지 시 중복 재발송 차단)·`updated_at` on_conflict 명시·`max_instances=1`. 검증 도구 `scripts/trigger_notice.py`. 전달-무관 계층(`notification/notice_service.py`).
+- ✅ **/공지알림** (PR #7) — 48회/일(24시간 매 30분 KST — 6회/일→17회/일→24시간 매 30분으로 확대, 심야 버그픽스 공지의 아침 몰림 해소) 폴링, 공지(`notice`)+업데이트(`notice-update`), **이벤트 제외**(`/썬데이` 담당). 신규 판정=카테고리별 `notice_id` 최대값(`id > last_id`), **최초가동=baseline만**(과거 미발송), 다건=오래된→최신 전부. 텍스트 임베드(제목+링크+등록일)·10개 청킹. 미니 스파이크는 **불요로 판명**(Spike 0에서 세 엔드포인트 실호출 검증 완료, 미해결 결정 #3 해소). 리뷰 반영: **마커 전진-only**(짧은 페이지 시 중복 재발송 차단)·`updated_at` on_conflict 명시·`max_instances=1`. 검증 도구 `scripts/trigger_notice.py`. 전달-무관 계층(`notification/notice_service.py`).
 - ✅ **수동 썬데이 HTTP 엔드포인트**(FastAPI) — `POST /sunday/broadcast`, Bearer 토큰 상수시간 비교(`secrets.compare_digest`, 실패 401 단일), 바디(제목 필수·링크·기간 선택, 단일 이벤트), sunday_alert 채널 즉시발송 + 주차 중복마킹(자동발송과 공유). **마킹 게이트는 자동잡(`channels>0`)과 의도적 분기 — `sent>0`일 때만** 마킹해 실제 전달 0이면 금요일 자동발송을 살린다(핸드오프 #7). 주차 dedup 미체크(운영자 override). `app.state.bot` 주입으로 HTTP→봇 배선. 검증 도구 `scripts/trigger_sunday.py`(HTTP 호출형으로 교체). 상세 [manual-sunday-handoff.md](manual-sunday-handoff.md)·[manual-sunday-work-order.md](manual-sunday-work-order.md).
 
 ### 🛠️ Phase 5 — 운영 ✅ 완료
