@@ -20,7 +20,7 @@
 | Phase 4 — 알림 | 🟡 일부 | **`/썬데이`+스케줄러(PR #3)·`/공지알림`(PR #7) 완료** · 수동 HTTP 썬데이만 미착수 · 미해결 결정 #3 해소(스파이크 불요 확인) |
 | Phase 5 — 운영 요약 | ✅ 완료 | grill 완료 → "운영 오류 대응 보고"로 설계(선별·0건생략·앱키빨강·retention). 작업지시서=docs/phase5-work-order.md |
 
-**다음 작업 후보**: 구현 단계 종료 — 남은 것은 **봇 가동 시 라이브 검증**뿐. **Phase 5 운영 요약** 발송 1회(`scripts/trigger_ops_summary.py` — 앱키 빨강·"외 N종"·헬스 command 분해 눈 확인). `/잠재` G1 등업 라이브 확정은 봇 가동 시 `scripts/spike_potential.py` 1콜로 마무리. `/공지알림` 6시각 폴링·baseline은 봇 가동 시 1주기 관찰.
+**다음 작업 후보**: 구현 단계 종료 — 남은 것은 **봇 가동 시 라이브 검증**뿐. **Phase 5 운영 요약** 발송 1회(`scripts/trigger_ops_summary.py` — 앱키 빨강·"외 N종"·헬스 command 분해 눈 확인). `/잠재` G1 등업 라이브 확정은 봇 가동 시 `scripts/spike_potential.py` 1콜로 마무리. `/공지알림` 폴링·baseline은 봇 가동 시 1주기 관찰.
 
 ## 참조 문서 (중복 금지 — 경로로 참조)
 
