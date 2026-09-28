@@ -5,7 +5,11 @@
 
 from __future__ import annotations
 
+import pytest
+
 from maple_mate.registration.commands import _char_label
+
+pytestmark = pytest.mark.usefixtures("challengers_enabled")
 
 
 def test_main_realm_label_unchanged() -> None:

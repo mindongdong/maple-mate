@@ -10,6 +10,8 @@ from __future__ import annotations
 from datetime import date, datetime, timedelta
 from types import SimpleNamespace
 
+import pytest
+
 from maple_mate.leaderboard import service
 from maple_mate.leaderboard.service import (
     KST,
@@ -20,6 +22,8 @@ from maple_mate.leaderboard.service import (
     yesterday_kst,
 )
 from maple_mate.nexon.errors import ErrorClass, NexonAPIError
+
+pytestmark = pytest.mark.usefixtures("challengers_enabled")
 
 _NOW = datetime(2026, 6, 14, 10, 0, tzinfo=KST)
 _REF = date(2026, 6, 13)  # D-1

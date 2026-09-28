@@ -8,8 +8,12 @@ from __future__ import annotations
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 
+import pytest
+
 from maple_mate.registration.realm import Realm
 from maple_mate.registration.service import pick_representative
+
+pytestmark = pytest.mark.usefixtures("challengers_enabled")
 
 _BASE = datetime(2026, 6, 1, tzinfo=timezone.utc)
 

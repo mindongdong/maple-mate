@@ -16,7 +16,6 @@ from discord import app_commands
 
 from ..bot import comparison, cooldowns, item_card, table_image
 from ..bot.embeds import append_source, defer, make_embed
-from ..bot.modes import MODE_CHOICES, MODE_DESCRIBE, parse_mode
 from ..dependencies import Deps
 from ..nexon.client import KST, NexonClient
 from ..nexon.errors import NexonAPIError
@@ -430,7 +429,6 @@ def setup(bot: discord.Client) -> None:
         member3="유저3",
         member4="유저4",
         member5="유저5",
-        mode="모드",
     )
     @app_commands.describe(
         member1="조회할 유저 (1명이면 단일 상세)",
@@ -438,9 +436,7 @@ def setup(bot: discord.Client) -> None:
         member3="비교 대상",
         member4="비교 대상",
         member5="비교 대상",
-        mode=MODE_DESCRIBE,
     )
-    @app_commands.choices(mode=MODE_CHOICES)
     @cooldowns.spec_cooldown()
     async def spec_command(
         interaction: discord.Interaction,
@@ -449,12 +445,11 @@ def setup(bot: discord.Client) -> None:
         member3: discord.Member | None = None,
         member4: discord.Member | None = None,
         member5: discord.Member | None = None,
-        mode: app_commands.Choice[str] | None = None,
     ) -> None:
         members = [
             m for m in (member1, member2, member3, member4, member5) if m is not None
         ]
-        await handle_spec(deps, interaction, members, parse_mode(mode))
+        await handle_spec(deps, interaction, members)
 
     @bot.tree.command(  # type: ignore[attr-defined]
         name="아이템",
@@ -469,7 +464,6 @@ def setup(bot: discord.Client) -> None:
         member3="대상3",
         member4="대상4",
         member5="대상5",
-        mode="모드",
     )
     @app_commands.describe(
         part="조회할 장비 부위",
@@ -478,11 +472,9 @@ def setup(bot: discord.Client) -> None:
         member3="추가 비교 대상",
         member4="추가 비교 대상",
         member5="추가 비교 대상",
-        mode=MODE_DESCRIBE,
     )
     @app_commands.choices(
         part=[app_commands.Choice(name=slot, value=slot) for slot in SLOT_CHOICES],
-        mode=MODE_CHOICES,
     )
     @cooldowns.spec_cooldown()
     async def item_command(
@@ -493,9 +485,8 @@ def setup(bot: discord.Client) -> None:
         member3: discord.Member | None = None,
         member4: discord.Member | None = None,
         member5: discord.Member | None = None,
-        mode: app_commands.Choice[str] | None = None,
     ) -> None:
         members = [
             m for m in (member1, member2, member3, member4, member5) if m is not None
         ]
-        await handle_item(deps, interaction, part.value, members, parse_mode(mode))
+        await handle_item(deps, interaction, part.value, members)

@@ -21,7 +21,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..bot import bitik_card, comparison, cooldowns
 from ..bot.embeds import KST, append_source, defer, make_embed
-from ..bot.modes import MODE_CHOICES, MODE_DESCRIBE, parse_mode
 from ..bot.scope import GUILD_CONTEXTS, GUILD_INSTALLS
 from ..character.service import format_eok
 from ..dependencies import Deps
@@ -553,13 +552,12 @@ def setup(bot: discord.Client) -> None:
         name="스타포스",
         description="기간 내 스타포스 자랑 카드를 만듭니다 (본인 개인 키 필요).",
     )
-    @app_commands.choices(period=_PERIOD_CHOICES, mode=MODE_CHOICES)
-    @app_commands.rename(period="기간", start="시작일", end="종료일", mode="모드")
+    @app_commands.choices(period=_PERIOD_CHOICES)
+    @app_commands.rename(period="기간", start="시작일", end="종료일")
     @app_commands.describe(
         period="조회 기간 프리셋 (기본 최근7일, 시작/종료일 지정 시 무시)",
         start="시작일 YYYY-MM-DD (선택)",
         end="종료일 YYYY-MM-DD (선택)",
-        mode=MODE_DESCRIBE,
     )
     @cooldowns.history_cooldown()  # 이력류 동일 30초(파생 결정)
     async def bitik_starforce(
@@ -567,24 +565,20 @@ def setup(bot: discord.Client) -> None:
         period: app_commands.Choice[str] | None = None,
         start: str | None = None,
         end: str | None = None,
-        mode: app_commands.Choice[str] | None = None,
     ) -> None:
         preset = period.value if period is not None else DEFAULT_PRESET
-        await handle_bitik_starforce(
-            deps, interaction, preset, start, end, parse_mode(mode)
-        )
+        await handle_bitik_starforce(deps, interaction, preset, start, end)
 
     @group.command(
         name="잠재",
         description="기간 내 잠재(큐브·재설정) 자랑 카드를 만듭니다 (본인 개인 키 필요).",
     )
-    @app_commands.choices(period=_PERIOD_CHOICES, mode=MODE_CHOICES)
-    @app_commands.rename(period="기간", start="시작일", end="종료일", mode="모드")
+    @app_commands.choices(period=_PERIOD_CHOICES)
+    @app_commands.rename(period="기간", start="시작일", end="종료일")
     @app_commands.describe(
         period="조회 기간 프리셋 (기본 최근7일, 시작/종료일 지정 시 무시)",
         start="시작일 YYYY-MM-DD (선택)",
         end="종료일 YYYY-MM-DD (선택)",
-        mode=MODE_DESCRIBE,
     )
     @cooldowns.history_cooldown()
     async def bitik_potential(
@@ -592,12 +586,9 @@ def setup(bot: discord.Client) -> None:
         period: app_commands.Choice[str] | None = None,
         start: str | None = None,
         end: str | None = None,
-        mode: app_commands.Choice[str] | None = None,
     ) -> None:
         preset = period.value if period is not None else DEFAULT_PRESET
-        await handle_bitik_potential(
-            deps, interaction, preset, start, end, parse_mode(mode)
-        )
+        await handle_bitik_potential(deps, interaction, preset, start, end)
 
     @group.command(
         name="득템", description="득템 이미지를 자랑 문구와 함께 채널에 올립니다."
