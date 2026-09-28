@@ -24,7 +24,7 @@ from ..dependencies import Deps
 from ..nexon.client import KST
 from ..notification import service as channel_service
 from ..notification.scheduler import _resolve_channel
-from ..registration.realm import Realm
+from ..registration.realm import CHALLENGERS_ENABLED, Realm
 from ..registration.service import Target, get_all_character_targets, get_targets
 from . import service
 
@@ -287,7 +287,9 @@ async def _ready_payloads(
     리더보드는 realm 별 2개 완전 분리(결정 8) — 각각 MIN_RANKED 게이트를 통과한 것만 담는다.
     """
     ready: list[LeaderboardPayload] = []
-    for realm in (Realm.MAIN, Realm.CHALLENGERS):
+    # 챌린저스 비활성(realm.CHALLENGERS_ENABLED) 시 본서버 리더보드만 발송.
+    realms = (Realm.MAIN, Realm.CHALLENGERS) if CHALLENGERS_ENABLED else (Realm.MAIN,)
+    for realm in realms:
         key = (guild_id, realm)
         if key not in payloads:
             payloads[key] = await build_payload(bot, deps, guild_id, realm)

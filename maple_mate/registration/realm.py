@@ -14,6 +14,10 @@ from enum import Enum
 # realm 신호 접두. `챌린저스3` 처럼 번호가 붙어도 전부 한 realm(결정 3).
 CHALLENGERS_PREFIX = "챌린저스"
 
+# 챌린저스 판정 스위치. 시즌 종료로 챌린저스 캐릭터가 일반 서버로 이전돼 비활성화 — DB 에 남은
+# `챌린저스N` world 는 이전 전 스냅샷이라 무시하고 전 캐릭터를 본서버로 본다. 새 시즌 개방 시 True.
+CHALLENGERS_ENABLED = False
+
 
 class Realm(str, Enum):
     """캐릭터/명령이 속한 서버 구분. 값은 `모드` 파라미터 choices 와 일치(본서버/챌린저스, 결정 2)."""
@@ -24,7 +28,7 @@ class Realm(str, Enum):
 
 def is_challengers(world: str | None) -> bool:
     """world_name 이 챌린저스 서버인지(realm 신호). NULL/빈값 = 본서버(레거시)."""
-    return bool(world) and world.startswith(CHALLENGERS_PREFIX)
+    return CHALLENGERS_ENABLED and bool(world) and world.startswith(CHALLENGERS_PREFIX)
 
 
 def realm_of(world: str | None) -> Realm:

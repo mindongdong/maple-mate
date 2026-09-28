@@ -12,7 +12,6 @@ from discord import app_commands
 
 from ..bot import cooldowns
 from ..bot.embeds import defer, make_embed
-from ..bot.modes import MODE_CHOICES, MODE_DESCRIBE, parse_mode
 from ..bot.scope import GUILD_CONTEXTS, GUILD_INSTALLS
 from ..dependencies import Deps
 from ..notification import service as channel_service
@@ -124,7 +123,6 @@ def setup_leaderboard(bot: discord.Client) -> None:
         member3="유저3",
         member4="유저4",
         member5="유저5",
-        mode="모드",
     )
     @app_commands.describe(
         member1="비교할 유저 (미지정 시 서버 레벨 Top 10 리더보드)",
@@ -132,9 +130,7 @@ def setup_leaderboard(bot: discord.Client) -> None:
         member3="추가 비교 대상",
         member4="추가 비교 대상",
         member5="추가 비교 대상",
-        mode=MODE_DESCRIBE,
     )
-    @app_commands.choices(mode=MODE_CHOICES)
     @cooldowns.spec_cooldown()  # 10초 — 첫 호출은 넥슨 온디맨드 백필 가능; 이후는 DB 조회만
     async def leaderboard_command(
         interaction: discord.Interaction,
@@ -143,12 +139,11 @@ def setup_leaderboard(bot: discord.Client) -> None:
         member3: discord.Member | None = None,
         member4: discord.Member | None = None,
         member5: discord.Member | None = None,
-        mode: app_commands.Choice[str] | None = None,
     ) -> None:
         members = [
             m for m in (member1, member2, member3, member4, member5) if m is not None
         ]
-        await handle_leaderboard(deps, interaction, members, parse_mode(mode))
+        await handle_leaderboard(deps, interaction, members)
 
     # 미개방(ADR-0019 결정 3 — 리더보드는 서버 개념 전제): 알림도 서버 리더보드 산출물이라
     # 함께 길드 전용으로 명시(기본값 드리프트 방지).
