@@ -50,3 +50,22 @@ async def test_outage_does_not_fall_back():
     with pytest.raises(NexonAPIError):
         await resolve(nexon, "old", "닉")
     assert nexon.id_calls == []  # 장애는 닉 재조회로 넘기지 않음(오연결 방지)
+
+
+_EMPTY_BASIC = {"world_name": None, "character_level": None}  # 이전된 옛 ocid 실측 응답
+
+
+async def test_empty_basic_falls_back_to_nickname():
+    nexon = FakeNexon(
+        {"old": _EMPTY_BASIC, "new": {"world_name": "크로아", "character_level": 285}},
+        {"닉": "new"},
+    )
+    assert await resolve(nexon, "old", "닉") == Refreshed("new", "크로아", 285)
+    assert nexon.id_calls == ["닉"]
+
+
+async def test_empty_basic_after_fallback_fails():
+    nexon = FakeNexon({"old": _EMPTY_BASIC, "new": _EMPTY_BASIC}, {"닉": "new"})
+    with pytest.raises(NexonAPIError) as info:
+        await resolve(nexon, "old", "닉")
+    assert info.value.error_class is ErrorClass.INVALID_ID
