@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import pytest
 
+from maple_mate.registration import realm as realm_module
 from maple_mate.registration.realm import (
     Realm,
     in_realm,
@@ -15,6 +16,8 @@ from maple_mate.registration.realm import (
     realm_prefix,
     realm_title,
 )
+
+pytestmark = pytest.mark.usefixtures("challengers_enabled")
 
 
 @pytest.mark.parametrize(
@@ -62,3 +65,11 @@ def test_realm_prefix_and_title_label_challengers_only() -> None:
     assert realm_prefix(Realm.CHALLENGERS) == "🏆 챌린저스 "
     assert realm_title("스펙 비교", Realm.MAIN) == "스펙 비교"
     assert realm_title("스펙 비교", Realm.CHALLENGERS) == "🏆 챌린저스 스펙 비교"
+
+
+@pytest.mark.parametrize("world", ["챌린저스", "챌린저스3"])
+def test_disabled_treats_challengers_world_as_main(monkeypatch, world) -> None:
+    """스위치 OFF(시즌 종료) — 남은 `챌린저스N` world 도 본서버로 판정."""
+    monkeypatch.setattr(realm_module, "CHALLENGERS_ENABLED", False)
+    assert is_challengers(world) is False
+    assert realm_of(world) is Realm.MAIN

@@ -9,8 +9,12 @@ from __future__ import annotations
 from datetime import date
 from types import SimpleNamespace
 
+import pytest
+
 from maple_mate.leaderboard import broadcast
 from maple_mate.registration.realm import Realm
+
+pytestmark = pytest.mark.usefixtures("challengers_enabled")
 
 
 def _deps():

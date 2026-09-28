@@ -27,6 +27,8 @@ from maple_mate.mychar.commands import (
 from maple_mate.registration import service as reg
 from maple_mate.registration.service import Target, TargetOutcome
 
+pytestmark = pytest.mark.usefixtures("challengers_enabled")
+
 # ── 트리 등록 ────────────────────────────────────────────────────────────────
 
 

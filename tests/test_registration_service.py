@@ -5,12 +5,15 @@ DB upsert 는 통합 영역이라 여기서 제외(순수/모킹 가능한 부�
 
 from __future__ import annotations
 
+import pytest
 from cryptography.fernet import Fernet
 
 from maple_mate.nexon.errors import NexonAPIError
 from maple_mate.registration import service
 from maple_mate.registration.realm import Realm
 from maple_mate.security.crypto import KeyCipher
+
+pytestmark = pytest.mark.usefixtures("challengers_enabled")
 
 
 class FakeNexon:
