@@ -53,14 +53,25 @@ def _parse_basic(ocid: str, basic: dict) -> Refreshed:
 
 
 async def resolve(nexon: NexonClient, ocid: str, nickname: str) -> Refreshed:
-    """기존 ocid 로 조회, 무효면 닉네임으로 새 ocid 조회. 실패는 NexonAPIError 그대로 전파."""
+    """기존 ocid 로 조회, 무효면 닉네임으로 새 ocid 조회. 실패는 NexonAPIError 그대로 전파.
+
+    이전된 캐릭터의 옛 ocid 는 에러 대신 200 + 전 필드 null 을 돌려준다(실측) — world_name 이
+    비면 무효 ocid 로 보고 닉 재조회. 새 ocid 도 비면 INVALID_ID 로 실패시켜 None 적재를 막는다.
+    """
     try:
-        return _parse_basic(ocid, await nexon.character_basic(ocid))
+        found = _parse_basic(ocid, await nexon.character_basic(ocid))
+        if found.world:
+            return found
     except NexonAPIError as exc:
         if exc.error_class not in _STALE_OCID:
             raise
     new_ocid = await nexon.get_ocid(nickname)
-    return _parse_basic(new_ocid, await nexon.character_basic(new_ocid))
+    found = _parse_basic(new_ocid, await nexon.character_basic(new_ocid))
+    if not found.world:
+        raise NexonAPIError(
+            None, "빈 응답(world_name 없음)", error_class=ErrorClass.INVALID_ID
+        )
+    return found
 
 
 async def _apply(session: AsyncSession, row: Character, new: Refreshed) -> None:
