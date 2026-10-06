@@ -44,7 +44,7 @@ function embedFor(name: string): { node: ReactNode; caption: string } | null {
     case '잠재':
       return { node: shot('potential.png', '잠재 이력 비교표 — 재설정·큐브·메소·등업'), caption: '/잠재 · 계정 전체 합산' }
     case '경험치':
-      return { node: shot('exp.png', '경험치 리더보드 그래프 — 최근 7일 레벨 추이'), caption: '/경험치 · 최근 7일 레벨 추이 그래프' }
+      return { node: shot('exp.png', '경험치 리더보드 그래프 — 최근 30일 레벨 추이와 증가량'), caption: '/경험치 · 최근 30일 레벨 추이와 증가량' }
     case '스케줄러':
       return { node: shot('scheduler.png', '스케줄러 숙제 카드 — 오늘 남은 숙제 체크리스트'), caption: '/스케줄러 · 본인만' }
     case '스케줄러알림':
