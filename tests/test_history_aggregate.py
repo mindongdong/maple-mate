@@ -349,3 +349,12 @@ def test_parse_attempts_excludes_special_currency_and_voucher_records() -> None:
     }
     attempts = parse_attempts([{**meso, "upgrade_item": ""}, voucher, pulse])
     assert [(a.before_star, a.after_star) for a in attempts] == [(17, 18)]
+
+
+def test_parse_attempts_keeps_meso_records_with_null_upgrade_item() -> None:
+    # upgrade_item null·빈 문자열·키 없음은 모두 메소 강화로 유지(과잉 제외 방지).
+    base = _record("손바", 17, 18, "성공", "2026-09-21T10:00:00+09:00")
+    attempts = parse_attempts(
+        [{**base, "upgrade_item": None}, {**base, "upgrade_item": ""}, base]
+    )
+    assert len(attempts) == 3
