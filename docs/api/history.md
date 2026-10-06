@@ -100,7 +100,7 @@ API 키 소유 계정의 **큐브 사용 이력**을 조회한다. 큐브 종류
 | `id` | `string` | 큐브 히스토리 식별자 |
 | `character_name` | `string` | 캐릭터명 |
 | `date_create` | `datetime` (KST) | 큐브 사용 일시 |
-| `cube_type` | `string` | 사용한 큐브 종류 (예: "수상한 큐브", "장인의 큐브") |
+| `cube_type` | `string` | 사용한 큐브 및 특수 재화 종류 (예: "수상한 큐브", "장인의 큐브"). ⚠️ 2026-09-17부터 **"펄스 인핸서"**(어센던트 펄스 링 전용 재화) 재설정도 섞여 온다(실측) → `parse_cube_records` 가 집계에서 제외 |
 | `item_upgrade_result` | `string` | 강화 결과 (예: "성공", "실패") |
 | `miracle_time_flag` | `string` | 미라클 타임 적용 여부 |
 | `item_equipment_part` | `string` | 장비 분류 (예: "모자", "무기") |
@@ -317,7 +317,7 @@ API 키 소유 계정의 **스타포스 강화 이력**을 조회한다. 강화 
 | `destroy_defence` | `string` | 파괴 방지 사용 여부. ⚠️ **실측: `"파괴 방지 미적용"` 등 서술형 한글 문자열** |
 | `chance_time` | `string` | 찬스 타임 적용 여부. ⚠️ **실측: `"찬스타임 미적용"` 등 서술형 한글 문자열** |
 | `event_field_flag` | `string` | 파괴 방지 필드 이벤트 여부 |
-| `upgrade_item` | `string` | 사용 주문서 명 |
+| `upgrade_item` | `string` | 사용 주문서 및 특수 재화 명. **빈 문자열 = 메소 강화**(실측). 강화권(실측 "메멘토 방어구 스타포스 18성 강화권 (200제)", 0→18성)·펄스 인핸서(2026-09-17 추가) 기록은 값이 채워져 → `parse_attempts` 가 집계에서 제외 |
 | `protect_shield` | `string` | 프로텍트 실드 사용 여부 |
 | `bonus_stat_upgrade` | `string` | 보너스 스탯 부여 아이템 사용 여부 |
 | `character_name` | `string` | 캐릭터 명 |

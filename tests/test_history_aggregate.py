@@ -332,3 +332,20 @@ def test_event_masks_majority_and_tie() -> None:
     assert destroy_stars == frozenset({17, 18})  # 17 과반, 18 동률→True
     assert 19 not in destroy_stars
     assert discount_stars == frozenset()  # 할인 플래그 전무
+
+
+def test_parse_attempts_excludes_special_currency_and_voucher_records() -> None:
+    # upgrade_item = "사용 주문서 및 특수 재화 명"(넥슨 9/17 — 펄스 인핸서 추가). 빈 값만 메소 강화다.
+    # 강화권(실측 '메멘토 방어구 스타포스 18성 강화권 (200제)' 0→18)·펄스 인핸서 기록은 메소를
+    # 쓰지 않아 비용·운빨 집계에서 뺀다(넣으면 메소 강화로 오인돼 비용·이벤트 보정이 부풀려짐).
+    meso = _record("손바", 17, 18, "성공", "2026-09-21T10:00:00+09:00")
+    voucher = {
+        **_record("손바", 0, 18, "성공", "2026-09-21T10:01:00+09:00"),
+        "upgrade_item": "메멘토 방어구 스타포스 18성 강화권 (200제)",
+    }
+    pulse = {
+        **_record("손바", 12, 13, "성공", "2026-09-21T10:02:00+09:00"),
+        "upgrade_item": "펄스 인핸서",
+    }
+    attempts = parse_attempts([{**meso, "upgrade_item": ""}, voucher, pulse])
+    assert [(a.before_star, a.after_star) for a in attempts] == [(17, 18)]

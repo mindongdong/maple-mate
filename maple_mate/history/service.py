@@ -227,9 +227,14 @@ def parse_attempts(records: Sequence[dict]) -> list[StarforceAttempt]:
 
     개인 키는 계정 전체(부캐 포함)를 반환한다. 이력류는 계정 전체 합산이므로 닉 필터를 하지 않고
     character_name 을 보존한다(집계는 (character_name, target_item) 그룹핑, /비틱만 대표 닉 필터).
+
+    upgrade_item("사용 주문서 및 특수 재화 명")이 채워진 기록은 메소 강화가 아니라 제외한다 —
+    스타포스 강화권(실측 0→18성)·펄스 인핸서(넥슨 2026-09-17 추가). 넣으면 메소 비용·운빨이 부풀려진다.
     """
     attempts: list[StarforceAttempt] = []
     for r in records:
+        if r.get("upgrade_item"):  # 빈 문자열 = 메소 강화(실측)
+            continue
         # superior_item_flag 는 서술형 한글 문자열(실측, docs/api/history.md) —
         # "슈페리얼 장비 미해당"/"슈페리얼 장비 해당". '슈페리얼' 키워드 필수 +
         # '미해당' 제외로 판정: 미상 포맷(빈값·"0" 등)은 일반 장비로 폴백(과잉 제외 방지).

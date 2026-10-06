@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import datetime
 
 import discord
@@ -72,6 +72,24 @@ def single_detail_embed(
     return embed
 
 
+# 코어 타입별 기본 칸 수(직업 무관, handoff §5). 부족분은 NumGrid 가 0으로 채움.
+_BASE_CORE_SLOTS = (("스킬", 2), ("마스터리", 4), ("강화", 4), ("공용", 3))
+
+
+def core_columns(
+    by_types: Sequence[dict[str, tuple[int, ...]]],
+) -> tuple[tuple[str, int], ...]:
+    """비교표 HEXA 코어 컬럼(타입, 칸 수) — 기본 칸 수, 비교 대상 중 더 많이 보유하면 그만큼 넓힌다.
+
+    넥슨 2026-07-23 6차 스킬 코어 추가로 스킬 코어가 3개인 캐릭터가 생겼다(실측) — 고정 2칸이면
+    NumGrid 가 3번째 값을 잘라 비교표에서 사라진다. 타입별 최대 보유 수로 넓혀 향후 추가에도 대응.
+    """
+    return tuple(
+        (name, max([base, *(len(bt.get(name, ())) for bt in by_types)]))
+        for name, base in _BASE_CORE_SLOTS
+    )
+
+
 def _default_label(target: reg.Target) -> str:
     return comparison.truncate_display(target.nickname, 20)
 
@@ -133,8 +151,7 @@ async def build_spec_comparison(
     best_power = comparison.highest_indices(
         [p if (p := _power(o)) >= 0 else None for o in ranked]
     )
-    # 코어 타입별 고정 칸 수(직업 무관, handoff §5). 부족분은 NumGrid 가 0으로 채움.
-    core_cols = (("스킬", 2), ("마스터리", 4), ("강화", 4), ("공용", 3))
+    core_cols = core_columns([dict(o.data.hexa_core_by_type) for o in ranked])
     # 스탯 코어 1·2·3을 로마숫자로 라벨링해 컬럼별로 분리(각 메인/서브/서브 3칸).
     stat_cols = ("스탯 코어 I", "스탯 코어 II", "스탯 코어 III")
     headers = ["순위", "캐릭터", "전투력", *(name for name, _ in core_cols), *stat_cols]
