@@ -21,9 +21,14 @@ from maple_mate.registration.realm import Realm
 # ── 푸터 라벨 ────────────────────────────────────────────────────────────────
 
 
+async def _noop_backfill(deps, guild_id, targets, days=8, *, dates=None):
+    return None
+
+
 def test_footer_label_says_today_current():
-    text = _footer_text(date(2026, 6, 13))
+    text = _footer_text(date(2026, 6, 13), 30)
     assert "기준: 오늘(06/13) 현재" in text  # 표시 레벨이 라이브(오늘 현재)
+    assert "증가량: 최근 30일" in text  # 증가량 기간 명시(작업지시서 D4)
     assert "NEXON Open API" in text
 
 
@@ -113,7 +118,7 @@ async def test_leaderboard_command_sends_public_payload(monkeypatch):
         ref_date=date(2026, 6, 13),
     )
 
-    async def fake_build(bot, deps, guild_id, realm=Realm.MAIN):
+    async def fake_build(bot, deps, guild_id, realm=Realm.MAIN, period_days=30):
         return payload
 
     monkeypatch.setattr(commands, "ensure_guild_data", _noop_ensure)
@@ -129,7 +134,7 @@ async def test_leaderboard_command_sends_public_payload(monkeypatch):
 async def test_leaderboard_command_no_targets_prompts_registration(monkeypatch):
     """등록자 0명이면 '캐릭터 등록' 안내."""
 
-    async def fake_build(bot, deps, guild_id, realm=Realm.MAIN):
+    async def fake_build(bot, deps, guild_id, realm=Realm.MAIN, period_days=30):
         return None
 
     async def fake_get_targets(sf, guild_id, realm=None):
@@ -150,7 +155,7 @@ async def test_leaderboard_command_no_data_data_not_ready(monkeypatch):
     """등록자가 있는데 payload None(스냅샷 0건)이면 '데이터 미준비' 안내 — 1명이어도 표시가
     원칙이라(게이트 1명) 이 분기는 넥슨 미준비뿐이다."""
 
-    async def fake_build(bot, deps, guild_id, realm=Realm.MAIN):
+    async def fake_build(bot, deps, guild_id, realm=Realm.MAIN, period_days=30):
         return None
 
     async def fake_get_targets(sf, guild_id, realm=None):
@@ -170,7 +175,7 @@ async def test_leaderboard_command_no_data_data_not_ready(monkeypatch):
 async def test_leaderboard_command_dm_guard(monkeypatch):
     called = {"build": False}
 
-    async def fake_build(bot, deps, guild_id, realm=Realm.MAIN):
+    async def fake_build(bot, deps, guild_id, realm=Realm.MAIN, period_days=30):
         called["build"] = True
         return None
 
@@ -195,7 +200,7 @@ async def test_leaderboard_command_bootstrap_fetches_when_no_snapshot(monkeypatc
         ref_date=date(2026, 6, 13),
     )
 
-    async def fake_build(bot, deps, guild_id, realm=Realm.MAIN):
+    async def fake_build(bot, deps, guild_id, realm=Realm.MAIN, period_days=30):
         return payload
 
     monkeypatch.setattr(commands, "ensure_guild_data", fake_ensure)
@@ -221,7 +226,9 @@ async def test_leaderboard_specified_sends_targets_payload(monkeypatch):
     )
     captured: dict = {}
 
-    async def fake_specified(deps, guild_id, user_ids, realm=Realm.MAIN):
+    async def fake_specified(
+        deps, guild_id, user_ids, realm=Realm.MAIN, period_days=30
+    ):
         captured["user_ids"] = list(user_ids)
         return payload
 
@@ -240,7 +247,9 @@ async def test_leaderboard_specified_sends_targets_payload(monkeypatch):
 async def test_leaderboard_specified_all_missing_prompts(monkeypatch):
     """지정 유저가 전원 미등록/데이터 없음(payload None) → 안내(ephemeral)."""
 
-    async def fake_specified(deps, guild_id, user_ids, realm=Realm.MAIN):
+    async def fake_specified(
+        deps, guild_id, user_ids, realm=Realm.MAIN, period_days=30
+    ):
         return None
 
     monkeypatch.setattr(commands, "ensure_guild_data", _noop_ensure)
@@ -262,7 +271,9 @@ async def test_leaderboard_specified_does_not_use_server_build(monkeypatch):
         called["server"] = True
         return None
 
-    async def fake_specified(deps, guild_id, user_ids, realm=Realm.MAIN):
+    async def fake_specified(
+        deps, guild_id, user_ids, realm=Realm.MAIN, period_days=30
+    ):
         return LeaderboardPayload(
             graph_png=b"\x89PNG", embed="e", ref_date=date(2026, 6, 13)
         )
@@ -337,11 +348,11 @@ def _single_target_payload_patches(monkeypatch, *, latest: date):
 
     captured: dict = {}
 
-    async def fake_history_progress(sf, guild_id, labels, today, *, realm=None):
-        captured["history_ref"] = today
+    async def fake_history_progress(sf, guild_id, labels, dates, *, realm=None):
+        captured["history_ref"] = dates[-1]
         return {label: [(latest, 287.5)] for label in labels.values()}
 
-    def fake_render(series, ref_date):
+    def fake_render(series, ref_date, gains=None):
         captured["render_ref"] = ref_date
         return SimpleNamespace(getvalue=lambda: b"PNG")
 
@@ -350,6 +361,7 @@ def _single_target_payload_patches(monkeypatch, *, latest: date):
     monkeypatch.setattr(broadcast.service, "snapshots_on", fake_snapshots_on)
     monkeypatch.setattr(broadcast.service, "live_levels", fake_live_levels)
     monkeypatch.setattr(broadcast.service, "history_progress", fake_history_progress)
+    monkeypatch.setattr(broadcast.service, "backfill", _noop_backfill)
     monkeypatch.setattr(
         broadcast.leaderboard_image, "render_progress_graph", fake_render
     )
@@ -379,7 +391,7 @@ async def test_build_payload_falls_back_to_latest_snapshot_date(monkeypatch):
     payload = await broadcast.build_payload(object(), deps, 1)
     assert payload is not None
     assert payload.ref_date == d2  # 기준일 = 폴백된 최근 스냅샷 일자
-    assert captured["history_ref"] == d2  # 7일 이력 창도 같은 기준일로 끝난다
+    assert captured["history_ref"] == d2  # 기간 이력 창도 같은 기준일로 끝난다
 
 
 async def test_build_payload_caps_embed_and_graph_to_top_ten(monkeypatch):
@@ -412,12 +424,12 @@ async def test_build_payload_caps_embed_and_graph_to_top_ten(monkeypatch):
     async def fake_live_levels(deps, tgts):
         return {}  # 라이브 실패 → D-1 스냅샷 폴백(결정적 레벨 순서)
 
-    async def fake_history_progress(sf, guild_id, labels, today, *, realm=None):
+    async def fake_history_progress(sf, guild_id, labels, dates, *, realm=None):
         return {label: [(date(2026, 6, 13), 290.0)] for label in labels.values()}
 
     captured: dict[str, object] = {}
 
-    def fake_render(series, ref_date):
+    def fake_render(series, ref_date, gains=None):
         captured["series"] = series
         return SimpleNamespace(getvalue=lambda: b"PNG")
 
@@ -426,6 +438,7 @@ async def test_build_payload_caps_embed_and_graph_to_top_ten(monkeypatch):
     monkeypatch.setattr(broadcast.service, "snapshots_on", fake_snapshots_on)
     monkeypatch.setattr(broadcast.service, "live_levels", fake_live_levels)
     monkeypatch.setattr(broadcast.service, "history_progress", fake_history_progress)
+    monkeypatch.setattr(broadcast.service, "backfill", _noop_backfill)
     monkeypatch.setattr(
         broadcast.leaderboard_image, "render_progress_graph", fake_render
     )
@@ -474,10 +487,10 @@ def _patch_specified(monkeypatch, targets, snap_users):
     async def fake_live_levels(deps, tgts):
         return {}
 
-    async def fake_history_progress(sf, guild_id, labels, today, *, realm=None):
-        return {label: [(today, 275.0)] for label in labels.values()}
+    async def fake_history_progress(sf, guild_id, labels, dates, *, realm=None):
+        return {label: [(dates[-1], 275.0)] for label in labels.values()}
 
-    def fake_render(series, ref_date):
+    def fake_render(series, ref_date, gains=None):
         return SimpleNamespace(getvalue=lambda: b"PNG")
 
     monkeypatch.setattr(broadcast, "get_targets", fake_get_targets)
@@ -485,6 +498,7 @@ def _patch_specified(monkeypatch, targets, snap_users):
     monkeypatch.setattr(broadcast.service, "snapshots_on", fake_snapshots_on)
     monkeypatch.setattr(broadcast.service, "live_levels", fake_live_levels)
     monkeypatch.setattr(broadcast.service, "history_progress", fake_history_progress)
+    monkeypatch.setattr(broadcast.service, "backfill", _noop_backfill)
     monkeypatch.setattr(
         broadcast.leaderboard_image, "render_progress_graph", fake_render
     )
@@ -526,3 +540,114 @@ async def test_build_specified_payload_no_note_when_all_shown(monkeypatch):
     payload = await broadcast.build_specified_payload(deps, 1, [1, 2])
     assert payload is not None
     assert "미등록/데이터 없음" not in (payload.embed.description or "")
+
+
+# ── 기간 확장: 표시 대상만 기간 백필 + 증가량 표기 (docs/exp-period-work-order.md) ──
+
+
+def test_rank_line_appends_period_gain_when_present():
+    row = LeaderRow(ocid="o1", rank=1, nickname="동민", level=287, exp_rate=79.0)
+    assert broadcast._rank_line(row, 132).endswith("Lv.287 (79%) · +132%")
+    assert broadcast._rank_line(row, -3).endswith("· -3%")
+    assert "%" not in broadcast._rank_line(row, None).split("Lv.287 (79%)")[1]
+
+
+def _period_patches(monkeypatch, n: int):
+    """등록 n명(레벨 내림차순) + 기간 이력 페이크. captured 에 백필·이력·렌더 인자를 모은다."""
+    targets = [
+        SimpleNamespace(discord_user_id=i, nickname=f"유저{i:02d}", ocid=f"o{i}")
+        for i in range(1, n + 1)
+    ]
+    captured: dict = {"backfills": []}
+
+    async def fake_get_targets(sf, guild_id, realm=None):
+        return targets
+
+    async def fake_latest(sf, guild_id, ocids, on_or_before, realm=None):
+        return date(2026, 10, 5)
+
+    async def fake_snapshots_on(sf, guild_id, snap_date, realm=None):
+        return [
+            SimpleNamespace(
+                discord_user_id=t.discord_user_id,
+                ocid=t.ocid,
+                snapshot_date=snap_date,
+                character_level=300 - i,
+                exp_rate=50.0,
+            )
+            for i, t in enumerate(targets, start=1)
+        ]
+
+    async def fake_live_levels(deps, tgts):
+        return {}
+
+    async def fake_backfill(deps, guild_id, tgts, days=8, *, dates=None):
+        captured["backfills"].append(([t.ocid for t in tgts], dates))
+
+    async def fake_history_progress(sf, guild_id, labels, dates, *, realm=None):
+        captured["dates"] = list(dates)
+        # 기간 첫 점 대비 +1.32 레벨(= +132%) 상승한 동일 시계열.
+        return {
+            label: [
+                (d, 280.0 + (1.32 if k == len(dates) - 1 else 0.0))
+                for k, d in enumerate(dates)
+            ]
+            for label in labels.values()
+        }
+
+    def fake_render(series, ref_date, gains=None):
+        captured["gains"] = gains
+        return SimpleNamespace(getvalue=lambda: b"PNG")
+
+    monkeypatch.setattr(broadcast, "get_targets", fake_get_targets)
+    monkeypatch.setattr(broadcast.service, "latest_snapshot_date", fake_latest)
+    monkeypatch.setattr(broadcast.service, "snapshots_on", fake_snapshots_on)
+    monkeypatch.setattr(broadcast.service, "live_levels", fake_live_levels)
+    monkeypatch.setattr(broadcast.service, "backfill", fake_backfill)
+    monkeypatch.setattr(broadcast.service, "history_progress", fake_history_progress)
+    monkeypatch.setattr(
+        broadcast.leaderboard_image, "render_progress_graph", fake_render
+    )
+    return captured
+
+
+async def test_build_payload_default_30_days_backfills_only_top_ten_sample_dates(
+    monkeypatch,
+):
+    captured = _period_patches(monkeypatch, n=12)
+    deps = SimpleNamespace(session_factory=object(), nexon=object())
+    payload = await broadcast.build_payload(object(), deps, 1)
+    assert payload is not None
+
+    expected_dates = broadcast.service.sample_dates(date(2026, 10, 5), 30)
+    [(ocids, dates)] = captured["backfills"]
+    assert ocids == [f"o{i}" for i in range(1, 11)]  # 표시 Top10 만(11·12위 0콜, D7)
+    assert dates == expected_dates  # 달력 앵커 샘플 날짜만
+    assert captured["dates"] == expected_dates  # 이력도 같은 샘플 날짜
+
+    # 라이브 점 실패(None)라 끝 유효점 = 기준일 점 → 증가량 +132%, 그래프·임베드 동일 값.
+    assert captured["gains"]["유저01"] == 132
+    assert "유저01** — Lv.299 (50%) · +132%" in (payload.embed.description or "")
+    assert "증가량: 최근 30일" in payload.embed.footer.text
+
+
+async def test_build_payload_period_7_days_samples_every_day(monkeypatch):
+    captured = _period_patches(monkeypatch, n=2)
+    deps = SimpleNamespace(session_factory=object(), nexon=object())
+    payload = await broadcast.build_payload(object(), deps, 1, period_days=7)
+    assert payload is not None
+    assert len(captured["dates"]) == 7  # 7일 = 매일(종전과 동일)
+    assert "증가량: 최근 7일" in payload.embed.footer.text
+
+
+def test_exp_command_period_option_first_with_30_14_7_choices():
+    # `기간`은 유저1~5 앞(D8 — 목록 끝에 묻히지 않게), 기본값 30일이 맨 위.
+    from maple_mate.bot.core import MapleMateBot
+
+    bot = MapleMateBot(deps=object(), dev_guild_id=None)
+    bot._register_commands()
+    cmd = bot.tree.get_command("경험치")
+    names = [p.display_name for p in cmd.parameters]
+    assert names == ["기간", "유저1", "유저2", "유저3", "유저4", "유저5"]
+    assert [c.value for c in cmd.parameters[0].choices] == [30, 14, 7]
+    assert not cmd.parameters[0].required

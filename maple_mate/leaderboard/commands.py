@@ -1,6 +1,6 @@
 """`/경험치` · `/경험치알림` 디스코드 어댑터 (얇은 전달 계층, 작업지시서 빌드 단위 #6, ADR-0017).
 
-- `/경험치`: defer → build_payload(현재 길드) → 7일 레벨 추이 그래프 공개 응답(미등록/데이터 없음 안내).
+- `/경험치`: defer → build_payload(현재 길드) → 기간(기본 30일) 레벨 추이 그래프+증가량 공개 응답(미등록/데이터 없음 안내).
 - `/경험치알림 켜기·끄기`: `대상`(채널/개인) 인자로 채널 발송(channel_settings.exp_alert)·본인 DM
   구독(notification_subscription)을 토글. 권한 불필요(공지·썬데이와 통일, notification.toggle 공유).
 """
@@ -19,7 +19,15 @@ from ..notification.target import TARGET_CHOICES, TARGET_DESCRIBE
 from ..notification.toggle import AlertSpec, handle_toggle
 from ..registration.realm import Realm, realm_title
 from ..registration.service import get_targets
+from . import service
 from .broadcast import build_payload, build_specified_payload, ensure_guild_data
+
+# `기간` 옵션(작업지시서 D5·D8) — 기본값(30일)이 맨 위. `/내캐릭터 경험치`도 공유한다.
+PERIOD_CHOICES = [
+    app_commands.Choice(name=f"{days}일", value=days)
+    for days in sorted(service.PERIOD_STEPS, reverse=True)
+]
+PERIOD_DESCRIBE = "그래프·증가량 기간 (미지정 시 30일)"
 
 _EXP_SPEC = AlertSpec(
     kind=channel_service.KIND_EXP,
@@ -58,6 +66,7 @@ async def handle_leaderboard(
     interaction: discord.Interaction,
     members: list[discord.Member] | None = None,
     realm: Realm = Realm.MAIN,
+    period_days: int = service.DEFAULT_PERIOD_DAYS,
 ) -> None:
     """`/경험치` 본체: defer → 온디맨드 갱신(그 realm D-1 재적재) → payload → 공개 발송.
 
@@ -79,7 +88,7 @@ async def handle_leaderboard(
 
     if members:  # 대상 지정 = 그 유저들의 대표 캐릭터만(Top-10 상한 무의미, ≤5명).
         payload = await build_specified_payload(
-            deps, interaction.guild_id, [m.id for m in members], realm
+            deps, interaction.guild_id, [m.id for m in members], realm, period_days
         )
         if payload is None:
             await interaction.followup.send(
@@ -89,7 +98,9 @@ async def handle_leaderboard(
         await interaction.followup.send(embed=payload.embed, files=payload.to_files())
         return
 
-    payload = await build_payload(interaction.client, deps, interaction.guild_id, realm)
+    payload = await build_payload(
+        interaction.client, deps, interaction.guild_id, realm, period_days
+    )
     if payload is None:
         # 그 realm 에 등록자가 없는지, 데이터가 아직 미준비인지 구분해 안내한다.
         targets = await get_targets(
@@ -113,11 +124,12 @@ def setup_leaderboard(bot: discord.Client) -> None:
 
     @bot.tree.command(  # type: ignore[attr-defined]
         name="경험치",
-        description="등록 캐릭터들의 최근 7일 레벨 추이 그래프를 보여줍니다 (대상 지정 시 최대 5명만 비교).",
+        description="등록 캐릭터들의 최근 30일 레벨 추이와 증가량을 보여줍니다 (기간 변경·최대 5명 지정 가능).",
     )
     @app_commands.allowed_installs(guilds=True, users=False)
     @app_commands.allowed_contexts(guilds=True, dms=False, private_channels=False)
     @app_commands.rename(
+        period="기간",
         member1="유저1",
         member2="유저2",
         member3="유저3",
@@ -125,15 +137,19 @@ def setup_leaderboard(bot: discord.Client) -> None:
         member5="유저5",
     )
     @app_commands.describe(
+        period=PERIOD_DESCRIBE,
         member1="비교할 유저 (미지정 시 서버 레벨 Top 10 리더보드)",
         member2="추가 비교 대상",
         member3="추가 비교 대상",
         member4="추가 비교 대상",
         member5="추가 비교 대상",
     )
+    @app_commands.choices(period=PERIOD_CHOICES)
     @cooldowns.spec_cooldown()  # 10초 — 첫 호출은 넥슨 온디맨드 백필 가능; 이후는 DB 조회만
     async def leaderboard_command(
         interaction: discord.Interaction,
+        period: app_commands.Choice[int]
+        | None = None,  # 유저1~5 앞(D8 — 목록 끝에 묻히지 않게)
         member1: discord.Member | None = None,
         member2: discord.Member | None = None,
         member3: discord.Member | None = None,
@@ -143,7 +159,8 @@ def setup_leaderboard(bot: discord.Client) -> None:
         members = [
             m for m in (member1, member2, member3, member4, member5) if m is not None
         ]
-        await handle_leaderboard(deps, interaction, members)
+        period_days = period.value if period else service.DEFAULT_PERIOD_DAYS
+        await handle_leaderboard(deps, interaction, members, period_days=period_days)
 
     # 미개방(ADR-0019 결정 3 — 리더보드는 서버 개념 전제): 알림도 서버 리더보드 산출물이라
     # 함께 길드 전용으로 명시(기본값 드리프트 방지).

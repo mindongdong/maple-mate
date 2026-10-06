@@ -4,7 +4,8 @@
 - backfill: 과거 ~8일 중 빈 날만 멱등 적재(매 실행 호출 — 캐릭터(ocid)별 공백 자가복구).
 - build_rows: 순수 — (레벨, 레벨내 exp%) 내림차순 정렬·순위 부여·미준비 제외 카운트(_rank_key).
 - live_levels/with_live_levels/append_live_point: 표시 레벨을 character/basic 라이브(최신)로 덮어쓰기.
-- history_progress: 그래프용 캐릭터별 7일 진행도(레벨+exp%) 시계열(전달-무관).
+- sample_dates/history_progress: 그래프 기간(기본 30일)의 달력 앵커 샘플 날짜 → 캐릭터별 진행도 시계열.
+- period_gains: 순수 — 기간 증가량(첫 유효점 → 끝점, 레벨 내 % 누적).
 - prune_old_snapshots: snapshot_date 가 90일 경과한 행 삭제(09:00 운영 잡 편승).
 
 스냅샷 키 = (guild_id, discord_user_id, ocid, snapshot_date) — 캐릭터(ocid) 차원 포함(ADR-0018).
@@ -36,8 +37,11 @@ KST = timezone(timedelta(hours=9))
 
 # 백필 일수(작업지시서 Q11) — 과거 ~8일 창. 매 실행 빈 날만 멱등 적재(realm 별 공백 자가복구).
 BACKFILL_DAYS = 8
-# 그래프 시계열 일수 — 최근 7일 진행도(레벨+exp%), 7일 전 대비 정규화.
-HISTORY_DAYS = 7
+# 그래프 기간(일) → 샘플 간격(일). 긴 기간은 달력 앵커 샘플 날짜만 조회·표시한다
+# (docs/exp-period-work-order.md D6 — 30일 = 3일 간격 ~11점, 콜·마커 과밀 절감).
+PERIOD_STEPS = {30: 3, 14: 2, 7: 1}
+# 기본 기간(명령 무지정·매일 10시 알림) — 고레벨의 완만한 상승이 보이도록 30일(D5).
+DEFAULT_PERIOD_DAYS = 30
 # 스냅샷 보존 일수(작업지시서 Q12) — 09:00 운영 잡에 편승해 prune.
 RETENTION_DAYS = 90
 
@@ -222,8 +226,16 @@ async def backfill(
     guild_id: int,
     targets: Sequence[Target],
     days: int = BACKFILL_DAYS,
+    *,
+    dates: Sequence[date] | None = None,
 ) -> None:
-    """과거 D-1~D-`days` 중 **빈 날만** 대상별로 적재(멱등 — 이미 있으면 건너뜀).
+    """과거 D-1~D-`days`(또는 지정한 `dates`) 중 **빈 날만** 대상별로 적재(멱등 — 이미 있으면 건너뜀).
+
+    `dates` 는 그래프 기간의 샘플 날짜(`sample_dates`) — 순위용 최근 8일과 별개로, 표시 대상의
+    긴 기간 이력만 달력 앵커 날짜로 채운다(작업지시서 D7 ②). 이때는 **최신 → 과거**로 조회하다
+    첫 실패에서 그 캐릭터를 멈춘다: 실패한 날은 행이 안 생겨(ADR-0020) 캐릭터 생성 전·데이터 없는
+    과거 날짜가 매 호출 재조회되는 것을 막는다(헛콜 ≤ 캐릭터당 1). 일시 장애였다면 다음 호출이
+    그 날부터 다시 시도해 자가복구한다.
 
     매 실행 호출해도 안전하다(작업지시서 Q11 의 '첫 실행 1회' 게이트 폐기) — _existing_dates 가
     캐릭터(ocid)별로 이미 있는 날을 빼므로 정상 상태(8일 다 참)엔 넥슨 콜 0건이고, 빈 날(봇
@@ -231,8 +243,12 @@ async def backfill(
     character/basic(date) 로 그날 마감 (레벨, exp%) 를 수집한다(_fetch_one_day 단일 경로,
     ADR-0020). 미준비·넥슨 장애는 _fetch_one_day 가 처리.
     """
-    today = datetime.now(KST).date()
-    dates = [today - timedelta(days=d) for d in range(1, days + 1)]
+    stop_at_gap = dates is not None
+    if dates is None:
+        today = datetime.now(KST).date()
+        dates = [today - timedelta(days=d) for d in range(1, days + 1)]
+    else:
+        dates = sorted(dates, reverse=True)  # 최신 → 과거(첫 실패에서 멈춤)
     for target in targets:
         existing = await _existing_dates(
             deps.session_factory,
@@ -244,7 +260,9 @@ async def backfill(
         for snapshot_date in dates:
             if snapshot_date in existing:
                 continue
-            await _fetch_one_day(deps, target, snapshot_date)
+            stored = await _fetch_one_day(deps, target, snapshot_date)
+            if not stored and stop_at_gap:
+                break
 
 
 # ── 조회 + 순수 집계 ────────────────────────────────────────────────────────
@@ -392,7 +410,7 @@ def append_live_point(
     live: dict[str, tuple[int, float | None]],
     today: date,
 ) -> dict[str, list[tuple[date, float | None]]]:
-    """7일 이력 시계열 끝에 오늘(today) 라이브 점을 붙인다(표시 전용, 미저장).
+    """이력 시계열 끝에 오늘(today) 라이브 점을 붙인다(표시 전용, 미저장).
 
     labels = ocid → 표시 라벨(series 의 키), live = ocid → (레벨, exp%). progress =
     레벨 + exp%/100(스냅샷 이력과 동일 지표). 라이브 조회 실패거나 exp% None 이면
@@ -407,27 +425,57 @@ def append_live_point(
     return out
 
 
+def sample_dates(ref_date: date, days: int) -> list[date]:
+    """순수: 그래프 기간 `ref_date-(days-1)..ref_date` 의 샘플 날짜(오름차순, 끝 = ref_date).
+
+    간격 = PERIOD_STEPS[days]. **달력 앵커**(`toordinal() % step == 0`)라 기준일이 하루씩 밀려도
+    같은 날짜가 계속 뽑힌다 — 한 번 받은 스냅샷을 재사용해 콜이 하루 캐릭터당 최대 1건(D6).
+    기준일(가장 최근 스냅샷)은 앵커와 무관하게 항상 포함한다. 7일 = 간격 1 = 매일(종전과 동일).
+    """
+    step = PERIOD_STEPS[days]
+    start = ref_date - timedelta(days=days - 1)
+    window = (start + timedelta(days=i) for i in range(days))
+    picked = [d for d in window if d.toordinal() % step == 0]
+    if not picked or picked[-1] != ref_date:
+        picked.append(ref_date)
+    return picked
+
+
+def period_gains(
+    series: dict[str, list[tuple[date, float | None]]],
+) -> dict[str, int | None]:
+    """순수: 라벨별 기간 증가량(레벨 내 % 누적, 정수) — 첫 유효점 → 마지막 유효점.
+
+    progress = 레벨 + exp%/100 이 레벨업을 넘어 연속이라 (끝 − 시작) × 100 이 '몇 % 먹었나'다
+    (예: 286.47 → 287.79 = +132). 시작점 결손(신규 캐릭터·일시 장애)이면 기간 안 첫 유효점부터
+    (D3), 끝점은 보통 오늘 라이브 점(append_live_point 이후 입력). 유효점 1개 이하면 None(생략).
+    사망 페널티로 줄었으면 음수 그대로. 누적 경험치가 아니라 레벨 내 % 기준이다(ADR-0020).
+    """
+    gains: dict[str, int | None] = {}
+    for label, pts in series.items():
+        valid = [v for _, v in pts if v is not None]
+        gains[label] = round((valid[-1] - valid[0]) * 100) if len(valid) > 1 else None
+    return gains
+
+
 async def history_progress(
     session_factory: async_sessionmaker[AsyncSession],
     guild_id: int,
     labels: dict[str, str],
-    today: date,
+    dates: Sequence[date],
     *,
-    days: int = HISTORY_DAYS,
     realm: Realm | None = None,
 ) -> dict[str, list[tuple[date, float | None]]]:
-    """그래프용 캐릭터별 최근 `days`일 연속 진행도 시계열(라벨 → [(날짜, progress|None), ...]).
+    """그래프용 캐릭터별 진행도 시계열(라벨 → [(날짜, progress|None), ...]) — `dates` 만 조회.
 
     labels = ocid → 표시 라벨. 조회도 그 ocid 들만(수집이 전 캐릭터로 확장돼도 표시 대상은
     호출측이 정한다 — 서버 리더보드는 대표 ocid, `/내캐릭터`는 내 캐릭 전부. ADR-0018).
-    `today` = 기준일(D-1, '어제')이고 그래프 오른쪽 끝. 표시 구간은 `today-(days-1)..today`
-    (어제를 포함한 최근 7일, baseline 은 보통 D-7). 각 표시일 d 의 progress =
-    character_level + exp_rate/100(예: Lv.287 45.2% → 287.452) — 레벨업을 넘어 연속이라 렌더러가
-    이를 7일 전 대비로 정규화한다. exp_rate 가 없거나 그날 스냅샷이 없으면 None(선 끊김).
-    절대 progress 만 반환한다(정규화·일평균은 render_progress_graph 가 한다). labels 의
-    캐릭터 전원을 키로 낸다.
+    `dates` = 그래프 기간의 샘플 날짜(`sample_dates`, 오름차순, 끝 = 기준일). 각 날짜 d 의
+    progress = character_level + exp_rate/100(예: Lv.287 45.2% → 287.452) — 레벨업을 넘어
+    연속이다. exp_rate 가 없거나 그날 스냅샷이 없으면 None(선 끊김). 절대 progress 만 반환한다.
+    labels 의 캐릭터 전원을 키로 낸다.
     """
-    display_dates = [today - timedelta(days=d) for d in range(days - 1, -1, -1)]
+    display_dates = list(dates)
     async with session_factory() as session:
         stmt = select(
             ExpSnapshot.ocid,
@@ -437,8 +485,7 @@ async def history_progress(
         ).where(
             ExpSnapshot.guild_id == guild_id,
             ExpSnapshot.ocid.in_(list(labels)),
-            ExpSnapshot.snapshot_date >= display_dates[0],
-            ExpSnapshot.snapshot_date <= display_dates[-1],
+            ExpSnapshot.snapshot_date.in_(display_dates),
         )
         if realm is not None:
             stmt = stmt.where(ExpSnapshot.realm == realm.value)

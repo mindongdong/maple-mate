@@ -46,11 +46,14 @@ def test_group_registered_with_subcommands(bot):
     assert names == {"스펙", "아이템", "경험치"}
 
 
-def test_exp_subcommand_has_no_parameters(bot):
-    # 경험치는 무인자 = 등록 전체(상한 10, 결정 4) — 캐릭터 파라미터 없음.
+def test_exp_subcommand_has_only_period_parameter(bot):
+    # 경험치는 무인자 = 등록 전체(상한 10, 결정 4) — 캐릭터 파라미터 없음, `기간`(30/14/7)만.
     group = bot.tree.get_command("내캐릭터")
     exp = group.get_command("경험치")
-    assert exp.parameters == []
+    [period] = exp.parameters
+    assert period.display_name == "기간"
+    assert not period.required
+    assert [c.value for c in period.choices] == [30, 14, 7]
 
 
 def test_subcommand_params_renamed_korean(bot):
@@ -339,7 +342,17 @@ def _patch_exp_backfill(monkeypatch) -> dict:
 def _patch_exp_payload(monkeypatch, payload) -> dict:
     captured: dict = {}
 
-    async def fake(deps, guild_id, targets, *, labels, title, min_ranked, realm=None):
+    async def fake(
+        deps,
+        guild_id,
+        targets,
+        *,
+        labels,
+        title,
+        min_ranked,
+        realm=None,
+        period_days=30,
+    ):
         captured.update(
             targets=targets,
             labels=labels,

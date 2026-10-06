@@ -22,6 +22,7 @@ from ..character import commands as character
 from ..character.equipment_slots import SLOT_CHOICES
 from ..dependencies import Deps
 from ..leaderboard import broadcast as leaderboard
+from ..leaderboard import commands as leaderboard_commands
 from ..leaderboard import service as exp_service
 from ..registration import service as reg
 from ..registration.commands import character_choices
@@ -168,8 +169,12 @@ async def handle_my_item(
     await interaction.followup.send(embed=embed, file=file)
 
 
-async def handle_my_exp(deps: Deps, interaction: discord.Interaction) -> None:
-    """`/내캐릭터 경험치`: defer 전 0캐릭/DM 판정 → 멱등 백필 → 캐릭별 Top10 순위판+7일 그래프.
+async def handle_my_exp(
+    deps: Deps,
+    interaction: discord.Interaction,
+    period_days: int = exp_service.DEFAULT_PERIOD_DAYS,
+) -> None:
+    """`/내캐릭터 경험치`: defer 전 0캐릭/DM 판정 → 멱등 백필 → 캐릭별 Top10 순위판+기간 그래프·증가량.
 
     `_resolve_my_targets` 를 쓰지 않는다 — 상위 5 절단은 스펙·아이템 전용이고 경험치는
     무인자 = 등록 전체(상한 10 = Top10 파이프라인과 정합, 결정 4). realm 혼합 한 그래프
@@ -203,6 +208,7 @@ async def handle_my_exp(deps: Deps, interaction: discord.Interaction) -> None:
         title="📈 내 캐릭터 경험치",
         min_ranked=1,  # 1캐릭 = 1라인 그래프 허용(graceful)
         realm=None,  # 본서버·챌린저스 혼합(결정 7)
+        period_days=period_days,
     )
     if payload is None:
         await interaction.followup.send(
@@ -318,10 +324,17 @@ def setup(bot: discord.Client) -> None:
 
     @group.command(
         name="경험치",
-        description="내 등록 캐릭터들의 최근 7일 레벨 추이를 그래프와 순위로 보여줍니다.",
+        description="내 등록 캐릭터들의 최근 30일 레벨 추이와 증가량을 보여줍니다 (기간 변경 가능).",
     )
+    @app_commands.rename(period="기간")
+    @app_commands.describe(period=leaderboard_commands.PERIOD_DESCRIBE)
+    @app_commands.choices(period=leaderboard_commands.PERIOD_CHOICES)
     @cooldowns.spec_cooldown()  # 10초 — 첫 호출은 넥슨 콜드 백필 가능; 이후는 DB 조회만
-    async def my_exp_command(interaction: discord.Interaction) -> None:
-        await handle_my_exp(deps, interaction)
+    async def my_exp_command(
+        interaction: discord.Interaction,
+        period: app_commands.Choice[int] | None = None,
+    ) -> None:
+        period_days = period.value if period else exp_service.DEFAULT_PERIOD_DAYS
+        await handle_my_exp(deps, interaction, period_days)
 
     bot.tree.add_command(group)
