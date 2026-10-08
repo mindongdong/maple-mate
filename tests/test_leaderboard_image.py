@@ -96,3 +96,56 @@ def test_render_graph_dual_realm_crossing_lines():
         힘찬하악질=[None, None, 260.6, 260.7, 262.2, 272.7, 272.7],
     )
     assert _is_png(render_progress_graph(series, _REF))
+
+
+# ── 기간 확장: 날짜 비례 X축 (docs/exp-period-work-order.md) ───────
+
+
+def test_x_positions_are_day_offsets_from_first_date():
+    # 불균등 샘플 간격(달력 앵커 + 기준일 + 오늘 라이브)이 실제 날짜 비례로 놓인다.
+    dates = [
+        date(2026, 9, 28),
+        date(2026, 10, 1),
+        date(2026, 10, 4),
+        date(2026, 10, 5),
+        date(2026, 10, 7),
+    ]
+    assert leaderboard_image._x_positions(dates) == [0, 3, 6, 7, 9]
+
+
+def test_render_graph_30_day_uneven_samples():
+    dates = [
+        date(2026, 9, 7) + (date(2026, 9, 10) - date(2026, 9, 7)) * i for i in range(10)
+    ]
+    dates += [date(2026, 10, 5), date(2026, 10, 7)]
+    series = {
+        f"유저{i:02d}": [(d, 280.0 + i + k * 0.2) for k, d in enumerate(dates)]
+        for i in range(1, 11)
+    }
+    assert _is_png(render_progress_graph(series, date(2026, 10, 5)))
+
+
+def test_tick_labels_thin_crowded_dates_keeping_last():
+    # 앵커 끝(10/04)·기준일(10/05)·오늘(10/07)이 붙으면 오늘 라벨은 유지하고 붙은 라벨만 비운다.
+    dates = [date(2026, 10, 1), date(2026, 10, 4), date(2026, 10, 5), date(2026, 10, 7)]
+    xs = leaderboard_image._x_positions(dates)
+    labels = leaderboard_image._tick_labels(dates, xs, min_gap=2.5)
+    assert labels == ["10/01", "10/04", "", "10/07"]
+
+
+def test_tick_labels_daily_keeps_all():
+    dates = [date(2026, 10, d) for d in range(1, 8)]
+    xs = leaderboard_image._x_positions(dates)
+    assert all(leaderboard_image._tick_labels(dates, xs, min_gap=0.9))
+
+
+def test_label_gap_is_median_spacing_so_daily_with_late_today_keeps_all():
+    # 7일 매일 + 오늘이 이틀 뒤(D-1 미준비 폴백)여도 날짜 라벨이 하나씩 빠지지 않는다(평균 간격 회귀 가드).
+    dates = [
+        date(2026, 9, 29 + i) if i < 2 else date(2026, 10, i - 1) for i in range(7)
+    ]
+    dates.append(date(2026, 10, 7))
+    xs = leaderboard_image._x_positions(dates)
+    gap = leaderboard_image._label_gap(xs)
+    assert gap == 0.9  # 중앙 간격 1일 × 0.9
+    assert all(leaderboard_image._tick_labels(dates, xs, min_gap=gap))

@@ -188,6 +188,11 @@ def test_append_live_point_none_when_live_missing():
 # ── history_progress: 캐릭터별 7일 진행도(레벨+exp%) 시계열 ───────────────────
 
 
+def _week(ref: date) -> list[date]:
+    """7일 기간의 샘플 날짜(매일) — ref 를 오른쪽 끝으로."""
+    return service.sample_dates(ref, 7)
+
+
 def _factory_for_rows(rows):
     class _Session:
         async def __aenter__(self):
@@ -211,7 +216,7 @@ async def test_history_progress_computes_level_plus_exp_rate():
         ("oc10", date(2026, 6, 12), 287, 75.0),  # progress = 287.75
         ("oc10", date(2026, 6, 13), 288, 25.0),  # progress = 288.25 (레벨업 후)
     ]
-    series = await history_progress(_factory_for_rows(rows), 1, labels, today, days=7)
+    series = await history_progress(_factory_for_rows(rows), 1, labels, _week(today))
     points = dict(series["손바"])
     assert points[date(2026, 6, 11)] == 287.5
     assert points[date(2026, 6, 12)] == 287.75
@@ -227,7 +232,7 @@ async def test_history_progress_none_when_exp_rate_missing():
         ("oc10", date(2026, 6, 13), 287, 50.0),  # 정상 → 287.5
     ]
     series = await history_progress(
-        _factory_for_rows(rows), 1, labels, date(2026, 6, 13), days=7
+        _factory_for_rows(rows), 1, labels, _week(date(2026, 6, 13))
     )
     points = dict(series["손바"])
     assert points[date(2026, 6, 12)] is None
@@ -237,7 +242,7 @@ async def test_history_progress_none_when_exp_rate_missing():
 async def test_history_progress_includes_all_characters_even_without_data():
     labels = {"oc10": "손바", "oc20": "라딘라면"}
     series = await history_progress(
-        _factory_for_rows([]), 1, labels, date(2026, 6, 13), days=7
+        _factory_for_rows([]), 1, labels, _week(date(2026, 6, 13))
     )
     assert set(series.keys()) == {"손바", "라딘라면"}
     # 데이터 없는 캐릭터는 전 구간 None(빈 데이터 가드).
@@ -252,7 +257,7 @@ async def test_history_progress_same_user_two_characters_separate_series():
         ("ocA", d, 287, 50.0),  # progress = 287.5
         ("ocB", d, 260, 10.0),  # progress = 260.1
     ]
-    series = await history_progress(_factory_for_rows(rows), 1, labels, d, days=7)
+    series = await history_progress(_factory_for_rows(rows), 1, labels, _week(d))
     assert dict(series["본캐"])[d] == 287.5
     assert dict(series["부캐"])[d] == 260.1
 
@@ -632,3 +637,85 @@ async def test_backfill_checks_existing_dates_per_target_ocid(monkeypatch):
     assert (
         len(fetched) == 16
     )  # 캐릭터 2개 × 8일 전부 페치(다른 캐릭터가 빈 날을 가리지 않음)
+
+
+# ── 기간 확장: 달력 앵커 샘플 날짜 (docs/exp-period-work-order.md) ──
+
+
+def test_period_steps_and_default_is_30_days():
+    assert service.PERIOD_STEPS == {30: 3, 14: 2, 7: 1}
+    assert service.DEFAULT_PERIOD_DAYS == 30
+
+
+def test_sample_dates_7_days_is_every_day():
+    ref = date(2026, 10, 5)
+    assert service.sample_dates(ref, 7) == [
+        ref - timedelta(days=d) for d in range(6, -1, -1)
+    ]
+
+
+@pytest.mark.parametrize("days", [30, 14])
+def test_sample_dates_calendar_anchor_within_window_and_ends_at_ref(days):
+    ref = date(2026, 10, 5)
+    step = service.PERIOD_STEPS[days]
+    dates = service.sample_dates(ref, days)
+    assert dates == sorted(set(dates))  # 오름차순·중복 없음
+    assert dates[-1] == ref  # 기준일은 항상 포함(최신 스냅샷)
+    assert dates[0] >= ref - timedelta(days=days - 1)  # 창 안
+    anchored = dates[:-1] if ref.toordinal() % step else dates
+    assert all(d.toordinal() % step == 0 for d in anchored)  # 달력 앵커
+    gaps = [(b - a).days for a, b in zip(anchored, anchored[1:])]
+    assert all(g == step for g in gaps)
+
+
+def test_sample_dates_anchor_stable_when_ref_moves():
+    # 기준일이 하루 밀려도 앵커 날짜는 그대로 — 어제 받은 날짜를 오늘도 재사용(콜 재사용 보장).
+    a = set(service.sample_dates(date(2026, 10, 5), 30)[:-1])
+    b = set(service.sample_dates(date(2026, 10, 6), 30)[:-1])
+    overlap = a & b
+    assert len(overlap) >= len(a) - 1  # 창 밖으로 빠지는 최대 1개 외에는 공통
+
+
+async def test_history_progress_queries_only_given_sample_dates():
+    labels = {"oc10": "손바"}
+    dates = [date(2026, 9, 28), date(2026, 10, 1), date(2026, 10, 5)]
+    rows = [
+        ("oc10", date(2026, 9, 28), 289, 4.0),
+        ("oc10", date(2026, 10, 5), 290, 85.0),
+    ]
+    series = await history_progress(_factory_for_rows(rows), 1, labels, dates)
+    assert [d for d, _ in series["손바"]] == dates  # 샘플 날짜만, 그 순서로
+    assert dict(series["손바"])[date(2026, 10, 1)] is None
+
+
+async def test_backfill_with_explicit_dates_fetches_only_those_days():
+    nexon = _RecordingNexon()
+    deps = SimpleNamespace(session_factory=_backfill_factory(), nexon=nexon)
+    dates = [date(2026, 9, 7), date(2026, 9, 10), date(2026, 9, 13)]
+    await service.backfill(
+        deps, 1, [_target(10, "oc1"), _target(20, "oc2")], dates=dates
+    )
+    assert sorted(nexon.basic_calls) == sorted([d.isoformat() for d in dates] * 2)
+
+
+async def test_backfill_explicit_dates_newest_first_and_stops_at_first_gap(monkeypatch):
+    # 기간 백필은 최신 → 과거로 조회하다 첫 실패(캐릭터 생성 전·데이터 없음)에서 멈춘다 — 영구 결손
+    # 날짜를 매 호출 재조회하지 않게(코드리뷰 MEDIUM). 일시 장애였다면 다음 호출에서 그 날부터 재시도.
+    async def fake_existing(session_factory, guild_id, discord_user_id, ocid, dates):
+        return set()
+
+    fetched: list[date] = []
+
+    async def fake_fetch_one_day(deps, target, snapshot_date):
+        fetched.append(snapshot_date)
+        return snapshot_date >= date(2026, 9, 19)  # 09/19 이전은 데이터 없음
+
+    monkeypatch.setattr(service, "_existing_dates", fake_existing)
+    monkeypatch.setattr(service, "_fetch_one_day", fake_fetch_one_day)
+    deps = SimpleNamespace(session_factory=object(), nexon=object())
+    dates = service.sample_dates(date(2026, 10, 5), 30)
+    await service.backfill(deps, 1, [_target(10, "oc1")], dates=dates)
+    assert fetched == sorted([d for d in dates if d >= date(2026, 9, 16)], reverse=True)
+    assert fetched[-1] == date(
+        2026, 9, 16
+    )  # 첫 실패 1콜만 쓰고 그 이전(09/07~09/13)은 조회 안 함

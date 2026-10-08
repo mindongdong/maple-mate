@@ -1,7 +1,7 @@
 """경험치 리더보드 Discord 잡 어댑터 + 명령 본체 공유 (작업지시서 빌드 단위 #5).
 
 전달-무관 service 위에 Discord 발송과 스케줄을 얹는 얇은 어댑터. `build_payload` 는 `/경험치`
-명령과 매일 10시 잡이 공유하는 산출물 빌더(최근 7일 레벨 추이 그래프 PNG). `run_leaderboard_job` 은
+명령과 매일 10시 잡이 공유하는 산출물 빌더(기간 — 기본 30일 — 레벨 추이 그래프 PNG). `run_leaderboard_job` 은
 채널·개인 구독자 0이면 스킵(넥슨 콜 없음) → 길드별 멱등 백필 → D-1 적재 → build_payload →
 채널 발송 + 개인 DM(부분실패 앱로그, 썬데이 패턴, ADR-0017). prune 는 09:00 운영 잡에 편승.
 """
@@ -40,7 +40,7 @@ _GRAPH_FILE = "leaderboard_graph.png"
 
 @dataclass(frozen=True)
 class LeaderboardPayload:
-    """발송 산출물(잡·명령 공유). 7일 레벨 추이 그래프 PNG 원시 바이트 + 임베드 + 기준일.
+    """발송 산출물(잡·명령 공유). 기간 레벨 추이 그래프 PNG 원시 바이트 + 임베드 + 기준일.
 
     `discord.File` 은 `BytesIO` 를 소비하므로 채널당 신규 파일 객체가 필요하다.
     `to_files()` 로 매 발송마다 fresh `discord.File` 을 생성한다.
@@ -91,7 +91,7 @@ def _build_embed(
     *,
     note: str | None = None,
 ) -> discord.Embed:
-    """순위판(라이브 레벨 Top10) 텍스트 + 7일 추이 그래프 임베드. 제목 미지정 = 본서버 리더보드.
+    """순위판(라이브 레벨 Top10) 텍스트 + 기간 추이 그래프 임베드. 제목 미지정 = 본서버 리더보드.
 
     note(대상 지정 시 '미등록/데이터 없음' 안내)가 있으면 순위판 위에 한 줄 얹는다.
     """
@@ -117,8 +117,9 @@ async def build_targets_payload(
     min_ranked: int,
     realm: Realm | None = None,
     requested_users: int | None = None,
+    period_days: int = service.DEFAULT_PERIOD_DAYS,
 ) -> LeaderboardPayload | None:
-    """Target 리스트 → 최근 스냅샷 게이트 → 라이브 레벨 덮어쓰기 → Top10 순위판+7일 추이 그래프.
+    """Target 리스트 → 최근 스냅샷 게이트 → 라이브 레벨 덮어쓰기 → Top10 순위판+기간 추이 그래프.
 
     서버 리더보드(`build_payload`)와 `/내캐릭터 경험치`가 공유하는 코어(ADR-0018). labels =
     ocid → 표시 라벨. 수집이 등록 전 캐릭터로 확장돼도(결정 5) 스냅샷을 targets 의 (user, ocid)
@@ -127,6 +128,10 @@ async def build_targets_payload(
     **표시 레벨은 character/basic 라이브(오늘 현재)** 로 덮어쓰고, 그래프 끝에도 오늘 라이브
     점을 붙여 임베드·그래프가 모두 '현재'로 일치한다(ADR-0011) — 폴백 시에도 신선도 무손실.
     정렬·게이트·이력은 스냅샷 기반 유지. 렌더는 to_thread(루프 비차단).
+
+    period_days(기본 30) = 그래프 기간. 이력은 달력 앵커 샘플 날짜만 조회·표시하고, 그 빈
+    날은 **순위 확정 후 표시 대상(Top10)만** 백필한다 — 순위용 최근 8일 백필(전 캐릭터)과 별개라
+    긴 기간이 캐릭터 수 × 기간 콜로 번지지 않는다(작업지시서 D6·D7).
 
     requested_users(대상 지정 실행에서만 넘김) = 지정된 서로 다른 유저 수. 표시된 유저 수와
     비교해 빠진 인원을 임베드 상단에 '미등록/데이터 없음' 한 줄로 안내한다(무인자 = None → 안내 없음).
@@ -163,15 +168,22 @@ async def build_targets_payload(
     )
     display_rows = service.with_live_levels(rows, live)
 
-    # 그래프: 7일 이력(스냅샷) + 오늘 라이브 점 → 끝점이 임베드 순위와 같은 '현재'.
+    # 그래프·순위판과 동일한 상위 _TOP_N(단일 순위 소스 = display_rows)만 기간 이력을 채운다.
+    top_rows = display_rows[:_TOP_N]
+    top_ocids = {r.ocid for r in top_rows}
+    dates = service.sample_dates(ref_date, period_days)
+    await service.backfill(
+        deps, guild_id, [t for t in targets if t.ocid in top_ocids], dates=dates
+    )
+
+    # 그래프: 기간 샘플 이력(스냅샷) + 오늘 라이브 점 → 끝점이 임베드 순위와 같은 '현재'.
     series = await service.history_progress(
-        deps.session_factory, guild_id, labels, ref_date, realm=realm
+        deps.session_factory, guild_id, labels, dates, realm=realm
     )
     series = service.append_live_point(series, labels, live, today)
-    # 그래프도 임베드와 동일한 상위 _TOP_N 만 그 순위 순서로 그린다(단일 순위 소스 = display_rows).
     # dict 삽입 순서 = 순위 순서라 렌더러가 1위에 팔레트 선두색을 준다(구조적 일치, 렌더러는 재정렬 안 함).
-    # 단, 7일 내내 exp% 결손이라 그릴 점이 0개인 상위권 캐릭은 순위판엔 뜨지만 그래프 라인은 없다(드묾).
-    top_labels = [r.nickname for r in display_rows[:_TOP_N]]
+    # 단, 기간 내내 exp% 결손이라 그릴 점이 0개인 상위권 캐릭은 순위판엔 뜨지만 그래프 라인은 없다(드묾).
+    top_labels = [r.nickname for r in top_rows]
     series = {label: series[label] for label in top_labels if label in series}
     graph_buf = await asyncio.to_thread(
         leaderboard_image.render_progress_graph, series, ref_date
@@ -193,7 +205,11 @@ async def build_targets_payload(
 
 
 async def build_payload(
-    bot: discord.Client, deps: Deps, guild_id: int, realm: Realm = Realm.MAIN
+    bot: discord.Client,
+    deps: Deps,
+    guild_id: int,
+    realm: Realm = Realm.MAIN,
+    period_days: int = service.DEFAULT_PERIOD_DAYS,
 ) -> LeaderboardPayload | None:
     """서버 리더보드 payload — get_targets(realm) = **대표 캐릭터 행만** 표시(결과 불변, ADR-0018).
 
@@ -210,6 +226,7 @@ async def build_payload(
         title=_embed_title(realm),
         min_ranked=MIN_RANKED,
         realm=realm,
+        period_days=period_days,
     )
 
 
@@ -218,6 +235,7 @@ async def build_specified_payload(
     guild_id: int,
     user_ids: Sequence[int],
     realm: Realm = Realm.MAIN,
+    period_days: int = service.DEFAULT_PERIOD_DAYS,
 ) -> LeaderboardPayload | None:
     """대상 지정 `/경험치` payload — 지정 유저들의 **대표 캐릭터만** 순위판+그래프(정렬 (레벨, exp%) 유지).
 
@@ -239,6 +257,7 @@ async def build_specified_payload(
         min_ranked=MIN_RANKED,
         realm=realm,
         requested_users=len({uid for uid in user_ids}),
+        period_days=period_days,
     )
 
 
@@ -267,8 +286,9 @@ async def ensure_guild_data(
 
     수집 대상 = 등록 전 캐릭터(ADR-0018 결정 5 — `/내캐릭터 경험치`의 캐릭별 추이 재료).
     표시 레벨은 build_payload 가 character/basic(무지정=최신)으로 **라이브** 조회하므로 명령 시점
-    '현재 갱신'은 그쪽이 담당한다 — 여기선 `backfill`(멱등)로 7일 그래프 이력의 공백(봇 미가동일·
-    뒤늦게 등록된 캐릭터)만 채운다(정상 상태 넥슨 0콜). 그 realm 캐릭터가 없으면 no-op.
+    '현재 갱신'은 그쪽이 담당한다 — 여기선 `backfill`(멱등)로 순위용 최근 8일 공백(봇 미가동일·
+    뒤늦게 등록된 캐릭터)만 채운다(정상 상태 넥슨 0콜). 긴 기간 그래프 이력은 표시 대상만
+    build_targets_payload 가 채운다(D7). 그 realm 캐릭터가 없으면 no-op.
     """
     targets = await get_all_character_targets(deps.session_factory, guild_id, realm)
     if targets:

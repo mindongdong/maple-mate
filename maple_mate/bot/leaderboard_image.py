@@ -1,8 +1,9 @@
 """경험치 리더보드 PNG 렌더 — 절대 레벨 추이 그래프(matplotlib, `asyncio.to_thread` 전제).
 
-render_progress_graph: 등록 캐릭터들의 최근 7일 진행도(= character_level + exp%/100)를 **절대값
+render_progress_graph: 등록 캐릭터들의 기간(기본 30일) 진행도(= character_level + exp%/100)를 **절대값
 그대로** multi-user 라인으로 그린다 — 선 높이 = 총 레벨이라 그래프 순위가 곧 레벨 순위(임베드
-순위판과 일치). 선 끝에 `닉네임 Lv.287 (79%)`를 붙여 범례를 내장하고(끝점이 붙으면 세로 분산),
+순위판과 일치). X축은 샘플 날짜의 **실제 날짜 비례**(달력 앵커 간격 + 기준일 + 오늘이 불균등).
+선 끝에 `닉네임 Lv.287 (79%)`를 붙여 범례를 내장하고(끝점이 붙으면 세로 분산),
 중간 점별 라벨은 두지 않는다. 순위(현재 레벨)는 임베드 텍스트가 Top10으로 함께 보여준다(ADR-0011).
 입력 series 는 호출측(broadcast)이 이미 상위 10명으로 캡해 넘긴다 — 이 모듈은 받은 만큼 그린다.
 시리즈별 색+마커로 선을 식별한다. 입력은 service.history_progress 시계열(닉 → [(date,
@@ -85,6 +86,31 @@ def _to_png(fig: Figure) -> io.BytesIO:
     return buffer
 
 
+def _x_positions(dates: list[date]) -> list[int]:
+    """샘플 날짜 → 첫 날짜 기준 일수 오프셋(불균등 간격을 실제 날짜 비례로 배치)."""
+    return [(d - dates[0]).days for d in dates]
+
+
+def _tick_labels(dates: list[date], xs: list[int], min_gap: float) -> list[str]:
+    """X축 날짜 라벨 — 오른쪽(오늘)부터 훑어 직전 라벨과 min_gap 미만으로 붙은 날짜는 비운다.
+
+    눈금(점)은 모두 두고 라벨만 솎는다 — 앵커 끝·기준일·오늘이 1~2일 간격으로 붙어 겹치는 것을 방지.
+    """
+    labels = [""] * len(dates)
+    last_x: float | None = None
+    for i in range(len(dates) - 1, -1, -1):
+        if last_x is None or last_x - xs[i] >= min_gap:
+            labels[i] = f"{dates[i]:%m/%d}"
+            last_x = xs[i]
+    return labels
+
+
+def _label_gap(xs: list[int]) -> float:
+    """날짜 라벨 최소 간격 = 샘플 간격 **중앙값**의 90%(평균은 늦은 오늘 점에 끌려 매일 라벨을 솎는다)."""
+    gaps = sorted(b - a for a, b in zip(xs, xs[1:]))
+    return gaps[len(gaps) // 2] * 0.9 if gaps else 1.0
+
+
 def _spread_labels(values: list[float], min_gap: float) -> list[float]:
     """끝-라벨 세로 위치를 겹치지 않게 — 값 오름차순으로 최소 간격(min_gap)을 강제(위로 밀어 올림).
 
@@ -101,12 +127,14 @@ def _spread_labels(values: list[float], min_gap: float) -> list[float]:
 
 
 def render_progress_graph(
-    series: dict[str, list[tuple[date, float | None]]], ref_date: date
+    series: dict[str, list[tuple[date, float | None]]],
+    ref_date: date,
 ) -> io.BytesIO:
-    """유저별 최근 7일 절대 레벨(= 레벨 + exp%/100) 추이 라인 그래프 PNG.
+    """유저별 기간 절대 레벨(= 레벨 + exp%/100) 추이 라인 그래프 PNG.
 
     series=닉 → [(날짜, progress|None)]. Y축은 절대 레벨(선 높이 = 총 레벨 → 그래프 순위가 곧
-    레벨 순위). 선 끝엔 `닉 Lv.287 (79%)`(겹치면 세로 분산), 중간 라벨은 없음. 순위(현재 레벨)는
+    레벨 순위). X축은 날짜 비례(샘플 간격이 불균등해도 실제 시간 축). 선 끝엔
+    `닉 Lv.287 (79%)`(겹치면 세로 분산), 중간 라벨은 없음. 순위(현재 레벨)는
     임베드 텍스트가 Top10으로 함께 보여준다(ADR-0011). 데이터 0개 유저는 제외, None 구간은 선이
     끊긴다. 전원 데이터 없으면 안내 문구만. 모든 series 리스트는 길이가 같다고 가정.
     """
@@ -143,7 +171,9 @@ def render_progress_graph(
         return _to_png(fig)
 
     n = len(dates)
-    xs = list(range(n))
+    xs = _x_positions(dates)
+    # 여백·라벨 오프셋 단위 = 평균 샘플 간격(7일 매일이면 1일 — 종전 인덱스 축과 같은 비율).
+    unit = (xs[-1] / (n - 1)) if n > 1 else 1.0
     # 색·마커는 입력 순서대로 배정한다 — 호출측(broadcast)이 이미 임베드 순위(display_rows) 순서로
     # series 를 넘기므로 1위가 팔레트 선두 = 임베드 순위판과 **구조적으로** 동일하다. (이전엔 끝점값
     # 으로 재정렬했는데, 라이브 exp% 결손 시 순위 키와 어긋날 수 있었다 — 순위 소스 단일화.)
@@ -157,24 +187,24 @@ def render_progress_graph(
         ys = [v if v is not None else np.nan for _, v in pts]
         ax.plot(xs, ys, color=color, marker=marker, markersize=7, linewidth=2.6)
         last_i = max(i for i, (_, v) in enumerate(pts) if v is not None)
-        end_points.append((last_i, pts[last_i][1], nick, color))
+        end_points.append((xs[last_i], pts[last_i][1], nick, color))
         all_values.extend(v for _, v in pts if v is not None)
 
     # 축 범위 — 데이터 실범위에 맞춰 줌(작은 레벨차도 보이게) + 위아래 여백.
     ymin, ymax = min(all_values), max(all_values)
     yspan = (ymax - ymin) or 1.0
-    ax.set_xlim(-0.3, (n - 1) + 0.3)
+    ax.set_xlim(-0.3 * unit, xs[-1] + 0.3 * unit)
     ax.set_ylim(ymin - yspan * 0.12, ymax + yspan * 0.18)
 
     # 선 끝 라벨(범례 내장) — 우측 라벨 칸에 정렬, 끝점이 붙으면 세로로 분산해 점과 가는 가이드 연결.
     lo, hi = ax.get_ylim()
     min_gap = (hi - lo) * 0.075
-    x_text = (n - 1) + 0.18
+    x_text = xs[-1] + 0.18 * unit
     label_ys = _spread_labels([v for _, v, _, _ in end_points], min_gap)
     for (x, value, nick, color), ly in zip(end_points, label_ys):
         if abs(ly - value) > min_gap * 0.15:  # 분산으로 멀어지면 가는 가이드 라인.
             ax.plot(
-                [x, x_text - 0.04],
+                [x, x_text - 0.04 * unit],
                 [value, ly],
                 color=color,
                 linewidth=0.8,
@@ -193,7 +223,8 @@ def render_progress_graph(
         )
 
     ax.set_xticks(xs)
-    ax.set_xticklabels([f"{d:%m/%d}" for d in dates])
+    # 샘플 간격 중앙값의 90% 미만으로 붙은 라벨만 비운다(7일 매일 = 전부 표시).
+    ax.set_xticklabels(_tick_labels(dates, xs, min_gap=_label_gap(xs)))
     # y눈금 = 절대 레벨('Lv.287'). 정수 눈금만(287.3 같은 소수 눈금 방지 — 정확값은 끝-라벨이 준다).
     ax.yaxis.set_major_locator(MaxNLocator(integer=True))
     ax.yaxis.set_major_formatter(lambda v, _pos: f"Lv.{v:g}")
