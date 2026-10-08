@@ -135,10 +135,20 @@ def _int(value: object) -> int:
         return 0
 
 
+# 큐브 이력에 섞여 오는 특수 재화 재설정(넥슨 2026-09-17 — "큐브 및 특수 재화 사용 결과 조회").
+# 펄스 인핸서는 어센던트 펄스 링 전용 재화라 큐브 감정비·사용 수·등업 집계 대상이 아니다(실측 cube_type).
+_NON_CUBE_TYPES = frozenset({"펄스 인핸서"})
+
+
 def parse_cube_records(records: Sequence[dict]) -> list[CubeRecord]:
-    """넥슨 cube 레코드 → CubeRecord 목록(계정 전체, 순수). character_name 보존(/비틱 필터용)."""
+    """넥슨 cube 레코드 → CubeRecord 목록(계정 전체, 순수). character_name 보존(/비틱 필터용).
+
+    특수 재화 재설정(_NON_CUBE_TYPES, 펄스 인핸서)은 큐브가 아니라 제외한다.
+    """
     out: list[CubeRecord] = []
     for r in records:
+        if r.get("cube_type", "") in _NON_CUBE_TYPES:
+            continue
         out.append(
             CubeRecord(
                 cube_type=r.get("cube_type", ""),

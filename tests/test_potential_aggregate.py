@@ -328,3 +328,11 @@ def test_empty_inputs_produce_zero_summary() -> None:
     assert summary.tierups_add == ()
     assert summary.by_cube_type == ()
     assert summary.by_grade == ()
+
+
+def test_parse_cube_excludes_pulse_enhancer_resets() -> None:
+    # 넥슨 9/17: 큐브 이력에 펄스 인핸서(어센던트 펄스 링 전용 특수 재화) 재설정이 섞여 온다(실측
+    # cube_type='펄스 인핸서'). 큐브가 아니라 감정비·큐브 사용 수·등업 집계에서 뺀다.
+    records = [_raw("손바"), {**_raw("손바"), "cube_type": "펄스 인핸서"}]
+    parsed = parse_cube_records(records)
+    assert [p.cube_type for p in parsed] == [records[0]["cube_type"]]

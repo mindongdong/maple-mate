@@ -316,3 +316,32 @@ async def test_fetch_weekly_max_power_none_when_no_data_and_no_latest():
         await fetch_weekly_max_power(client, "oc1", date(2026, 6, 8), latest=None)
         is None
     )
+
+
+# ── /스펙 비교표 HEXA 코어 칸 수(넥슨 7/23 6차 스킬 코어) ─────────────────────
+
+
+def test_core_columns_default_slots_when_within_base():
+    from maple_mate.character.commands import core_columns
+
+    by_types = [{"스킬": (30, 30), "마스터리": (20,)}, {}]
+    assert core_columns(by_types) == (
+        ("스킬", 2),
+        ("마스터리", 4),
+        ("강화", 4),
+        ("공용", 3),
+    )
+
+
+def test_core_columns_widen_to_max_owned_so_third_skill_core_is_not_cut():
+    # 6차 스킬 코어로 스킬 코어 3개 보유 캐릭터(실측 10명 중 7명) — 3번째 칸이 잘리지 않게 넓힌다.
+    from maple_mate.character.commands import core_columns
+
+    by_types = [{"스킬": (30, 30, 1)}, {"스킬": (30, 30)}]
+    assert dict(core_columns(by_types))["스킬"] == 3
+
+
+def test_core_columns_empty_input_keeps_base():
+    from maple_mate.character.commands import core_columns
+
+    assert dict(core_columns([]))["스킬"] == 2
