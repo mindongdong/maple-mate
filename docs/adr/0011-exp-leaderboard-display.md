@@ -58,17 +58,15 @@
 
 **영향 파일:** [broadcast.py](../../maple_mate/leaderboard/broadcast.py)(`_TOP_N`·그래프 series 캡), [service.py](../../maple_mate/leaderboard/service.py)(`_rank_key`), [leaderboard_image.py](../../maple_mate/bot/leaderboard_image.py)(10색). 결정 4·5의 본문은 역사 기록으로 남기고 본 개정이 우선한다.
 
-## 개정 (Amendment) — 2026-10-07: 기간 확장(기본 30일) + 기간 증가량 표기
+## 개정 (Amendment) — 2026-10-07: 기간 확장(기본 30일)
 
 유저 피드백: 서버 리더보드의 7일 그래프에서 **고레벨의 상승이 안 보인다**. Y축이 표시된 선 전체의 레벨 범위에 맞춰지므로(격차 Lv.281~291), 고레벨의 7일 +0.3레벨은 평평하게 그려진다 — 위 '부담 / 잔류'의 "전원 동레벨대면 라인이 평탄"이 격차 큰 서버에서도 드러난 것. grill(작업지시서 [exp-period-work-order.md](../exp-period-work-order.md) D1–D9)로 다음을 정했다.
 
 1. **기본 기간 7일 → 30일, `/경험치`·`/내캐릭터 경험치`에 `기간` 옵션(30/14/7일).** 매일 10시 알림은 30일 고정(알림별 기간 설정 없음 → 스키마 무변경). 실데이터 0단계 게이트(10명, 2026-10-07)에서 30일 그래프는 상위권 기울기가 뚜렷했고 7일은 거의 평탄했다.
 2. **달력 앵커 샘플링.** 30일 = 3일, 14일 = 2일, 7일 = 매일 간격으로 `toordinal() % step == 0` 인 날 + 기준일만 조회·표시한다(`service.sample_dates`). 기준일부터 거꾸로 잡으면 날짜 세트가 매일 밀려 콜 재사용이 안 되므로 달력에 고정했다 — 정상 상태 하루 캐릭터당 최대 1콜. 간격이 불균등(마지막 구간·오늘 라이브 점)하므로 그래프 X축은 **실제 날짜 비례**다.
 3. **기간 백필은 표시 대상만.** 순위용 최근 8일 백필(전 캐릭터)은 그대로 두고, 순위 확정 뒤 **표시 Top10(또는 지정 유저)만** 샘플 날짜의 빈 날을 채운다(`build_targets_payload`). 콜드 시작 ≈ 10명 × 11콜. 기간 백필은 최신 → 과거로 조회하다 **첫 실패에서 그 캐릭터를 멈춘다** — 실패한 날은 행이 안 생겨(ADR-0020) 캐릭터 생성 전·데이터 없는 과거 날짜가 매 호출 재조회되던 것을 캐릭터당 1콜로 묶는다(일시 장애면 다음 호출에서 자가복구).
-4. **기간 증가량(`+132%`)을 그래프 끝 라벨·임베드 순위판 양쪽에 표기**하고 푸터에 `증가량: 최근 N일`을 명시한다. 정의 = (끝 progress − 기간 첫 유효 progress) × 100, 레벨 내 % 누적(레벨업을 넘어 연속). 시작점 결손이면 첫 유효점부터, 유효점 1개 이하면 생략, 사망 페널티 감소는 음수 그대로(`service.period_gains`).
+4. **기간 증가량(`+132%`) 표기는 철회 — 표시는 종전대로 레벨만.** grill(D1·D4)에서 그래프 끝 라벨·임베드 순위판·푸터에 증가량을 붙이기로 했으나, PR #67 리뷰에서 사용자가 제외를 결정했다("기존 방식대로 레벨만 표기"). 선 끝 라벨은 `닉 Lv.287 (79%)`, 순위판은 메달·닉·레벨(exp%), 푸터는 `기준: 오늘(MM/DD) 현재` 그대로다. 고레벨 상승은 30일 기간의 기울기로만 읽힌다.
 
-**정규화 철회와의 관계:** 증가량은 **순위에 쓰지 않는 보조 숫자**다. 그래프 높이·순위는 여전히 총 레벨이라, D-7 정규화를 기각한 사유("시각 순위 ≠ 레벨 순위")와 충돌하지 않는다 — '누가 열심히'를 기울기에만 맡기던 한계를 숫자로 보완한다.
+**한계:** 알림 기간 설정이 필요해지면 `/경험치알림 켜기 기간:` 으로 확장한다(충돌 없음).
 
-**한계:** 누적 경험치가 아니라 레벨 내 % 기준이라 레벨대별 필요 경험치 차이는 반영되지 않는다(ADR-0020 이 total_exp 를 제거). 알림 기간 설정이 필요해지면 `/경험치알림 켜기 기간:` 으로 확장한다(충돌 없음).
-
-**영향 파일:** [service.py](../../maple_mate/leaderboard/service.py)(`PERIOD_STEPS`·`sample_dates`·`period_gains`·`history_progress(dates)`·`backfill(dates=)`), [broadcast.py](../../maple_mate/leaderboard/broadcast.py)(표시 대상 기간 백필·증가량 순위판·푸터), [leaderboard_image.py](../../maple_mate/bot/leaderboard_image.py)(날짜 비례 X축·증가량 끝 라벨), [commands.py](../../maple_mate/leaderboard/commands.py)·[mychar/commands.py](../../maple_mate/mychar/commands.py)(`기간` 옵션).
+**영향 파일:** [service.py](../../maple_mate/leaderboard/service.py)(`PERIOD_STEPS`·`sample_dates`·`history_progress(dates)`·`backfill(dates=)`), [broadcast.py](../../maple_mate/leaderboard/broadcast.py)(표시 대상 기간 백필), [leaderboard_image.py](../../maple_mate/bot/leaderboard_image.py)(날짜 비례 X축·날짜 라벨 솎기), [commands.py](../../maple_mate/leaderboard/commands.py)·[mychar/commands.py](../../maple_mate/mychar/commands.py)(`기간` 옵션).

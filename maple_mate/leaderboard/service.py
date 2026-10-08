@@ -5,7 +5,6 @@
 - build_rows: 순수 — (레벨, 레벨내 exp%) 내림차순 정렬·순위 부여·미준비 제외 카운트(_rank_key).
 - live_levels/with_live_levels/append_live_point: 표시 레벨을 character/basic 라이브(최신)로 덮어쓰기.
 - sample_dates/history_progress: 그래프 기간(기본 30일)의 달력 앵커 샘플 날짜 → 캐릭터별 진행도 시계열.
-- period_gains: 순수 — 기간 증가량(첫 유효점 → 끝점, 레벨 내 % 누적).
 - prune_old_snapshots: snapshot_date 가 90일 경과한 행 삭제(09:00 운영 잡 편승).
 
 스냅샷 키 = (guild_id, discord_user_id, ocid, snapshot_date) — 캐릭터(ocid) 차원 포함(ADR-0018).
@@ -439,23 +438,6 @@ def sample_dates(ref_date: date, days: int) -> list[date]:
     if not picked or picked[-1] != ref_date:
         picked.append(ref_date)
     return picked
-
-
-def period_gains(
-    series: dict[str, list[tuple[date, float | None]]],
-) -> dict[str, int | None]:
-    """순수: 라벨별 기간 증가량(레벨 내 % 누적, 정수) — 첫 유효점 → 마지막 유효점.
-
-    progress = 레벨 + exp%/100 이 레벨업을 넘어 연속이라 (끝 − 시작) × 100 이 '몇 % 먹었나'다
-    (예: 286.47 → 287.79 = +132). 시작점 결손(신규 캐릭터·일시 장애)이면 기간 안 첫 유효점부터
-    (D3), 끝점은 보통 오늘 라이브 점(append_live_point 이후 입력). 유효점 1개 이하면 None(생략).
-    사망 페널티로 줄었으면 음수 그대로. 누적 경험치가 아니라 레벨 내 % 기준이다(ADR-0020).
-    """
-    gains: dict[str, int | None] = {}
-    for label, pts in series.items():
-        valid = [v for _, v in pts if v is not None]
-        gains[label] = round((valid[-1] - valid[0]) * 100) if len(valid) > 1 else None
-    return gains
 
 
 async def history_progress(

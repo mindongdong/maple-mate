@@ -639,7 +639,7 @@ async def test_backfill_checks_existing_dates_per_target_ocid(monkeypatch):
     )  # 캐릭터 2개 × 8일 전부 페치(다른 캐릭터가 빈 날을 가리지 않음)
 
 
-# ── 기간 확장: 달력 앵커 샘플 날짜·기간 증가량 (docs/exp-period-work-order.md) ──
+# ── 기간 확장: 달력 앵커 샘플 날짜 (docs/exp-period-work-order.md) ──
 
 
 def test_period_steps_and_default_is_30_days():
@@ -674,23 +674,6 @@ def test_sample_dates_anchor_stable_when_ref_moves():
     b = set(service.sample_dates(date(2026, 10, 6), 30)[:-1])
     overlap = a & b
     assert len(overlap) >= len(a) - 1  # 창 밖으로 빠지는 최대 1개 외에는 공통
-
-
-def test_period_gains_first_valid_to_last_valid_in_percent():
-    d = [date(2026, 10, i) for i in (1, 2, 3, 4)]
-    series = {
-        "레벨업": [(d[0], 286.47), (d[1], 286.9), (d[2], None), (d[3], 287.79)],
-        "시작결손": [(d[0], None), (d[1], 285.10), (d[2], 285.40), (d[3], None)],
-        "감소": [(d[0], 280.50), (d[1], None), (d[2], None), (d[3], 280.47)],
-        "한점": [(d[0], None), (d[1], 281.0), (d[2], None), (d[3], None)],
-        "없음": [(x, None) for x in d],
-    }
-    gains = service.period_gains(series)
-    assert gains["레벨업"] == 132  # 286.47 → 287.79 (레벨업을 넘어 연속)
-    assert gains["시작결손"] == 30  # 첫 유효점 기준(D3)
-    assert gains["감소"] == -3  # 사망 페널티 등 감소는 음수 그대로
-    assert gains["한점"] is None  # 유효점 1개 → 생략
-    assert gains["없음"] is None
 
 
 async def test_history_progress_queries_only_given_sample_dates():

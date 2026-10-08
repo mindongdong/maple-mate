@@ -3,7 +3,7 @@
 render_progress_graph: 등록 캐릭터들의 기간(기본 30일) 진행도(= character_level + exp%/100)를 **절대값
 그대로** multi-user 라인으로 그린다 — 선 높이 = 총 레벨이라 그래프 순위가 곧 레벨 순위(임베드
 순위판과 일치). X축은 샘플 날짜의 **실제 날짜 비례**(달력 앵커 간격 + 기준일 + 오늘이 불균등).
-선 끝에 `닉네임 Lv.287 (79%) +132%`(기간 증가량)를 붙여 범례를 내장하고(끝점이 붙으면 세로 분산),
+선 끝에 `닉네임 Lv.287 (79%)`를 붙여 범례를 내장하고(끝점이 붙으면 세로 분산),
 중간 점별 라벨은 두지 않는다. 순위(현재 레벨)는 임베드 텍스트가 Top10으로 함께 보여준다(ADR-0011).
 입력 series 는 호출측(broadcast)이 이미 상위 10명으로 캡해 넘긴다 — 이 모듈은 받은 만큼 그린다.
 시리즈별 색+마커로 선을 식별한다. 입력은 service.history_progress 시계열(닉 → [(date,
@@ -86,11 +86,6 @@ def _to_png(fig: Figure) -> io.BytesIO:
     return buffer
 
 
-def _gain_label(gain: int | None) -> str:
-    """기간 증가량 라벨 꼬리 — ' +132%' / ' -3%', 유효점 부족(None)이면 빈 문자열."""
-    return "" if gain is None else f" {gain:+d}%"
-
-
 def _x_positions(dates: list[date]) -> list[int]:
     """샘플 날짜 → 첫 날짜 기준 일수 오프셋(불균등 간격을 실제 날짜 비례로 배치)."""
     return [(d - dates[0]).days for d in dates]
@@ -134,14 +129,12 @@ def _spread_labels(values: list[float], min_gap: float) -> list[float]:
 def render_progress_graph(
     series: dict[str, list[tuple[date, float | None]]],
     ref_date: date,
-    gains: dict[str, int | None] | None = None,
 ) -> io.BytesIO:
     """유저별 기간 절대 레벨(= 레벨 + exp%/100) 추이 라인 그래프 PNG.
 
     series=닉 → [(날짜, progress|None)]. Y축은 절대 레벨(선 높이 = 총 레벨 → 그래프 순위가 곧
-    레벨 순위). X축은 날짜 비례(샘플 간격이 불균등해도 실제 시간 축). gains=닉 → 기간 증가량(%)
-    이면 끝 라벨에 덧붙인다(순위와 무관한 보조 숫자, ADR-0011 개정). 선 끝엔
-    `닉 Lv.287 (79%) +132%`(겹치면 세로 분산), 중간 라벨은 없음. 순위(현재 레벨)는
+    레벨 순위). X축은 날짜 비례(샘플 간격이 불균등해도 실제 시간 축). 선 끝엔
+    `닉 Lv.287 (79%)`(겹치면 세로 분산), 중간 라벨은 없음. 순위(현재 레벨)는
     임베드 텍스트가 Top10으로 함께 보여준다(ADR-0011). 데이터 0개 유저는 제외, None 구간은 선이
     끊긴다. 전원 데이터 없으면 안내 문구만. 모든 series 리스트는 길이가 같다고 가정.
     """
@@ -181,7 +174,6 @@ def render_progress_graph(
     xs = _x_positions(dates)
     # 여백·라벨 오프셋 단위 = 평균 샘플 간격(7일 매일이면 1일 — 종전 인덱스 축과 같은 비율).
     unit = (xs[-1] / (n - 1)) if n > 1 else 1.0
-    gains = gains or {}
     # 색·마커는 입력 순서대로 배정한다 — 호출측(broadcast)이 이미 임베드 순위(display_rows) 순서로
     # series 를 넘기므로 1위가 팔레트 선두 = 임베드 순위판과 **구조적으로** 동일하다. (이전엔 끝점값
     # 으로 재정렬했는데, 라이브 exp% 결손 시 순위 키와 어긋날 수 있었다 — 순위 소스 단일화.)
@@ -222,11 +214,11 @@ def render_progress_graph(
         ax.text(
             x_text,
             ly,
-            f"{nick} {_progress_label(value)}{_gain_label(gains.get(nick))}",
+            f"{nick} {_progress_label(value)}",
             ha="left",
             va="center",
             color=color,
-            fontproperties=_font(13),
+            fontproperties=_font(14),
             clip_on=False,
         )
 
@@ -247,6 +239,5 @@ def render_progress_graph(
         ax.spines[name].set_color(axis)
 
     # 그래프가 폭을 전부 차지(표 패널 폐기) — 우측은 선 끝 라벨 칸으로 비워둔다(ADR-0011).
-    # 끝 라벨이 증가량만큼 길어져(작업지시서 0단계 게이트 — 잘림 실측) 라벨 칸을 넓혔다.
-    fig.subplots_adjust(left=0.07, right=0.72, top=0.93, bottom=0.13)
+    fig.subplots_adjust(left=0.07, right=0.80, top=0.93, bottom=0.13)
     return _to_png(fig)

@@ -174,7 +174,7 @@ async def handle_my_exp(
     interaction: discord.Interaction,
     period_days: int = exp_service.DEFAULT_PERIOD_DAYS,
 ) -> None:
-    """`/내캐릭터 경험치`: defer 전 0캐릭/DM 판정 → 멱등 백필 → 캐릭별 Top10 순위판+기간 그래프·증가량.
+    """`/내캐릭터 경험치`: defer 전 0캐릭/DM 판정 → 멱등 백필 → 캐릭별 Top10 순위판+기간 그래프.
 
     `_resolve_my_targets` 를 쓰지 않는다 — 상위 5 절단은 스펙·아이템 전용이고 경험치는
     무인자 = 등록 전체(상한 10 = Top10 파이프라인과 정합, 결정 4). realm 혼합 한 그래프
@@ -324,7 +324,7 @@ def setup(bot: discord.Client) -> None:
 
     @group.command(
         name="경험치",
-        description="내 등록 캐릭터들의 최근 30일 레벨 추이와 증가량을 보여줍니다 (기간 변경 가능).",
+        description="내 등록 캐릭터들의 최근 30일 레벨 추이를 그래프와 순위로 보여줍니다 (기간 변경 가능).",
     )
     @app_commands.rename(period="기간")
     @app_commands.describe(period=leaderboard_commands.PERIOD_DESCRIBE)

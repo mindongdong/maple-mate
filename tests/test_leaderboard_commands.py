@@ -26,9 +26,8 @@ async def _noop_backfill(deps, guild_id, targets, days=8, *, dates=None):
 
 
 def test_footer_label_says_today_current():
-    text = _footer_text(date(2026, 6, 13), 30)
+    text = _footer_text(date(2026, 6, 13))
     assert "기준: 오늘(06/13) 현재" in text  # 표시 레벨이 라이브(오늘 현재)
-    assert "증가량: 최근 30일" in text  # 증가량 기간 명시(작업지시서 D4)
     assert "NEXON Open API" in text
 
 
@@ -352,7 +351,7 @@ def _single_target_payload_patches(monkeypatch, *, latest: date):
         captured["history_ref"] = dates[-1]
         return {label: [(latest, 287.5)] for label in labels.values()}
 
-    def fake_render(series, ref_date, gains=None):
+    def fake_render(series, ref_date):
         captured["render_ref"] = ref_date
         return SimpleNamespace(getvalue=lambda: b"PNG")
 
@@ -429,7 +428,7 @@ async def test_build_payload_caps_embed_and_graph_to_top_ten(monkeypatch):
 
     captured: dict[str, object] = {}
 
-    def fake_render(series, ref_date, gains=None):
+    def fake_render(series, ref_date):
         captured["series"] = series
         return SimpleNamespace(getvalue=lambda: b"PNG")
 
@@ -490,7 +489,7 @@ def _patch_specified(monkeypatch, targets, snap_users):
     async def fake_history_progress(sf, guild_id, labels, dates, *, realm=None):
         return {label: [(dates[-1], 275.0)] for label in labels.values()}
 
-    def fake_render(series, ref_date, gains=None):
+    def fake_render(series, ref_date):
         return SimpleNamespace(getvalue=lambda: b"PNG")
 
     monkeypatch.setattr(broadcast, "get_targets", fake_get_targets)
@@ -542,14 +541,7 @@ async def test_build_specified_payload_no_note_when_all_shown(monkeypatch):
     assert "미등록/데이터 없음" not in (payload.embed.description or "")
 
 
-# ── 기간 확장: 표시 대상만 기간 백필 + 증가량 표기 (docs/exp-period-work-order.md) ──
-
-
-def test_rank_line_appends_period_gain_when_present():
-    row = LeaderRow(ocid="o1", rank=1, nickname="동민", level=287, exp_rate=79.0)
-    assert broadcast._rank_line(row, 132).endswith("Lv.287 (79%) · +132%")
-    assert broadcast._rank_line(row, -3).endswith("· -3%")
-    assert "%" not in broadcast._rank_line(row, None).split("Lv.287 (79%)")[1]
+# ── 기간 확장: 표시 대상만 기간 백필 (docs/exp-period-work-order.md) ──
 
 
 def _period_patches(monkeypatch, n: int):
@@ -586,17 +578,9 @@ def _period_patches(monkeypatch, n: int):
 
     async def fake_history_progress(sf, guild_id, labels, dates, *, realm=None):
         captured["dates"] = list(dates)
-        # 기간 첫 점 대비 +1.32 레벨(= +132%) 상승한 동일 시계열.
-        return {
-            label: [
-                (d, 280.0 + (1.32 if k == len(dates) - 1 else 0.0))
-                for k, d in enumerate(dates)
-            ]
-            for label in labels.values()
-        }
+        return {label: [(d, 280.0) for d in dates] for label in labels.values()}
 
-    def fake_render(series, ref_date, gains=None):
-        captured["gains"] = gains
+    def fake_render(series, ref_date):
         return SimpleNamespace(getvalue=lambda: b"PNG")
 
     monkeypatch.setattr(broadcast, "get_targets", fake_get_targets)
@@ -625,10 +609,8 @@ async def test_build_payload_default_30_days_backfills_only_top_ten_sample_dates
     assert dates == expected_dates  # 달력 앵커 샘플 날짜만
     assert captured["dates"] == expected_dates  # 이력도 같은 샘플 날짜
 
-    # 라이브 점 실패(None)라 끝 유효점 = 기준일 점 → 증가량 +132%, 그래프·임베드 동일 값.
-    assert captured["gains"]["유저01"] == 132
-    assert "유저01** — Lv.299 (50%) · +132%" in (payload.embed.description or "")
-    assert "증가량: 최근 30일" in payload.embed.footer.text
+    # 임베드 순위판은 레벨만(증가량 표기 없음).
+    assert "유저01** — Lv.299 (50%)\n" in (payload.embed.description or "")
 
 
 async def test_build_payload_period_7_days_samples_every_day(monkeypatch):
@@ -637,7 +619,6 @@ async def test_build_payload_period_7_days_samples_every_day(monkeypatch):
     payload = await broadcast.build_payload(object(), deps, 1, period_days=7)
     assert payload is not None
     assert len(captured["dates"]) == 7  # 7일 = 매일(종전과 동일)
-    assert "증가량: 최근 7일" in payload.embed.footer.text
 
 
 def test_exp_command_period_option_first_with_30_14_7_choices():

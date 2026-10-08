@@ -98,15 +98,7 @@ def test_render_graph_dual_realm_crossing_lines():
     assert _is_png(render_progress_graph(series, _REF))
 
 
-# ── 기간 확장: 날짜 비례 X축·증가량 라벨 (docs/exp-period-work-order.md) ───────
-
-
-def test_gain_label_signed_percent_or_empty():
-    f = leaderboard_image._gain_label
-    assert f(132) == " +132%"
-    assert f(0) == " +0%"
-    assert f(-3) == " -3%"
-    assert f(None) == ""  # 유효점 부족 → 생략
+# ── 기간 확장: 날짜 비례 X축 (docs/exp-period-work-order.md) ───────
 
 
 def test_x_positions_are_day_offsets_from_first_date():
@@ -121,7 +113,7 @@ def test_x_positions_are_day_offsets_from_first_date():
     assert leaderboard_image._x_positions(dates) == [0, 3, 6, 7, 9]
 
 
-def test_render_graph_30_day_uneven_samples_with_gains():
+def test_render_graph_30_day_uneven_samples():
     dates = [
         date(2026, 9, 7) + (date(2026, 9, 10) - date(2026, 9, 7)) * i for i in range(10)
     ]
@@ -130,8 +122,7 @@ def test_render_graph_30_day_uneven_samples_with_gains():
         f"유저{i:02d}": [(d, 280.0 + i + k * 0.2) for k, d in enumerate(dates)]
         for i in range(1, 11)
     }
-    gains = {label: 220 for label in series}
-    assert _is_png(render_progress_graph(series, date(2026, 10, 5), gains))
+    assert _is_png(render_progress_graph(series, date(2026, 10, 5)))
 
 
 def test_tick_labels_thin_crowded_dates_keeping_last():

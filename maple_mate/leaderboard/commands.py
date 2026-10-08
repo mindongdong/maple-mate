@@ -1,6 +1,6 @@
 """`/경험치` · `/경험치알림` 디스코드 어댑터 (얇은 전달 계층, 작업지시서 빌드 단위 #6, ADR-0017).
 
-- `/경험치`: defer → build_payload(현재 길드) → 기간(기본 30일) 레벨 추이 그래프+증가량 공개 응답(미등록/데이터 없음 안내).
+- `/경험치`: defer → build_payload(현재 길드) → 기간(기본 30일) 레벨 추이 그래프 공개 응답(미등록/데이터 없음 안내).
 - `/경험치알림 켜기·끄기`: `대상`(채널/개인) 인자로 채널 발송(channel_settings.exp_alert)·본인 DM
   구독(notification_subscription)을 토글. 권한 불필요(공지·썬데이와 통일, notification.toggle 공유).
 """
@@ -27,7 +27,7 @@ PERIOD_CHOICES = [
     app_commands.Choice(name=f"{days}일", value=days)
     for days in sorted(service.PERIOD_STEPS, reverse=True)
 ]
-PERIOD_DESCRIBE = "그래프·증가량 기간 (미지정 시 30일)"
+PERIOD_DESCRIBE = "그래프 기간 (미지정 시 30일)"
 
 _EXP_SPEC = AlertSpec(
     kind=channel_service.KIND_EXP,
@@ -124,7 +124,7 @@ def setup_leaderboard(bot: discord.Client) -> None:
 
     @bot.tree.command(  # type: ignore[attr-defined]
         name="경험치",
-        description="등록 캐릭터들의 최근 30일 레벨 추이와 증가량을 보여줍니다 (기간 변경·최대 5명 지정 가능).",
+        description="등록 캐릭터들의 최근 30일 레벨 추이 그래프를 보여줍니다 (기간 변경·최대 5명 지정 가능).",
     )
     @app_commands.allowed_installs(guilds=True, users=False)
     @app_commands.allowed_contexts(guilds=True, dms=False, private_channels=False)

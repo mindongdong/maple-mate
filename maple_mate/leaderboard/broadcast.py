@@ -1,7 +1,7 @@
 """경험치 리더보드 Discord 잡 어댑터 + 명령 본체 공유 (작업지시서 빌드 단위 #5).
 
 전달-무관 service 위에 Discord 발송과 스케줄을 얹는 얇은 어댑터. `build_payload` 는 `/경험치`
-명령과 매일 10시 잡이 공유하는 산출물 빌더(기간 — 기본 30일 — 레벨 추이 그래프 PNG + 증가량). `run_leaderboard_job` 은
+명령과 매일 10시 잡이 공유하는 산출물 빌더(기간 — 기본 30일 — 레벨 추이 그래프 PNG). `run_leaderboard_job` 은
 채널·개인 구독자 0이면 스킵(넥슨 콜 없음) → 길드별 멱등 백필 → D-1 적재 → build_payload →
 채널 발송 + 개인 DM(부분실패 앱로그, 썬데이 패턴, ADR-0017). prune 는 09:00 운영 잡에 편승.
 """
@@ -55,9 +55,9 @@ class LeaderboardPayload:
         return [discord.File(io.BytesIO(self.graph_png), filename=_GRAPH_FILE)]
 
 
-def _footer_text(now_date: date, period_days: int) -> str:
-    """기준일 라벨 — 표시 레벨이 라이브(오늘 현재)임 + 증가량 기간 명시 + 넥슨 출처표시(ADR-0011)."""
-    return f"기준: 오늘({now_date:%m/%d}) 현재 · 증가량: 최근 {period_days}일 · {DATA_SOURCE}"
+def _footer_text(now_date: date) -> str:
+    """기준일 라벨 — 표시 레벨이 character/basic 라이브(오늘 현재)임을 명시 + 넥슨 출처표시(ADR-0011)."""
+    return f"기준: 오늘({now_date:%m/%d}) 현재 · {DATA_SOURCE}"
 
 
 def _embed_title(realm: Realm) -> str:
@@ -78,11 +78,10 @@ def _level_label(level: int, exp_rate: float | None) -> str:
     return f"Lv.{level} ({min(round(exp_rate), 99)}%)"
 
 
-def _rank_line(row: service.LeaderRow, gain: int | None = None) -> str:
-    """임베드 순위 1행 — 메달 · **닉** · 레벨(exp%) · 기간 증가량(있을 때, 순위와 무관한 보조 숫자)."""
+def _rank_line(row: service.LeaderRow) -> str:
+    """임베드 순위 1행(위치) — 메달 · **닉** · 레벨(exp%)만(ADR-0011)."""
     badge = _MEDALS.get(row.rank, f"`{row.rank}.`")
-    line = f"{badge} **{row.nickname}** — {_level_label(row.level, row.exp_rate)}"
-    return line if gain is None else f"{line} · {gain:+d}%"
+    return f"{badge} **{row.nickname}** — {_level_label(row.level, row.exp_rate)}"
 
 
 def _build_embed(
@@ -91,16 +90,12 @@ def _build_embed(
     title: str | None = None,
     *,
     note: str | None = None,
-    gains: dict[str, int | None] | None = None,
-    period_days: int = service.DEFAULT_PERIOD_DAYS,
 ) -> discord.Embed:
-    """순위판(라이브 레벨 Top10 + 기간 증가량) 텍스트 + 기간 추이 그래프 임베드. 제목 미지정 = 본서버.
+    """순위판(라이브 레벨 Top10) 텍스트 + 기간 추이 그래프 임베드. 제목 미지정 = 본서버 리더보드.
 
     note(대상 지정 시 '미등록/데이터 없음' 안내)가 있으면 순위판 위에 한 줄 얹는다.
-    gains = 표시 라벨 → 기간 증가량(%) — 그래프 끝 라벨과 같은 값.
     """
-    gains = gains or {}
-    ranking = "\n".join(_rank_line(r, gains.get(r.nickname)) for r in rows[:_TOP_N])
+    ranking = "\n".join(_rank_line(r) for r in rows[:_TOP_N])
     description = f"{note}\n\n{ranking}" if note else ranking
     embed = discord.Embed(
         title=title if title is not None else _embed_title(Realm.MAIN),
@@ -108,7 +103,7 @@ def _build_embed(
         color=discord.Color.from_rgb(255, 140, 0),
     )
     embed.set_image(url=f"attachment://{_GRAPH_FILE}")
-    embed.set_footer(text=_footer_text(now_date, period_days))
+    embed.set_footer(text=_footer_text(now_date))
     return embed
 
 
@@ -134,7 +129,7 @@ async def build_targets_payload(
     점을 붙여 임베드·그래프가 모두 '현재'로 일치한다(ADR-0011) — 폴백 시에도 신선도 무손실.
     정렬·게이트·이력은 스냅샷 기반 유지. 렌더는 to_thread(루프 비차단).
 
-    period_days(기본 30) = 그래프·증가량 기간. 이력은 달력 앵커 샘플 날짜만 조회·표시하고, 그 빈
+    period_days(기본 30) = 그래프 기간. 이력은 달력 앵커 샘플 날짜만 조회·표시하고, 그 빈
     날은 **순위 확정 후 표시 대상(Top10)만** 백필한다 — 순위용 최근 8일 백필(전 캐릭터)과 별개라
     긴 기간이 캐릭터 수 × 기간 콜로 번지지 않는다(작업지시서 D6·D7).
 
@@ -190,9 +185,8 @@ async def build_targets_payload(
     # 단, 기간 내내 exp% 결손이라 그릴 점이 0개인 상위권 캐릭은 순위판엔 뜨지만 그래프 라인은 없다(드묾).
     top_labels = [r.nickname for r in top_rows]
     series = {label: series[label] for label in top_labels if label in series}
-    gains = service.period_gains(series)
     graph_buf = await asyncio.to_thread(
-        leaderboard_image.render_progress_graph, series, ref_date, gains
+        leaderboard_image.render_progress_graph, series, ref_date
     )
     # 대상 지정 시: 표시된 유저 수와 요청 수를 비교해 빠진 인원(미등록·데이터 없음)을 한 줄 안내.
     note: str | None = None
@@ -205,9 +199,7 @@ async def build_targets_payload(
 
     return LeaderboardPayload(
         graph_png=graph_buf.getvalue(),
-        embed=_build_embed(
-            display_rows, today, title, note=note, gains=gains, period_days=period_days
-        ),
+        embed=_build_embed(display_rows, today, title, note=note),
         ref_date=ref_date,
     )
 
