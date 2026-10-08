@@ -158,9 +158,7 @@
     },
     "2026-10-05"
    ],
-   "kwargs": {
-    "period_days": 30
-   }
+   "kwargs": {}
   }
  ],
  "messages": [
@@ -173,7 +171,7 @@
    "embeds": [
     {
      "footer": {
-      "text": "기준: 오늘(10/07) 현재 · 증가량: 최근 30일 · NEXON Open API"
+      "text": "기준: 오늘(10/07) 현재 · NEXON Open API"
      },
      "image": {
       "url": "attachment://leaderboard_graph.png"
@@ -181,7 +179,7 @@
      "flags": 0,
      "color": 16747520,
      "type": "rich",
-     "description": "🥇 **홍길동전사** — Lv.291 (3%) · +196%\n🥈 **불꽃아크** — Lv.290 (51%) · +175%\n🥉 **바람궁수** — Lv.285 (12%) · +0%",
+     "description": "🥇 **홍길동전사** — Lv.291 (3%)\n🥈 **불꽃아크** — Lv.290 (51%)\n🥉 **바람궁수** — Lv.285 (12%)",
      "title": "📈 경험치 리더보드"
     }
    ],

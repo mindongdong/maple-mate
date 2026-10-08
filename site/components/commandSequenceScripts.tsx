@@ -63,7 +63,7 @@ function RankLine({ nick, lv }: { nick: string; lv: string }) {
   )
 }
 
-/** 랭크 텍스트 임베드(경험치 리더보드 — 메달·**닉** — Lv.X (Y%) · +기간 증가량%). */
+/** 랭크 텍스트 임베드(경험치 리더보드 — 메달·**닉** — Lv.X (Y%)). */
 function RankEmbed({
   title,
   lines,
@@ -191,11 +191,11 @@ export const S6_SCRIPT: Run[] = [
       <RankEmbed
         title="📈 경험치 리더보드"
         lines={[
-          { medal: '🥇', node: <RankLine nick="홍길동전사" lv="Lv.291 (3%) · +196%" /> },
-          { medal: '🥈', node: <RankLine nick="불꽃아크" lv="Lv.290 (51%) · +175%" /> },
-          { medal: '🥉', node: <RankLine nick="바람궁수" lv="Lv.285 (12%) · +0%" /> },
+          { medal: '🥇', node: <RankLine nick="홍길동전사" lv="Lv.291 (3%)" /> },
+          { medal: '🥈', node: <RankLine nick="불꽃아크" lv="Lv.290 (51%)" /> },
+          { medal: '🥉', node: <RankLine nick="바람궁수" lv="Lv.285 (12%)" /> },
         ]}
-        footer="기준: 오늘(10/07) 현재 · 증가량: 최근 30일 · NEXON Open API"
+        footer="기준: 오늘(10/07) 현재 · NEXON Open API"
         run="exp_main"
         alt="/경험치 리더보드 그래프"
       />
@@ -237,9 +237,9 @@ export const S6_SCRIPT: Run[] = [
       <RankEmbed
         title="📈 경험치 리더보드"
         lines={[
-          { medal: '🥇', node: <RankLine nick="바람궁수" lv="Lv.285 (12%) · +0%" /> },
+          { medal: '🥇', node: <RankLine nick="바람궁수" lv="Lv.285 (12%)" /> },
         ]}
-        footer="기준: 오늘(10/07) 현재 · 증가량: 최근 30일 · NEXON Open API"
+        footer="기준: 오늘(10/07) 현재 · NEXON Open API"
         run="exp_target"
         alt="/경험치 지정 유저 그래프"
       />
