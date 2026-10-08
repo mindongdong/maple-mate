@@ -38,7 +38,6 @@ from maple_mate.bot.table_image import (  # noqa: E402
     render_table_image,
 )
 from maple_mate.leaderboard.service import (  # noqa: E402
-    period_gains,
     sample_dates,
 )
 from maple_mate.scheduler.service import (  # noqa: E402
@@ -64,9 +63,9 @@ def _icon(name: str) -> bytes:
 
 
 def build_exp() -> bytes:
-    """/경험치 선 그래프 — 5명 × 30일(3일 간격 샘플), 절대레벨(level + exp%/100) + 기간 증가량.
+    """/경험치 선 그래프 — 5명 × 30일(3일 간격 샘플), 절대레벨(level + exp%/100).
 
-    봇과 같은 달력 앵커 샘플 날짜(sample_dates)·증가량(period_gains)을 쓴다. 성장 속도가 달라
+    봇과 같은 달력 앵커 샘플 날짜(sample_dates)를 쓴다. 성장 속도가 달라
     선이 서로 겹쳤다 역전되도록 구성(불꽃아크·바람궁수가 홍길동전사를 후반 추월, 이글루법사가
     캐논슈터를 초반 추월). 순위 경쟁의 재미를 보여준다.
     """
@@ -141,9 +140,7 @@ def build_exp() -> bytes:
     series = {
         nick: [(d, v) for d, v in zip(days, track)] for nick, track in tracks.items()
     }
-    return render_progress_graph(
-        series, ref_date=days[-1], gains=period_gains(series)
-    ).getvalue()
+    return render_progress_graph(series, ref_date=days[-1]).getvalue()
 
 
 def build_spec() -> bytes:
@@ -469,11 +466,7 @@ def build_from_fixture(run: str) -> bytes:
             nick: [(date.fromisoformat(d), lvl) for d, lvl in points]
             for nick, points in series_raw.items()
         }
-        # kwargs.period_days 가 있는 런(기간 확장 이후 재추출)만 봇처럼 기간 증가량을 붙인다.
-        gains = period_gains(series) if kwargs.get("period_days") else None
-        return render_progress_graph(
-            series, date.fromisoformat(ref_iso), gains
-        ).getvalue()
+        return render_progress_graph(series, date.fromisoformat(ref_iso)).getvalue()
     if name == "render_table_image":
         headers, rows = args
         return render_table_image(headers, rows, **kwargs)
