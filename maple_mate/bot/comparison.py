@@ -17,8 +17,15 @@ from datetime import datetime, timezone
 import discord
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from ..nexon.client import NexonClient
 from ..registration.realm import CHALLENGERS_NO_TARGET, Realm
-from ..registration.service import Target, TargetOutcome, get_targets
+from ..registration.service import (
+    Target,
+    TargetOutcome,
+    find_guild_characters_by_nicknames,
+    get_targets,
+    resolve_guest_target,
+)
 from . import table_image
 from .embeds import EmbedPaginator, format_footer, make_embed
 
@@ -161,6 +168,95 @@ async def resolve_targets(
         for m in members
         if m.id not in registered
     ]
+    return targets, missing
+
+
+# ── 닉네임 직접 지정 (ADR-0021) ───────────────────────────────────────────
+#
+# `/스펙`·`/아이템`·`/유니온` 의 `닉네임` 파라미터(쉼표 구분). 유저 슬롯과 합쳐 최대 5명.
+# 등록 캐릭터와 닉이 일치하면 그 캐릭터, 아니면 `/id` 로 해석한 게스트 대상(미등록·비저장).
+
+MAX_SPECIFIED_TARGETS = 5
+NICKNAMES_DESCRIBE = (
+    "메이플 닉네임 (쉼표로 여러 명 · 유저와 합쳐 최대 5명 · 미등록 캐릭터도 가능)"
+)
+TOO_MANY_TARGETS = (
+    f"유저와 닉네임을 합쳐 최대 {MAX_SPECIFIED_TARGETS}명까지 지정할 수 있어요."
+)
+
+
+def parse_nicknames(raw: str | None) -> list[str]:
+    """'a, b ,A' → ['a', 'b'] — 공백 제거·빈 토큰 무시·대소문자 무시 중복 제거(첫 표기 유지)."""
+    if not raw:
+        return []
+    names: list[str] = []
+    seen: set[str] = set()
+    for token in raw.split(","):
+        name = token.strip()
+        if name and name.lower() not in seen:
+            seen.add(name.lower())
+            names.append(name)
+    return names
+
+
+def too_many_targets(members: Sequence[object], nicknames: Sequence[str]) -> bool:
+    """유저 슬롯 + 닉네임 합계가 지정 상한을 넘는가(넘으면 조회 전 ephemeral 거부)."""
+    return len(members) + len(nicknames) > MAX_SPECIFIED_TARGETS
+
+
+async def reject_too_many(
+    interaction: discord.Interaction,
+    title: str,
+    members: Sequence[object],
+    nicknames: Sequence[str],
+) -> bool:
+    """지정 상한 초과면 ephemeral 거부 후 True. **defer 전에** 호출(공개 defer 후엔 ephemeral 불가)."""
+    if not too_many_targets(members, nicknames):
+        return False
+    await interaction.response.send_message(
+        embed=make_embed(title, TOO_MANY_TARGETS), ephemeral=True
+    )
+    return True
+
+
+async def resolve_mixed_targets(
+    session_factory: async_sessionmaker[AsyncSession],
+    nexon: NexonClient,
+    guild_id: int,
+    members: list[discord.Member],
+    nicknames: list[str],
+    realm: Realm | None = None,
+) -> tuple[list[Target], list[TargetOutcome]]:
+    """유저 슬롯 + 닉네임 → (Target 목록, 실패 outcome). 닉네임이 없으면 resolve_targets 그대로.
+
+    순서 = 유저(입력순) → 닉네임(입력순), ocid 중복은 첫 번째만 남긴다. 닉은 등록 캐릭터 우선
+    (넥슨 0콜·소유자 태그), 미일치만 `/id` 1콜로 게스트 대상. 무인자(둘 다 빈) 판정은 호출자 몫.
+    """
+    if not nicknames:
+        return await resolve_targets(session_factory, guild_id, members, realm)
+
+    targets: list[Target] = []
+    missing: list[TargetOutcome] = []
+    if members:
+        targets, missing = await resolve_targets(
+            session_factory, guild_id, members, realm
+        )
+    seen = {t.ocid for t in targets}
+    matched = await find_guild_characters_by_nicknames(
+        session_factory, guild_id, nicknames
+    )
+    for nickname in nicknames:
+        target = matched.get(nickname.lower())
+        if target is None:
+            outcome = await resolve_guest_target(nexon, guild_id, nickname)
+            if not outcome.ok:
+                missing.append(outcome)
+                continue
+            target = outcome.target
+        if target.ocid in seen:
+            continue
+        seen.add(target.ocid)
+        targets.append(target)
     return targets, missing
 
 

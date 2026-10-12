@@ -1,11 +1,12 @@
 """`/유니온` 디스코드 어댑터 (얇은 전달 계층). 로직은 service + 공유 머신이 담당.
 
-인자 없으면 등록자 중 본인 포함 랜덤 최대 10명(ADR-0008 부분개정), 지정 시 그 대상(최대 5명). 부분 성공 허용.
+인자 없으면 등록자 중 본인 포함 랜덤 최대 10명(ADR-0008 부분개정), 지정 시 그 대상(유저 슬롯 + `닉네임` 합쳐 최대 5명, ADR-0021). 부분 성공 허용.
 """
 
 from __future__ import annotations
 
 import asyncio
+from collections.abc import Sequence
 
 import discord
 from discord import app_commands
@@ -27,8 +28,15 @@ def _format_union(info: UnionInfo) -> str:
 
 
 async def handle_union(
-    deps: Deps, interaction: discord.Interaction, members: list[discord.Member]
+    deps: Deps,
+    interaction: discord.Interaction,
+    members: list[discord.Member],
+    *,
+    nicknames: Sequence[str] = (),
 ) -> None:
+    nicknames = list(nicknames)
+    if await comparison.reject_too_many(interaction, "유니온", members, nicknames):
+        return
     await defer(interaction)
     if interaction.guild_id is None:
         await interaction.followup.send(
@@ -36,8 +44,8 @@ async def handle_union(
         )
         return
 
-    targets, missing = await comparison.resolve_targets(
-        deps.session_factory, interaction.guild_id, members
+    targets, missing = await comparison.resolve_mixed_targets(
+        deps.session_factory, deps.nexon, interaction.guild_id, members, nicknames
     )
     if not targets:
         if missing:
@@ -55,7 +63,7 @@ async def handle_union(
     # 무인자 = 본인 포함 랜덤 K명 경계(ADR-0008 부분개정). 지정 시엔 파라미터 5개가 이미 상한.
     note: str | None = None
     self_note: str | None = None
-    if not members:
+    if not members and not nicknames:
         targets, total, self_included = comparison.select_with_self(
             targets, interaction.user.id
         )
@@ -154,6 +162,7 @@ def setup(bot: discord.Client) -> None:
         member3="대상3",
         member4="대상4",
         member5="대상5",
+        nicknames="닉네임",
     )
     @app_commands.describe(
         member1="비교할 유저 (미지정 시 이 서버 등록자 중 본인 포함 랜덤 최대 10명)",
@@ -161,6 +170,7 @@ def setup(bot: discord.Client) -> None:
         member3="추가 비교 대상",
         member4="추가 비교 대상",
         member5="추가 비교 대상",
+        nicknames=comparison.NICKNAMES_DESCRIBE,
     )
     @cooldowns.spec_cooldown()
     async def union_command(
@@ -170,8 +180,11 @@ def setup(bot: discord.Client) -> None:
         member3: discord.Member | None = None,
         member4: discord.Member | None = None,
         member5: discord.Member | None = None,
+        nicknames: str | None = None,
     ) -> None:
         members = [
             m for m in (member1, member2, member3, member4, member5) if m is not None
         ]
-        await handle_union(deps, interaction, members)
+        await handle_union(
+            deps, interaction, members, nicknames=comparison.parse_nicknames(nicknames)
+        )

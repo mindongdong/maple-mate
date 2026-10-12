@@ -4,7 +4,7 @@
 > **하우스 스타일 레퍼런스:** [random-fanout-work-order.md](random-fanout-work-order.md), [my-character-work-order.md](my-character-work-order.md).
 > **결정 출처:** 2026-10-12 세션. 사용자 판단: 봇의 핵심 가치는 "채널 안에서 여러 캐릭터를 간편 비교"인데, 대상 지정 규칙이 명령마다 다르고 등록자 외 캐릭터는 비교할 수 없다.
 > **후속:** [comparison-tabs-work-order.md](comparison-tabs-work-order.md)(PR2) → [account-character-import-work-order.md](account-character-import-work-order.md)(PR3). PR2 는 본 PR 의 대상 해석 결과(Target 목록)를 그대로 재사용한다.
-> **상태:** 미착수.
+> **상태:** 구현 완료(브랜치 `claude/loving-brahmagupta-tyordi`). §7 as-built 참고.
 
 ---
 
@@ -142,3 +142,13 @@ async def spec_command(interaction, member1: discord.Member | None = None, ..., 
 - **ADR-0008 개정 노트**: `/스펙` 무인자 K=5(비용 근거 13콜/명). "지정 필수" 서술을 삭제한다.
 - **CONTEXT.md**: "대상" 정의에 닉네임 지정 추가. 용어 **게스트 대상(Guest target)** 신설(미등록 캐릭터, 비저장, 태그 없음. _Avoid_: 외부 유저, 비회원).
 - PR 1개(봇 + 사이트 카피 동시 — 명령 추가가 없어 배포 순서 무관).
+
+---
+
+## 7. As-built (PR2 세션이 재조사하지 말 것)
+
+- **해석**: `comparison.resolve_mixed_targets(session_factory, nexon, guild_id, members, nicknames, realm=None)` — 닉네임이 없으면 `resolve_targets`에 그대로 위임(무인자 포함, 회귀 0). 상한 거부는 `comparison.reject_too_many(interaction, title, members, nicknames)`(defer 전 호출, True면 종료).
+- **서비스**: `registration/service.py` — `GUEST_USER_ID=0`·`is_guest`·`_match_nicknames`(순수)·`find_guild_characters_by_nicknames`·`resolve_guest_target`·`GUEST_NOT_FOUND`. `_fetch_one` 게스트 분기 2곳(스테일=재조회 없이 `GUEST_NOT_FOUND`, error_log uid None).
+- **§3-2와 다른 점**: 닉 일치는 **realm 무필터**(명시적 의도 — ADR-0021 결정 2). `find_…`는 닉 목록 단위 1쿼리(`dict[소문자 닉, Target]`).
+- **핸들러**: `handle_spec/handle_item/handle_union(..., *, nicknames=())` keyword-only. 명령 함수가 `comparison.parse_nicknames`로 파싱해 넘긴다. `/스펙` 무인자 상수 `SPEC_UNSPECIFIED_CAP=5`(character/commands.py).
+- **테스트**: [tests/test_nickname_targets.py](../tests/test_nickname_targets.py)(16건).

@@ -544,6 +544,102 @@ async def get_all_character_targets(
     return _guild_character_targets(chars, realm)
 
 
+# ── 닉네임 직접 지정 (ADR-0021) ───────────────────────────────────────────────
+#
+# 비교 명령의 `닉네임` 파라미터. 이 서버 등록 캐릭터와 일치하면 그 캐릭터(소유자 태그·비대표 지정),
+# 아니면 `/id` 로 해석한 **게스트 대상**(미등록 캐릭터, 비저장, discord_user_id=0).
+
+GUEST_USER_ID = 0  # 게스트 대상 표식 — 디스코드 스노우플레이크에 0 없음
+
+
+def is_guest(target: Target) -> bool:
+    """미등록 캐릭터를 닉네임으로 지정한 게스트 대상인가(ADR-0021)."""
+    return target.discord_user_id == GUEST_USER_ID
+
+
+def _match_nicknames(
+    characters: Sequence[Character], nicknames: Sequence[str]
+) -> dict[str, Target]:
+    """등록 캐릭터 중 닉 일치(대소문자 무시) → {소문자 닉: Target}(순수함수 — 단위테스트 대상).
+
+    같은 닉이 여럿이면(서버 내 닉 중복 허용) (유저, ocid) 오름차순 첫 행. 대표 여부·realm 무관 —
+    닉 지정은 명시적 의도라 그 캐릭터를 그대로 쓴다.
+    """
+    wanted = {n.lower() for n in nicknames}
+    matched: dict[str, Target] = {}
+    for c in sorted(characters, key=lambda c: (c.discord_user_id, c.ocid)):
+        key = c.maple_nickname.lower()
+        if key in wanted and key not in matched:
+            matched[key] = Target(
+                guild_id=c.guild_id,
+                discord_user_id=c.discord_user_id,
+                nickname=c.maple_nickname,
+                ocid=c.ocid,
+                world=c.world,
+                level=c.level,
+            )
+    return matched
+
+
+async def find_guild_characters_by_nicknames(
+    session_factory: async_sessionmaker[AsyncSession],
+    guild_id: int,
+    nicknames: Sequence[str],
+) -> dict[str, Target]:
+    """이 서버 등록 캐릭터 중 닉 일치분 → {소문자 닉: Target}. 넥슨 호출 없음."""
+    if not nicknames:
+        return {}
+    lowered = [n.lower() for n in nicknames]
+    async with session_factory() as session:
+        chars = (
+            (
+                await session.execute(
+                    select(Character).where(
+                        Character.guild_id == guild_id,
+                        func.lower(Character.maple_nickname).in_(lowered),
+                    )
+                )
+            )
+            .scalars()
+            .all()
+        )
+    return _match_nicknames(chars, nicknames)
+
+
+GUEST_NOT_FOUND = "캐릭터를 찾을 수 없어요. 닉네임을 확인해 주세요."
+
+
+async def resolve_guest_target(
+    nexon: NexonClient, guild_id: int, nickname: str
+) -> TargetOutcome:
+    """미등록 닉 → 게스트 Target(`/id` 1콜). 실패면 부분성공 행(ocid 빈 Target + error)."""
+    try:
+        ocid = await nexon.get_ocid(nickname)
+    except NexonAPIError as exc:
+        error = (
+            GUEST_NOT_FOUND
+            if exc.error_class in _STALE_OCID
+            else classify_target_error(exc)
+        )
+        return TargetOutcome(
+            target=Target(
+                guild_id=guild_id,
+                discord_user_id=GUEST_USER_ID,
+                nickname=nickname,
+                ocid="",
+            ),
+            error=error,
+        )
+    return TargetOutcome(
+        target=Target(
+            guild_id=guild_id,
+            discord_user_id=GUEST_USER_ID,
+            nickname=nickname,
+            ocid=ocid,
+        )
+    )
+
+
 async def refresh_ocid(
     session_factory: async_sessionmaker[AsyncSession],
     nexon: NexonClient,
@@ -613,6 +709,9 @@ async def _fetch_one(
             data = await fetch(ocid)
             return TargetOutcome(target=target, data=data)
         except NexonAPIError as exc:
+            # 0) 게스트(미등록 닉 지정)는 방금 /id 로 받은 ocid — 재조회·DB 갱신 대상이 아님
+            if exc.error_class in _STALE_OCID and is_guest(target):
+                return TargetOutcome(target=target, error=GUEST_NOT_FOUND)
             # 1) 스테일 ocid(없는 닉/잘못된 ocid=OPENAPI00004) → 닉 재조회 1회
             if exc.error_class in _STALE_OCID and not refreshed:
                 refreshed = True
@@ -632,7 +731,9 @@ async def _fetch_one(
                     error_type=log_type,
                     command=command,
                     guild_id=target.guild_id,
-                    discord_user_id=target.discord_user_id,
+                    discord_user_id=None
+                    if is_guest(target)
+                    else target.discord_user_id,
                     target_ocid=ocid,
                     detail=f"{exc.code}: {exc.message}"[:500],
                 )
