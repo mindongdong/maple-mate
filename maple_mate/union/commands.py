@@ -35,8 +35,6 @@ async def handle_union(
     nicknames: Sequence[str] = (),
 ) -> None:
     nicknames = list(nicknames)
-    if await comparison.reject_too_many(interaction, "유니온", members, nicknames):
-        return
     await defer(interaction)
     if interaction.guild_id is None:
         await interaction.followup.send(
@@ -45,7 +43,12 @@ async def handle_union(
         return
 
     targets, missing = await comparison.resolve_mixed_targets(
-        deps.session_factory, deps.nexon, interaction.guild_id, members, nicknames
+        deps.session_factory,
+        deps.nexon,
+        interaction.guild_id,
+        members,
+        nicknames,
+        command="유니온",
     )
     if not targets:
         if missing:
@@ -100,7 +103,12 @@ async def handle_union(
         embed = make_embed("유니온", footer=footer)
         embed.add_field(
             name=target.nickname,
-            value=f"{comparison.mention(target)}\n{_format_union(successes[0].data)}",
+            # 게스트(태그 없음)는 빈 첫 줄 없이 본문부터.
+            value="\n".join(
+                p
+                for p in (comparison.mention(target), _format_union(successes[0].data))
+                if p
+            ),
             inline=False,
         )
         await interaction.followup.send(embed=embed)
@@ -173,6 +181,7 @@ def setup(bot: discord.Client) -> None:
         nicknames=comparison.NICKNAMES_DESCRIBE,
     )
     @cooldowns.spec_cooldown()
+    @comparison.target_limit_check()  # 쿨다운보다 먼저 실행 — 거부가 쿨다운을 소모하지 않음
     async def union_command(
         interaction: discord.Interaction,
         member1: discord.Member | None = None,

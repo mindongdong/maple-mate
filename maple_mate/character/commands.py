@@ -226,8 +226,6 @@ async def handle_spec(
     nicknames: Sequence[str] = (),
 ) -> None:
     nicknames = list(nicknames)
-    if await comparison.reject_too_many(interaction, "스펙", members, nicknames):
-        return
     await defer(interaction)
     if interaction.guild_id is None:
         await interaction.followup.send(
@@ -243,6 +241,7 @@ async def handle_spec(
         members,
         nicknames,
         realm,
+        command="스펙",
     )
     unspecified = not members and not nicknames
     if not targets:
@@ -408,8 +407,6 @@ async def handle_item(
     nicknames: Sequence[str] = (),
 ) -> None:
     nicknames = list(nicknames)
-    if await comparison.reject_too_many(interaction, "아이템", members, nicknames):
-        return
     await defer(interaction)
     if interaction.guild_id is None:
         await interaction.followup.send(
@@ -425,6 +422,7 @@ async def handle_item(
         members,
         nicknames,
         realm,
+        command="아이템",
     )
     if not targets:
         if missing:
@@ -504,6 +502,7 @@ def setup(bot: discord.Client) -> None:
         nicknames=comparison.NICKNAMES_DESCRIBE,
     )
     @cooldowns.spec_cooldown()
+    @comparison.target_limit_check()  # 쿨다운보다 먼저 실행 — 거부가 쿨다운을 소모하지 않음
     async def spec_command(
         interaction: discord.Interaction,
         member1: discord.Member | None = None,
@@ -548,6 +547,7 @@ def setup(bot: discord.Client) -> None:
         part=[app_commands.Choice(name=slot, value=slot) for slot in SLOT_CHOICES],
     )
     @cooldowns.spec_cooldown()
+    @comparison.target_limit_check()  # 쿨다운보다 먼저 실행 — 거부가 쿨다운을 소모하지 않음
     async def item_command(
         interaction: discord.Interaction,
         part: app_commands.Choice[str],

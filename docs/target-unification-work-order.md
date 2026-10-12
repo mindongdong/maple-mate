@@ -147,8 +147,11 @@ async def spec_command(interaction, member1: discord.Member | None = None, ..., 
 
 ## 7. As-built (PR2 세션이 재조사하지 말 것)
 
-- **해석**: `comparison.resolve_mixed_targets(session_factory, nexon, guild_id, members, nicknames, realm=None)` — 닉네임이 없으면 `resolve_targets`에 그대로 위임(무인자 포함, 회귀 0). 상한 거부는 `comparison.reject_too_many(interaction, title, members, nicknames)`(defer 전 호출, True면 종료).
-- **서비스**: `registration/service.py` — `GUEST_USER_ID=0`·`is_guest`·`_match_nicknames`(순수)·`find_guild_characters_by_nicknames`·`resolve_guest_target`·`GUEST_NOT_FOUND`. `_fetch_one` 게스트 분기 2곳(스테일=재조회 없이 `GUEST_NOT_FOUND`, error_log uid None).
+- **해석**: `comparison.resolve_mixed_targets(session_factory, nexon, guild_id, members, nicknames, realm=None)` — 닉네임이 없으면 `resolve_targets`에 그대로 위임(무인자 포함, 회귀 0). `command=` 라벨은 게스트 `/id` 실패의 error_log 용.
+- **상한 거부 = 명령 체크 `comparison.target_limit_check()`**(리뷰 반영 — §3-3 의 "핸들러에서 defer 전 거부"를 대체). `interaction.namespace` 의 Member/User 값 + `닉네임` 을 세어 초과면 `TooManyTargets`(CheckFailure) → 트리 공통 핸들러([bot/core.py](../maple_mate/bot/core.py) `on_app_command_error`)가 ephemeral 안내. 데코레이터를 **쿨다운 아래**에 둬서 쿨다운보다 먼저 실행 → 거부가 10초 쿨다운을 소모하지 않는다. 핸들러는 상한 검사를 하지 않는다.
+- **서비스**: `registration/service.py` — `GUEST_USER_ID=0`·`is_guest`·`_match_nicknames`(순수)·`find_guild_characters_by_nicknames`·`resolve_guest_target`·`GUEST_NOT_FOUND`. `_fetch_one` 게스트 분기 2곳(스테일=재조회 없이 `GUEST_NOT_FOUND`, error_log uid None). `resolve_guest_target` 도 가용성 오류(`to_error_log_type` 대상)는 error_log 적재(uid None), 닉 없음은 미적재.
+- **§2-4·§3-2와 다른 점 — 실패 문구**: 게스트 해석은 `resolve_ocid` 대신 `nexon.get_ocid` 를 직접 호출하고(등록용 문구 회피), 못 찾으면 `GUEST_NOT_FOUND` = "캐릭터를 찾을 수 없어요. 닉네임을 확인해 주세요."(대상 닉은 실패 행 앞에 이미 표시됨).
 - **§3-2와 다른 점**: 닉 일치는 **realm 무필터**(명시적 의도 — ADR-0021 결정 2). `find_…`는 닉 목록 단위 1쿼리(`dict[소문자 닉, Target]`).
 - **핸들러**: `handle_spec/handle_item/handle_union(..., *, nicknames=())` keyword-only. 명령 함수가 `comparison.parse_nicknames`로 파싱해 넘긴다. `/스펙` 무인자 상수 `SPEC_UNSPECIFIED_CAP=5`(character/commands.py).
-- **테스트**: [tests/test_nickname_targets.py](../tests/test_nickname_targets.py)(16건).
+- **유니온 단일 카드**: 게스트(태그 없음)는 첫 줄 빈 줄 없이 본문부터.
+- **테스트**: [tests/test_nickname_targets.py](../tests/test_nickname_targets.py)(24건 — 쿼리 컴파일·체크 순서·핸들러 부분성공 포함), [tests/test_cooldowns.py](../tests/test_cooldowns.py)는 쿨다운 체크만 골라 검사하도록 조정.

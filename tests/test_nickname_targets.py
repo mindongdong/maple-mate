@@ -7,9 +7,14 @@ DB(find_guild_characters_by_nicknames)·넥슨은 mock. 순수 파싱/매칭, �
 from __future__ import annotations
 
 import random
+from datetime import datetime, timezone
 from types import SimpleNamespace
 
+import discord
+import pytest
+
 from maple_mate.bot import comparison
+from maple_mate.bot.core import MapleMateBot, on_app_command_error
 from maple_mate.character import commands as char_commands
 from maple_mate.error_log.models import ErrorLog
 from maple_mate.nexon.errors import NexonAPIError
@@ -95,22 +100,68 @@ class _Nexon:
 
 
 async def test_resolve_guest_target_success():
-    outcome = await service.resolve_guest_target(_Nexon({"외부닉": "ox"}), 1, "외부닉")
+    outcome = await service.resolve_guest_target(
+        _Nexon({"외부닉": "ox"}), _factory()[0], 1, "외부닉"
+    )
     assert outcome.ok
     assert outcome.target == _guest("외부닉", "ox")
 
 
 async def test_resolve_guest_target_not_found():
-    outcome = await service.resolve_guest_target(_Nexon(), 1, "없는닉")
+    outcome = await service.resolve_guest_target(_Nexon(), _factory()[0], 1, "없는닉")
     assert outcome.error == GUEST_NOT_FOUND
     assert outcome.target.nickname == "없는닉"
 
 
-async def test_resolve_guest_target_api_error_is_retry_message():
+async def test_resolve_guest_target_api_error_logs_and_retry_message():
+    factory, added = _factory()
     outcome = await service.resolve_guest_target(
-        _Nexon(error_code="OPENAPI00007"), 1, "닉"
+        _Nexon(error_code="OPENAPI00007"), factory, 1, "닉", command="스펙"
     )
     assert "잠시 후" in outcome.error
+    [log] = [a for a in added if isinstance(a, ErrorLog)]  # 운영 요약 집계 대상
+    assert log.discord_user_id is None and log.command == "스펙"
+
+
+async def test_resolve_guest_target_not_found_is_not_logged():
+    factory, added = _factory()
+    await service.resolve_guest_target(_Nexon(), factory, 1, "없는닉")
+    assert added == []  # 오타 닉은 운영 대응 대상 아님
+
+
+def test_find_guild_characters_query_scopes_guild_and_lowercases():
+    captured: dict = {}
+
+    class _Result:
+        def scalars(self):
+            return self
+
+        def all(self):
+            return []
+
+    class _Session:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *exc):
+            return False
+
+        async def execute(self, stmt):
+            captured["stmt"] = stmt
+            return _Result()
+
+    import asyncio
+
+    asyncio.run(
+        service.find_guild_characters_by_nicknames(
+            lambda: _Session(), 7, ["Hero", "아델"]
+        )
+    )
+    stmt = captured["stmt"]
+    sql = str(stmt.compile())
+    assert "character.guild_id =" in sql
+    assert "lower(character.maple_nickname) IN" in sql
+    assert list(stmt.compile().params.values()) == [7, ["hero", "아델"]]
 
 
 # ── resolve_mixed_targets ────────────────────────────────────────────────────
@@ -126,8 +177,11 @@ def _patch_resolution(monkeypatch, *, members_result, matched, nexon):
     async def fake_find(session_factory, guild_id, nicknames):
         return {k: v for k, v in matched.items() if k in {n.lower() for n in nicknames}}
 
-    async def fake_guest(nx, guild_id, nickname):
-        return await service.resolve_guest_target(nexon, guild_id, nickname)
+    async def fake_guest(nx, session_factory, guild_id, nickname, *, command=None):
+        calls.setdefault("command", command)
+        return await service.resolve_guest_target(
+            nexon, _factory()[0], guild_id, nickname
+        )
 
     monkeypatch.setattr(comparison, "resolve_targets", fake_resolve)
     monkeypatch.setattr(comparison, "find_guild_characters_by_nicknames", fake_find)
@@ -164,6 +218,23 @@ async def test_mixed_registered_match_uses_no_nexon_call(monkeypatch):
     assert missing == []
 
 
+async def test_mixed_member_plus_friend_sub_character(monkeypatch):
+    # 수용 기준: 유저1:@A + 닉네임:B의부캐 → A 대표 + B 부캐(B 태그), /id 호출 0.
+    nexon = _Nexon()
+    member_a = SimpleNamespace(id=10, display_name="A")
+    _patch_resolution(
+        monkeypatch,
+        members_result=([_target(10, "oA")], []),
+        matched={"b부캐": _target(20, "oBsub", "B부캐")},
+        nexon=nexon,
+    )
+    targets, missing = await comparison.resolve_mixed_targets(
+        object(), nexon, 1, [member_a], ["B부캐"]
+    )
+    assert [(t.discord_user_id, t.ocid) for t in targets] == [(10, "oA"), (20, "oBsub")]
+    assert missing == [] and nexon.calls == []
+
+
 async def test_mixed_order_dedupe_and_failures(monkeypatch):
     nexon = _Nexon({"외부": "ox", "중복대표": "o1"})
     member = SimpleNamespace(id=1, display_name="유저1")
@@ -175,7 +246,7 @@ async def test_mixed_order_dedupe_and_failures(monkeypatch):
         nexon=nexon,
     )
     targets, missing = await comparison.resolve_mixed_targets(
-        object(), nexon, 1, [member], ["외부", "없는닉", "중복대표"]
+        object(), nexon, 1, [member], ["외부", "없는닉", "중복대표"], command="유니온"
     )
     # 유저(입력순) → 닉(입력순), 유저 대표와 같은 ocid 는 1회만.
     assert [(t.discord_user_id, t.ocid) for t in targets] == [
@@ -284,29 +355,75 @@ def _interaction(user_id: int = 1) -> SimpleNamespace:
     )
 
 
-async def test_too_many_rejected_before_defer_without_lookup(monkeypatch):
-    async def boom(*a, **k):
-        raise AssertionError("상한 초과는 조회 전에 거부돼야 한다")
+class _Namespace:
+    def __init__(self, **values) -> None:
+        self._values = values
 
-    monkeypatch.setattr(comparison, "resolve_mixed_targets", boom)
-    members = [SimpleNamespace(id=i) for i in range(3)]
-    for handler in (
-        lambda i: char_commands.handle_spec(
-            object(), i, members, nicknames=["a", "b", "c"]
-        ),
-        lambda i: char_commands.handle_item(
-            object(), i, "무기", members, nicknames=["a", "b", "c"]
-        ),
-        lambda i: union_commands.handle_union(
-            object(), i, members, nicknames=["a", "b", "c"]
-        ),
-    ):
-        interaction = _interaction()
-        await handler(interaction)
-        assert not interaction.response.deferred
-        [sent] = interaction.response.sent
-        assert sent["ephemeral"] is True
-        assert sent["embed"].description == comparison.TOO_MANY_TARGETS
+    def __iter__(self):
+        return iter(self._values.items())
+
+    def __getattr__(self, name):  # discord Namespace 처럼 없는 키는 None
+        return self.__dict__.get("_values", {}).get(name)
+
+
+def _member_obj() -> discord.Member:
+    return object.__new__(discord.Member)  # isinstance 판정용(초기화 불필요)
+
+
+def _check_interaction(namespace: _Namespace, user_id: int = 1) -> SimpleNamespace:
+    return SimpleNamespace(
+        guild_id=1,
+        user=SimpleNamespace(id=user_id),
+        namespace=namespace,
+        created_at=datetime.now(timezone.utc),
+    )
+
+
+async def test_target_limit_check_counts_members_and_nicknames():
+    [predicate] = _limit_predicates()
+    ok = _Namespace(유저1=_member_obj(), 유저2=_member_obj(), 닉네임="a, b, c")
+    assert await predicate(_check_interaction(ok)) is True
+    over = _Namespace(대상1=_member_obj(), 부위="무기", 닉네임="a,b,c,d,e")
+    with pytest.raises(comparison.TooManyTargets):
+        await predicate(_check_interaction(over))
+
+
+def _limit_predicates():
+    check = comparison.target_limit_check()
+
+    async def callback(interaction):  # pragma: no cover - 체크만 꺼낸다
+        return None
+
+    return check(callback).__discord_app_commands_checks__
+
+
+def _tree_command(name: str):
+    bot = MapleMateBot(deps=object(), dev_guild_id=None)
+    bot._register_commands()
+    return next(c for c in bot.tree.get_commands() if c.name == name)
+
+
+async def test_rejection_runs_before_cooldown_and_keeps_token():
+    # 리뷰 지적: 상한 거부가 10초 쿨다운을 소모하면 입력을 고쳐 재실행할 때 쿨다운에 걸린다.
+    for name, slot in (("스펙", "유저1"), ("아이템", "대상1"), ("유니온", "대상1")):
+        command = _tree_command(name)
+        over = _Namespace(**{slot: _member_obj(), "닉네임": "a,b,c,d,e"})
+        with pytest.raises(comparison.TooManyTargets):
+            for predicate in command.checks:
+                await predicate(_check_interaction(over))
+        fixed = _Namespace(**{slot: _member_obj(), "닉네임": "a"})
+        for predicate in command.checks:  # 같은 유저 즉시 재실행 — 쿨다운 미소모
+            assert await predicate(_check_interaction(fixed)) is True
+
+
+async def test_error_handler_answers_too_many_ephemerally():
+    interaction = _interaction()
+    await on_app_command_error(
+        interaction, comparison.TooManyTargets(comparison.TOO_MANY_TARGETS)
+    )
+    [sent] = interaction.response.sent
+    assert sent["ephemeral"] is True
+    assert sent["embed"].description == comparison.TOO_MANY_TARGETS
 
 
 def _spec_info():
@@ -343,7 +460,9 @@ async def test_spec_unspecified_selects_five_with_self(monkeypatch):
 
 
 async def test_spec_guest_single_detail_has_no_mention(monkeypatch):
-    async def fake_mixed(sf, nexon, guild_id, members, nicknames, realm=None):
+    async def fake_mixed(
+        sf, nexon, guild_id, members, nicknames, realm=None, *, command=None
+    ):
         assert nicknames == ["외부닉"]
         return [_guest("외부닉", "ox")], []
 
@@ -372,3 +491,95 @@ async def test_spec_guest_single_detail_has_no_mention(monkeypatch):
     assert sent["embed"].title == "외부닉 스펙"
     assert not sent["embed"].description  # 게스트 = 태그 없음
     assert "랜덤" not in sent["embed"].footer.text  # 지정 실행엔 팬아웃 안내 없음
+
+
+def _union_info():
+    return SimpleNamespace(
+        date="2026-10-11",
+        union_level=9000,
+        union_grade="그랜드 마스터 유니온",
+        artifact_level=60,
+        champion_grades=[],
+    )
+
+
+def _patch_union_nicknames(monkeypatch, targets, missing):
+    async def fake_mixed(
+        sf, nexon, guild_id, members, nicknames, realm=None, *, command=None
+    ):
+        assert command == "유니온"
+        return list(targets), list(missing)
+
+    async def fake_fetch_each(*, targets, nexon, session_factory, command, fetch):
+        return [TargetOutcome(target=t, data=_union_info()) for t in targets]
+
+    def no_random(*a, **k):
+        raise AssertionError("닉네임 지정 실행은 랜덤 선정을 하지 않는다")
+
+    monkeypatch.setattr(comparison, "resolve_mixed_targets", fake_mixed)
+    monkeypatch.setattr(union_commands.reg, "fetch_each", fake_fetch_each)
+    monkeypatch.setattr(comparison, "select_with_self", no_random)
+
+
+async def test_union_guest_single_card_has_no_blank_first_line(monkeypatch):
+    _patch_union_nicknames(monkeypatch, [_guest("외부닉", "ox")], [])
+    interaction = _interaction()
+    deps = SimpleNamespace(session_factory=object(), nexon=object())
+    await union_commands.handle_union(deps, interaction, [], nicknames=["외부닉"])
+    [sent] = interaction.followup.sent
+    [field] = sent["embed"].fields
+    assert field.value.startswith("유니온 Lv.")
+    assert "랜덤" not in sent["embed"].footer.text
+
+
+async def test_union_missing_nickname_is_partial_success(monkeypatch):
+    missing = TargetOutcome(target=_guest("없는닉", ""), error=GUEST_NOT_FOUND)
+    _patch_union_nicknames(
+        monkeypatch, [_guest("외부1", "o1"), _guest("외부2", "o2")], [missing]
+    )
+    interaction = _interaction()
+    deps = SimpleNamespace(session_factory=object(), nexon=object())
+    await union_commands.handle_union(
+        deps, interaction, [], nicknames=["외부1", "외부2", "없는닉"]
+    )
+    [sent] = interaction.followup.sent
+    assert sent["file"] is not None  # 성공 2명 = 비교표
+    [failure] = [f for f in sent["embed"].fields if "조회 실패" in f.name]
+    assert "없는닉" in failure.value and GUEST_NOT_FOUND in failure.value
+
+
+async def test_item_nicknames_only_skips_random(monkeypatch):
+    captured: dict = {}
+
+    async def fake_mixed(
+        sf, nexon, guild_id, members, nicknames, realm=None, *, command=None
+    ):
+        assert command == "아이템"
+        return [_guest("외부", "ox"), _target(1, "o1")], []
+
+    async def fake_fetch(deps, targets, slot, *, command="아이템"):
+        captured["targets"] = list(targets)
+        return [
+            TargetOutcome(target=t, data=SimpleNamespace(date="2026-10-11"))
+            for t in targets
+        ]
+
+    async def fake_cards(deps, successes, outcomes, slot, *, title, footer, label=None):
+        captured["order"] = [o.target.ocid for o in successes]
+        captured["footer"] = footer
+        return SimpleNamespace(), SimpleNamespace()
+
+    def no_random(*a, **k):
+        raise AssertionError("닉네임 지정 실행은 랜덤 선정을 하지 않는다")
+
+    monkeypatch.setattr(comparison, "resolve_mixed_targets", fake_mixed)
+    monkeypatch.setattr(comparison, "select_with_self", no_random)
+    monkeypatch.setattr(char_commands, "fetch_item_outcomes", fake_fetch)
+    monkeypatch.setattr(char_commands, "build_item_cards", fake_cards)
+
+    deps = SimpleNamespace(session_factory=object(), nexon=object())
+    await char_commands.handle_item(
+        deps, _interaction(user_id=1), "무기", [], nicknames=["외부", "내닉"]
+    )
+    assert captured["order"] == ["o1", "ox"]  # 본인 먼저 + 나머지 입력순
+    assert "랜덤" not in captured["footer"] and "전원" not in captured["footer"]

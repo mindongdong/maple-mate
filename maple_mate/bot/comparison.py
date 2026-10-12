@@ -11,10 +11,11 @@ from __future__ import annotations
 import io
 import random
 import unicodedata
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime, timezone
 
 import discord
+from discord import app_commands
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..nexon.client import NexonClient
@@ -204,19 +205,28 @@ def too_many_targets(members: Sequence[object], nicknames: Sequence[str]) -> boo
     return len(members) + len(nicknames) > MAX_SPECIFIED_TARGETS
 
 
-async def reject_too_many(
-    interaction: discord.Interaction,
-    title: str,
-    members: Sequence[object],
-    nicknames: Sequence[str],
-) -> bool:
-    """지정 상한 초과면 ephemeral 거부 후 True. **defer 전에** 호출(공개 defer 후엔 ephemeral 불가)."""
-    if not too_many_targets(members, nicknames):
-        return False
-    await interaction.response.send_message(
-        embed=make_embed(title, TOO_MANY_TARGETS), ephemeral=True
-    )
-    return True
+class TooManyTargets(app_commands.CheckFailure):
+    """지정 상한 초과 — 트리 공통 에러 핸들러가 ephemeral 로 안내한다(bot/core.py)."""
+
+
+def target_limit_check() -> Callable:
+    """유저 슬롯 + 닉네임 합계 상한 검사(명령 체크). 실패 시 TooManyTargets.
+
+    **쿨다운 데코레이터 아래**(함수 쪽)에 둔다 — 체크는 함수에 가까운 것부터 실행되므로 거부가
+    쿨다운 토큰을 소모하지 않는다. namespace 키는 rename 된 이름이라 닉네임은 '닉네임'으로 읽는다.
+    """
+
+    async def predicate(interaction: discord.Interaction) -> bool:
+        namespace = interaction.namespace
+        members = [
+            v for _, v in namespace if isinstance(v, (discord.Member, discord.User))
+        ]
+        nicknames = parse_nicknames(getattr(namespace, "닉네임", None))
+        if too_many_targets(members, nicknames):
+            raise TooManyTargets(TOO_MANY_TARGETS)
+        return True
+
+    return app_commands.check(predicate)
 
 
 async def resolve_mixed_targets(
@@ -226,6 +236,8 @@ async def resolve_mixed_targets(
     members: list[discord.Member],
     nicknames: list[str],
     realm: Realm | None = None,
+    *,
+    command: str | None = None,
 ) -> tuple[list[Target], list[TargetOutcome]]:
     """유저 슬롯 + 닉네임 → (Target 목록, 실패 outcome). 닉네임이 없으면 resolve_targets 그대로.
 
@@ -248,7 +260,9 @@ async def resolve_mixed_targets(
     for nickname in nicknames:
         target = matched.get(nickname.lower())
         if target is None:
-            outcome = await resolve_guest_target(nexon, guild_id, nickname)
+            outcome = await resolve_guest_target(
+                nexon, session_factory, guild_id, nickname, command=command
+            )
             if not outcome.ok:
                 missing.append(outcome)
                 continue

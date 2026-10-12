@@ -610,12 +610,31 @@ GUEST_NOT_FOUND = "캐릭터를 찾을 수 없어요. 닉네임을 확인해 주
 
 
 async def resolve_guest_target(
-    nexon: NexonClient, guild_id: int, nickname: str
+    nexon: NexonClient,
+    session_factory: async_sessionmaker[AsyncSession],
+    guild_id: int,
+    nickname: str,
+    *,
+    command: str | None = None,
 ) -> TargetOutcome:
-    """미등록 닉 → 게스트 Target(`/id` 1콜). 실패면 부분성공 행(ocid 빈 Target + error)."""
+    """미등록 닉 → 게스트 Target(`/id` 1콜). 실패면 부분성공 행(ocid 빈 Target + error).
+
+    가용성 오류(장애·타임아웃·rate limit 등)는 `_fetch_one` 과 같은 기준으로 error_log 에 적재한다
+    (운영 요약 집계 — 게스트라 discord_user_id 없음).
+    """
     try:
         ocid = await nexon.get_ocid(nickname)
     except NexonAPIError as exc:
+        log_type = to_error_log_type(exc.error_class)
+        if log_type is not None:
+            await error_log.record(
+                session_factory,
+                error_type=log_type,
+                command=command,
+                guild_id=guild_id,
+                discord_user_id=None,
+                detail=f"{exc.code}: {exc.message}"[:500],
+            )
         error = (
             GUEST_NOT_FOUND
             if exc.error_class in _STALE_OCID
