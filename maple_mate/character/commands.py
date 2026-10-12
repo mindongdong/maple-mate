@@ -16,7 +16,8 @@ import discord
 from discord import app_commands
 
 from ..bot import comparison, cooldowns, item_card, table_image
-from ..bot.embeds import append_source, defer, make_embed
+from ..bot.comparison_tabs import Builder, ComparisonTabsView, Tab
+from ..bot.embeds import defer, make_embed
 from ..dependencies import Deps
 from ..nexon.client import KST, NexonClient
 from ..nexon.errors import NexonAPIError
@@ -259,41 +260,57 @@ async def handle_spec(
         return
 
     # 무인자 = 본인 포함 랜덤 5명(ADR-0008 개정). 지정 시엔 지정 상한 5가 이미 경계.
-    notes: list[str] = []
+    notes: list[str] = []  # 푸터 안내 줄(위→아래): 팬아웃 안내 → 본인 미포함
     if unspecified:
         targets, total, self_included = comparison.select_with_self(
             targets, interaction.user.id, cap=SPEC_UNSPECIFIED_CAP
         )
+        notes.append(comparison.fanout_note(total, cap=SPEC_UNSPECIFIED_CAP))
         if not self_included:
             notes.append(
                 "본인은 챌린저스 캐릭터가 없어 포함되지 않았어요."
                 if realm is Realm.CHALLENGERS
                 else "본인은 미등록이라 포함되지 않았어요. `/캐릭터등록` 부터 해주세요!"
             )
-        notes.append(comparison.fanout_note(total, cap=SPEC_UNSPECIFIED_CAP))
 
+    message = await build_spec_message(deps, targets, missing, notes=notes, realm=realm)
+    await send_with_tabs(
+        deps,
+        interaction,
+        message,
+        targets=targets,
+        missing=missing,
+        notes=notes,
+        current="spec",
+        realm=realm,
+    )
+
+
+async def build_spec_message(
+    deps: Deps,
+    targets: list[reg.Target],
+    missing: list[reg.TargetOutcome],
+    *,
+    notes: Sequence[str] = (),
+    realm: Realm = Realm.MAIN,
+) -> comparison.ComparisonMessage:
+    """스펙 조회 + 렌더(단일 상세 / 비교표 / 전원 실패) — `/스펙`·탭 전환 공유(ADR-0022)."""
     outcomes = await fetch_spec_outcomes(deps, targets)
     outcomes = outcomes + missing
 
     successes = [o for o in outcomes if o.ok]
     if not successes:
-        await interaction.followup.send(
-            embed=comparison.all_failed_embed("스펙 비교", outcomes)
+        return comparison.ComparisonMessage(
+            comparison.all_failed_embed("스펙 비교", outcomes)
         )
-        return
 
-    footer = append_source(comparison.data_footer(successes[0].data.date))
-    for line in notes:  # 아이템과 같은 순서: 팬아웃 안내 → 본인 미포함 → 데이터 시점
-        footer = f"{line}\n{footer}"
+    footer = comparison.footer_with_notes(successes[0].data.date, notes)
 
     # 단일 대상(실패/미등록 없이 1명) = 상세 전체 1임베드 + 유저 태그.
     if len(outcomes) == 1:
-        await interaction.followup.send(
-            embed=single_detail_embed(
-                successes[0].target, successes[0].data, footer, realm
-            )
+        return comparison.ComparisonMessage(
+            single_detail_embed(successes[0].target, successes[0].data, footer, realm)
         )
-        return
 
     embed, file = await build_spec_comparison(
         deps,
@@ -302,7 +319,7 @@ async def handle_spec(
         title=realm_title("스펙 비교", realm),
         footer=footer,
     )
-    await interaction.followup.send(embed=embed, file=file)
+    return comparison.ComparisonMessage(embed, file)
 
 
 def _card_potential(p: item.PotentialView | None) -> item_card.CardPotential | None:
@@ -439,41 +456,119 @@ async def handle_item(
         return
 
     # 무인자 = 본인 포함 랜덤 K명 경계(ADR-0008 부분개정). 지정 시엔 파라미터 5개가 이미 상한.
-    note: str | None = None
-    self_note: str | None = None
+    notes: list[str] = []  # 푸터 안내 줄(위→아래): 팬아웃 안내 → 본인 미포함
     if not members and not nicknames:
         targets, total, self_included = comparison.select_with_self(
             targets, interaction.user.id
         )
-        note = comparison.fanout_note(total)
+        notes.append(comparison.fanout_note(total))
         if not self_included:
-            self_note = (
+            notes.append(
                 "본인은 챌린저스 캐릭터가 없어 포함되지 않았어요."
                 if realm is Realm.CHALLENGERS
                 else "본인은 미등록이라 포함되지 않았어요. `/캐릭터등록` 부터 해주세요!"
             )
 
+    message = await build_item_message(
+        deps,
+        targets,
+        missing,
+        slot,
+        notes=notes,
+        self_id=interaction.user.id,
+        realm=realm,
+    )
+    await send_with_tabs(
+        deps,
+        interaction,
+        message,
+        targets=targets,
+        missing=missing,
+        notes=notes,
+        current="item",
+        slot=slot,
+        realm=realm,
+    )
+
+
+async def build_item_message(
+    deps: Deps,
+    targets: list[reg.Target],
+    missing: list[reg.TargetOutcome],
+    slot: str,
+    *,
+    notes: Sequence[str] = (),
+    self_id: int,
+    realm: Realm = Realm.MAIN,
+) -> comparison.ComparisonMessage:
+    """부위 장비 조회 + 카드 렌더(전원 실패 포함) — `/아이템`·탭 전환 공유(ADR-0022)."""
+    title = realm_title(f"아이템 — {slot}", realm)
     outcomes = await fetch_item_outcomes(deps, targets, slot)
     outcomes = outcomes + missing
 
     successes = [o for o in outcomes if o.ok]
     if not successes:
-        await interaction.followup.send(
-            embed=comparison.all_failed_embed(title, outcomes)
+        return comparison.ComparisonMessage(
+            comparison.all_failed_embed(title, outcomes)
         )
-        return
 
     # 표시 = 본인 맨 앞(대상에 있을 때만) + 나머지는 선정/입력 순서(무인자=랜덤, 지정=입력).
-    successes = _self_first(successes, interaction.user.id)
+    successes = _self_first(successes, self_id)
 
-    footer = append_source(comparison.data_footer(successes[0].data.date))
-    for line in (self_note, note):
-        if line:
-            footer = f"{line}\n{footer}"
+    footer = comparison.footer_with_notes(successes[0].data.date, notes)
     embed, file = await build_item_cards(
         deps, successes, outcomes, slot, title=title, footer=footer
     )
-    await interaction.followup.send(embed=embed, file=file)
+    return comparison.ComparisonMessage(embed, file)
+
+
+def make_tab_builders(
+    deps: Deps, self_id: int, realm: Realm = Realm.MAIN
+) -> dict[Tab, Builder]:
+    """탭 전환 빌더 3종(스펙·아이템·유니온) — 같은 대상 집합으로 다른 비교를 다시 만든다."""
+    # 순환 import 회피: union.commands 가 이 모듈(send_with_tabs)을 import 한다.
+    from ..union.commands import build_union_message
+
+    async def spec(targets, missing, notes, _slot):
+        return await build_spec_message(
+            deps, targets, missing, notes=notes, realm=realm
+        )
+
+    async def item_tab(targets, missing, notes, slot):
+        return await build_item_message(
+            deps, targets, missing, slot, notes=notes, self_id=self_id, realm=realm
+        )
+
+    async def union(targets, missing, notes, _slot):
+        return await build_union_message(deps, targets, missing, notes=notes)
+
+    return {"spec": spec, "item": item_tab, "union": union}
+
+
+async def send_with_tabs(
+    deps: Deps,
+    interaction: discord.Interaction,
+    message: comparison.ComparisonMessage,
+    *,
+    targets: list[reg.Target],
+    missing: list[reg.TargetOutcome],
+    notes: list[str],
+    current: Tab,
+    slot: str | None = None,
+    realm: Realm = Realm.MAIN,
+) -> None:
+    """비교 결과를 탭 전환 View 와 함께 발송(실행자만 조작) — 3종 핸들러 공유."""
+    view = ComparisonTabsView(
+        author_id=interaction.user.id,
+        targets=targets,
+        missing=missing,
+        notes=notes,
+        current=current,
+        slot=slot,
+        slots=SLOT_CHOICES,
+        builders=make_tab_builders(deps, interaction.user.id, realm),
+    )
+    await view.send(interaction, message)
 
 
 def setup(bot: discord.Client) -> None:

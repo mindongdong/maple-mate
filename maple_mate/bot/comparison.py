@@ -12,6 +12,7 @@ import io
 import random
 import unicodedata
 from collections.abc import Callable, Sequence
+from dataclasses import dataclass
 from datetime import datetime, timezone
 
 import discord
@@ -28,7 +29,7 @@ from ..registration.service import (
     resolve_guest_target,
 )
 from . import table_image
-from .embeds import EmbedPaginator, format_footer, make_embed
+from .embeds import EmbedPaginator, append_source, format_footer, make_embed
 
 _MAX_FIELD = 1024
 
@@ -324,6 +325,19 @@ def fanout_note(
         f"{noun} {total}명 중 본인 포함 랜덤 {cap}명을 비교했어요 · "
         f"특정 인원은 대상 지정(최대 5명)으로 볼 수 있어요"
     )
+
+
+@dataclass(frozen=True)
+class ComparisonMessage:
+    """비교 결과 1건(임베드 + 선택 첨부). 탭 전환이 같은 모양으로 교체한다(ADR-0022)."""
+
+    embed: discord.Embed
+    file: discord.File | None = None  # None = 첨부 없음(단일 상세·전원 실패)
+
+
+def footer_with_notes(raw_date: str | None, notes: Sequence[str] = ()) -> str:
+    """안내 줄들(위→아래 표시 순) + 데이터 시점·출처 푸터."""
+    return "\n".join([*notes, append_source(data_footer(raw_date))])
 
 
 def data_footer(raw_date: str | None, now: datetime | None = None) -> str:

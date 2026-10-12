@@ -4,7 +4,7 @@
 > **하우스 스타일 레퍼런스:** [my-character-work-order.md](my-character-work-order.md), [random-fanout-work-order.md](random-fanout-work-order.md).
 > **결정 출처:** 2026-10-12 세션. 사용자 판단: 같은 사람들을 스펙→아이템→유니온으로 이어 볼 때마다 대상을 다시 입력해야 해서 불편하다.
 > **선행 조건:** **PR1 머지 후 착수.** PR1의 통합 대상 해석(`resolve_mixed_targets`)과 3종 핸들러 시그니처가 전제다.
-> **상태:** 미착수.
+> **상태:** 구현 완료(브랜치 `claude/comparison-tabs`, PR1 브랜치 위에 스택). §7 as-built 참고.
 
 ---
 
@@ -152,3 +152,13 @@ class ComparisonTabsView(discord.ui.View):
 - **ADR-0022 "비교 결과 탭 전환"**: 결정 2(실행자·제자리), 3(대상 집합 고정), 4(스펙 5명 절단), 6(락 vs 시간 쿨다운), 7(600s·토큰 수명 근거), non-persistent 감수.
 - **CONTEXT.md**: "대상" 항목에 "탭 전환 시 최초 해석 집합을 고정 재사용" 한 줄.
 - PR 1개. 단 커밋은 **#1 리팩터(동작 불변) / #2~9 기능**으로 분리해 리뷰 가능하게 한다.
+
+---
+
+## 7. As-built
+
+- **빌더**: `character/commands.py` — `build_spec_message(deps, targets, missing, *, notes, realm)`·`build_item_message(deps, targets, missing, slot, *, notes, self_id, realm)`, `union/commands.py` — `build_union_message(deps, targets, missing, *, notes)`. 모두 `comparison.ComparisonMessage(embed, file|None)` 반환. 푸터는 `comparison.footer_with_notes(raw_date, notes)` — `notes` 는 **위→아래 표시 순**(팬아웃 안내 → 본인 미포함)이며 기존 출력과 바이트 동일.
+- **View**: [bot/comparison_tabs.py](../maple_mate/bot/comparison_tabs.py) `ComparisonTabsView(author_id, targets, missing, notes, current, slot, slots, builders)` · `switch()` · `send()`(followup `wait=True` → `message` 보관). 상수 `TABS_TIMEOUT=600`·`SPEC_TAB_CAP=5`·`SPEC_TRUNCATED_NOTE`.
+- **조립**: `character/commands.py` `make_tab_builders(deps, self_id, realm)`(union 빌더는 함수 안 지연 import — `union.commands` → `character.commands` 방향 import 순환 회피)·`send_with_tabs(...)`. 3종 핸들러의 마지막 send 를 대체한다. 조회 이전 가드 실패(DM·등록자 0·전원 미등록)는 View 없이 기존대로 보낸다.
+- **§4 #1 커밋 분리는 생략**: 리팩터와 기능을 한 커밋에 담았다. 단 기존 테스트 878건이 리팩터 후 무수정 통과(동작 불변)를 확인했다.
+- **테스트**: [tests/test_comparison_tabs.py](../tests/test_comparison_tabs.py)(14건).

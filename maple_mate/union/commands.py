@@ -12,7 +12,8 @@ import discord
 from discord import app_commands
 
 from ..bot import comparison, cooldowns, table_image
-from ..bot.embeds import append_source, defer, make_embed
+from ..bot.embeds import defer, make_embed
+from ..character.commands import send_with_tabs
 from ..dependencies import Deps
 from ..registration import service as reg
 from . import service
@@ -64,18 +65,37 @@ async def handle_union(
         return
 
     # 무인자 = 본인 포함 랜덤 K명 경계(ADR-0008 부분개정). 지정 시엔 파라미터 5개가 이미 상한.
-    note: str | None = None
-    self_note: str | None = None
+    notes: list[str] = []  # 푸터 안내 줄(위→아래): 팬아웃 안내 → 본인 미포함
     if not members and not nicknames:
         targets, total, self_included = comparison.select_with_self(
             targets, interaction.user.id
         )
-        note = comparison.fanout_note(total)
+        notes.append(comparison.fanout_note(total))
         if not self_included:
-            self_note = (
+            notes.append(
                 "본인은 미등록이라 포함되지 않았어요. `/캐릭터등록` 부터 해주세요!"
             )
 
+    message = await build_union_message(deps, targets, missing, notes=notes)
+    await send_with_tabs(
+        deps,
+        interaction,
+        message,
+        targets=targets,
+        missing=missing,
+        notes=notes,
+        current="union",
+    )
+
+
+async def build_union_message(
+    deps: Deps,
+    targets: list[reg.Target],
+    missing: list[reg.TargetOutcome],
+    *,
+    notes: Sequence[str] = (),
+) -> comparison.ComparisonMessage:
+    """유니온 조회 + 렌더(단일 카드 / 비교표 / 전원 실패) — `/유니온`·탭 전환 공유(ADR-0022)."""
     outcomes = await reg.fetch_each(
         targets=targets,
         nexon=deps.nexon,
@@ -87,15 +107,11 @@ async def handle_union(
 
     successes = [o for o in outcomes if o.ok]
     if not successes:
-        await interaction.followup.send(
-            embed=comparison.all_failed_embed("유니온 비교", outcomes)
+        return comparison.ComparisonMessage(
+            comparison.all_failed_embed("유니온 비교", outcomes)
         )
-        return
 
-    footer = append_source(comparison.data_footer(successes[0].data.date))
-    for line in (self_note, note):
-        if line:
-            footer = f"{line}\n{footer}"
+    footer = comparison.footer_with_notes(successes[0].data.date, notes)
 
     # 단일 대상 = 카드 + 유저 태그(표는 비교 때만 의미 있음).
     if len(outcomes) == 1:
@@ -111,8 +127,7 @@ async def handle_union(
             ),
             inline=False,
         )
-        await interaction.followup.send(embed=embed)
-        return
+        return comparison.ComparisonMessage(embed)
 
     # 비교 = PNG 정렬표(픽셀 고정) + 태그 범례. 유니온 레벨 내림차순 + 순위.
     # 단일 수치 컬럼(유니온·아티팩트)은 최고 행을 금색 강조(챔피언 분포는 단일값 아님 → 제외).
@@ -152,7 +167,7 @@ async def handle_union(
         outcomes=outcomes,
         filename="union.png",
     )
-    await interaction.followup.send(embed=embed, file=file)
+    return comparison.ComparisonMessage(embed, file)
 
 
 def setup(bot: discord.Client) -> None:
