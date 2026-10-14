@@ -4,7 +4,7 @@
 > **하우스 스타일 레퍼런스:** [random-fanout-work-order.md](random-fanout-work-order.md), [my-character-work-order.md](my-character-work-order.md).
 > **결정 출처:** 2026-10-12 세션. 사용자 판단: 봇의 핵심 가치는 "채널 안에서 여러 캐릭터를 간편 비교"인데, 대상 지정 규칙이 명령마다 다르고 등록자 외 캐릭터는 비교할 수 없다.
 > **후속:** [comparison-tabs-work-order.md](comparison-tabs-work-order.md)(PR2) → [account-character-import-work-order.md](account-character-import-work-order.md)(PR3). PR2 는 본 PR 의 대상 해석 결과(Target 목록)를 그대로 재사용한다.
-> **상태:** 구현 완료(브랜치 `claude/loving-brahmagupta-tyordi`). §7 as-built 참고.
+> **상태:** **완료.** PR #71(squash `3d259ac`, 2026-10-14). §7 as-built 참고.
 
 ---
 

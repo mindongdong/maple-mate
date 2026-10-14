@@ -4,7 +4,7 @@
 > **하우스 스타일 레퍼런스:** [my-character-work-order.md](my-character-work-order.md), [random-fanout-work-order.md](random-fanout-work-order.md).
 > **결정 출처:** 2026-10-12 세션. 사용자 판단: 같은 사람들을 스펙→아이템→유니온으로 이어 볼 때마다 대상을 다시 입력해야 해서 불편하다.
 > **선행 조건:** **PR1 머지 후 착수.** PR1의 통합 대상 해석(`resolve_mixed_targets`)과 3종 핸들러 시그니처가 전제다.
-> **상태:** 구현 완료(브랜치 `claude/comparison-tabs`, PR1 브랜치 위에 스택). §7 as-built 참고.
+> **상태:** 구현 완료 — PR #72(브랜치 `claude/comparison-tabs`, PR1 머지 후 main 위로 재배치). §7 as-built 참고.
 
 ---
 
