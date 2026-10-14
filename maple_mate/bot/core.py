@@ -16,6 +16,7 @@ from discord import app_commands
 from ..dependencies import Deps
 from ..notification.scheduler import shutdown as shutdown_scheduler
 from ..notification.scheduler import start_scheduler
+from .comparison import TooManyTargets
 from .embeds import make_embed
 
 log = logging.getLogger(__name__)
@@ -40,6 +41,12 @@ async def on_app_command_error(
             await interaction.followup.send(embed=embed, ephemeral=True)
         else:
             await interaction.response.send_message(embed=embed, ephemeral=True)
+        return
+    # 비교 대상 지정 상한(ADR-0021) — 쿨다운보다 먼저 걸러져 쿨다운 미소모.
+    if isinstance(error, TooManyTargets):
+        await interaction.response.send_message(
+            embed=make_embed("대상 지정", str(error)), ephemeral=True
+        )
         return
     command = interaction.command.qualified_name if interaction.command else "?"
     log.error("슬래시 커맨드 오류 (/%s): %s", command, error, exc_info=error)

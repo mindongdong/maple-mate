@@ -39,8 +39,10 @@ def bot() -> MapleMateBot:
 def _check(bot: MapleMateBot, name: str):
     command = bot.tree.get_command(name)
     assert command is not None, f"/{name} 미등록"
-    assert len(command.checks) == 1, f"/{name} 쿨다운 체크 1개여야 함"
-    return command.checks[0]
+    # 비교 명령은 대상 상한 체크(ADR-0021)가 쿨다운 앞에 하나 더 붙는다 — 쿨다운만 골라낸다.
+    cooldown_checks = [c for c in command.checks if "cooldown" in c.__qualname__]
+    assert len(cooldown_checks) == 1, f"/{name} 쿨다운 체크 1개여야 함"
+    return cooldown_checks[0]
 
 
 # ── 명령군별 부착 + 간격 (D3 표) ──────────────────────────────────────

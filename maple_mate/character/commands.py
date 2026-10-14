@@ -1,6 +1,7 @@
 """`/스펙` · `/아이템` 디스코드 어댑터 (얇은 전달 계층). 로직은 service + 공유 머신.
 
-- `/스펙`: 인자 필수(1~5명). 1명=상세, 2~5명=항목별 페이지 비교(전투력·어빌리티·심볼·HEXA코어·HEXA스탯).
+- `/스펙`: 1명=상세, 2~5명=비교표. 무인자=본인 포함 랜덤 최대 5명(ADR-0008 개정).
+- 대상 = 유저 슬롯 + `닉네임`(쉼표 구분, 합쳐 최대 5명 — 미등록 캐릭터는 게스트 대상, ADR-0021).
 - `/아이템`: build 5 에서 추가.
 """
 
@@ -211,32 +212,65 @@ async def build_spec_comparison(
     )
 
 
+# `/스펙` 무인자 상한(ADR-0008 개정) — 1명당 넥슨 ≈13콜(최신 6 + 7일 전투력 7)이라
+# 아이템·유니온(10)보다 좁게 잡는다. 5명 ≈ 65콜 ≈ 16초(전역 4req/s).
+SPEC_UNSPECIFIED_CAP = 5
+
+
 async def handle_spec(
     deps: Deps,
     interaction: discord.Interaction,
     members: list[discord.Member],
     realm: Realm = Realm.MAIN,
+    *,
+    nicknames: Sequence[str] = (),
 ) -> None:
+    nicknames = list(nicknames)
     await defer(interaction)
     if interaction.guild_id is None:
         await interaction.followup.send(
             embed=make_embed("스펙", "서버(길드) 안에서만 쓸 수 있어요.")
         )
         return
-    if not members:  # 인자 필수(보통 Discord 가 강제하지만 방어적으로)
-        await interaction.followup.send(
-            embed=make_embed("스펙", "비교할 유저를 1~5명 지정해 주세요.")
-        )
+
+    title = realm_title("스펙 비교", realm)
+    targets, missing = await comparison.resolve_mixed_targets(
+        deps.session_factory,
+        deps.nexon,
+        interaction.guild_id,
+        members,
+        nicknames,
+        realm,
+        command="스펙",
+    )
+    unspecified = not members and not nicknames
+    if not targets:
+        if missing:
+            await interaction.followup.send(
+                embed=comparison.all_failed_embed(title, missing)
+            )
+        else:
+            empty = (
+                CHALLENGERS_NO_REGISTRANTS
+                if realm is Realm.CHALLENGERS
+                else "이 서버에 등록자가 없어요. `/캐릭터등록` 먼저 해주세요."
+            )
+            await interaction.followup.send(embed=make_embed("스펙", empty))
         return
 
-    targets, missing = await comparison.resolve_targets(
-        deps.session_factory, interaction.guild_id, members, realm
-    )
-    if not targets:
-        await interaction.followup.send(
-            embed=comparison.all_failed_embed(realm_title("스펙 비교", realm), missing)
+    # 무인자 = 본인 포함 랜덤 5명(ADR-0008 개정). 지정 시엔 지정 상한 5가 이미 경계.
+    notes: list[str] = []
+    if unspecified:
+        targets, total, self_included = comparison.select_with_self(
+            targets, interaction.user.id, cap=SPEC_UNSPECIFIED_CAP
         )
-        return
+        if not self_included:
+            notes.append(
+                "본인은 챌린저스 캐릭터가 없어 포함되지 않았어요."
+                if realm is Realm.CHALLENGERS
+                else "본인은 미등록이라 포함되지 않았어요. `/캐릭터등록` 부터 해주세요!"
+            )
+        notes.append(comparison.fanout_note(total, cap=SPEC_UNSPECIFIED_CAP))
 
     outcomes = await fetch_spec_outcomes(deps, targets)
     outcomes = outcomes + missing
@@ -249,6 +283,8 @@ async def handle_spec(
         return
 
     footer = append_source(comparison.data_footer(successes[0].data.date))
+    for line in notes:  # 아이템과 같은 순서: 팬아웃 안내 → 본인 미포함 → 데이터 시점
+        footer = f"{line}\n{footer}"
 
     # 단일 대상(실패/미등록 없이 1명) = 상세 전체 1임베드 + 유저 태그.
     if len(outcomes) == 1:
@@ -367,7 +403,10 @@ async def handle_item(
     slot: str,
     members: list[discord.Member],
     realm: Realm = Realm.MAIN,
+    *,
+    nicknames: Sequence[str] = (),
 ) -> None:
+    nicknames = list(nicknames)
     await defer(interaction)
     if interaction.guild_id is None:
         await interaction.followup.send(
@@ -376,8 +415,14 @@ async def handle_item(
         return
 
     title = realm_title(f"아이템 — {slot}", realm)
-    targets, missing = await comparison.resolve_targets(
-        deps.session_factory, interaction.guild_id, members, realm
+    targets, missing = await comparison.resolve_mixed_targets(
+        deps.session_factory,
+        deps.nexon,
+        interaction.guild_id,
+        members,
+        nicknames,
+        realm,
+        command="아이템",
     )
     if not targets:
         if missing:
@@ -396,7 +441,7 @@ async def handle_item(
     # 무인자 = 본인 포함 랜덤 K명 경계(ADR-0008 부분개정). 지정 시엔 파라미터 5개가 이미 상한.
     note: str | None = None
     self_note: str | None = None
-    if not members:
+    if not members and not nicknames:
         targets, total, self_included = comparison.select_with_self(
             targets, interaction.user.id
         )
@@ -436,7 +481,7 @@ def setup(bot: discord.Client) -> None:
 
     @bot.tree.command(  # type: ignore[attr-defined]
         name="스펙",
-        description="전투력·어빌리티·심볼·HEXA를 비교합니다 (1~5명 지정 필수).",
+        description="전투력·어빌리티·심볼·HEXA를 비교합니다 (미지정 시 본인 포함 랜덤 최대 5명).",
     )
     @app_commands.allowed_installs(guilds=True, users=False)
     @app_commands.allowed_contexts(guilds=True, dms=False, private_channels=False)
@@ -446,27 +491,33 @@ def setup(bot: discord.Client) -> None:
         member3="유저3",
         member4="유저4",
         member5="유저5",
+        nicknames="닉네임",
     )
     @app_commands.describe(
-        member1="조회할 유저 (1명이면 단일 상세)",
+        member1="조회할 유저 (1명이면 단일 상세 · 미지정 시 등록자 중 본인 포함 랜덤 최대 5명)",
         member2="비교 대상",
         member3="비교 대상",
         member4="비교 대상",
         member5="비교 대상",
+        nicknames=comparison.NICKNAMES_DESCRIBE,
     )
     @cooldowns.spec_cooldown()
+    @comparison.target_limit_check()  # 쿨다운보다 먼저 실행 — 거부가 쿨다운을 소모하지 않음
     async def spec_command(
         interaction: discord.Interaction,
-        member1: discord.Member,
+        member1: discord.Member | None = None,
         member2: discord.Member | None = None,
         member3: discord.Member | None = None,
         member4: discord.Member | None = None,
         member5: discord.Member | None = None,
+        nicknames: str | None = None,
     ) -> None:
         members = [
             m for m in (member1, member2, member3, member4, member5) if m is not None
         ]
-        await handle_spec(deps, interaction, members)
+        await handle_spec(
+            deps, interaction, members, nicknames=comparison.parse_nicknames(nicknames)
+        )
 
     @bot.tree.command(  # type: ignore[attr-defined]
         name="아이템",
@@ -481,6 +532,7 @@ def setup(bot: discord.Client) -> None:
         member3="대상3",
         member4="대상4",
         member5="대상5",
+        nicknames="닉네임",
     )
     @app_commands.describe(
         part="조회할 장비 부위",
@@ -489,11 +541,13 @@ def setup(bot: discord.Client) -> None:
         member3="추가 비교 대상",
         member4="추가 비교 대상",
         member5="추가 비교 대상",
+        nicknames=comparison.NICKNAMES_DESCRIBE,
     )
     @app_commands.choices(
         part=[app_commands.Choice(name=slot, value=slot) for slot in SLOT_CHOICES],
     )
     @cooldowns.spec_cooldown()
+    @comparison.target_limit_check()  # 쿨다운보다 먼저 실행 — 거부가 쿨다운을 소모하지 않음
     async def item_command(
         interaction: discord.Interaction,
         part: app_commands.Choice[str],
@@ -502,8 +556,15 @@ def setup(bot: discord.Client) -> None:
         member3: discord.Member | None = None,
         member4: discord.Member | None = None,
         member5: discord.Member | None = None,
+        nicknames: str | None = None,
     ) -> None:
         members = [
             m for m in (member1, member2, member3, member4, member5) if m is not None
         ]
-        await handle_item(deps, interaction, part.value, members)
+        await handle_item(
+            deps,
+            interaction,
+            part.value,
+            members,
+            nicknames=comparison.parse_nicknames(nicknames),
+        )

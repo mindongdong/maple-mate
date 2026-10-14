@@ -11,14 +11,22 @@ from __future__ import annotations
 import io
 import random
 import unicodedata
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime, timezone
 
 import discord
+from discord import app_commands
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
+from ..nexon.client import NexonClient
 from ..registration.realm import CHALLENGERS_NO_TARGET, Realm
-from ..registration.service import Target, TargetOutcome, get_targets
+from ..registration.service import (
+    Target,
+    TargetOutcome,
+    find_guild_characters_by_nicknames,
+    get_targets,
+    resolve_guest_target,
+)
 from . import table_image
 from .embeds import EmbedPaginator, format_footer, make_embed
 
@@ -161,6 +169,108 @@ async def resolve_targets(
         for m in members
         if m.id not in registered
     ]
+    return targets, missing
+
+
+# ── 닉네임 직접 지정 (ADR-0021) ───────────────────────────────────────────
+#
+# `/스펙`·`/아이템`·`/유니온` 의 `닉네임` 파라미터(쉼표 구분). 유저 슬롯과 합쳐 최대 5명.
+# 등록 캐릭터와 닉이 일치하면 그 캐릭터, 아니면 `/id` 로 해석한 게스트 대상(미등록·비저장).
+
+MAX_SPECIFIED_TARGETS = 5
+NICKNAMES_DESCRIBE = (
+    "메이플 닉네임 (쉼표로 여러 명 · 유저와 합쳐 최대 5명 · 미등록 캐릭터도 가능)"
+)
+TOO_MANY_TARGETS = (
+    f"유저와 닉네임을 합쳐 최대 {MAX_SPECIFIED_TARGETS}명까지 지정할 수 있어요."
+)
+
+
+def parse_nicknames(raw: str | None) -> list[str]:
+    """'a, b ,A' → ['a', 'b'] — 공백 제거·빈 토큰 무시·대소문자 무시 중복 제거(첫 표기 유지)."""
+    if not raw:
+        return []
+    names: list[str] = []
+    seen: set[str] = set()
+    for token in raw.split(","):
+        name = token.strip()
+        if name and name.lower() not in seen:
+            seen.add(name.lower())
+            names.append(name)
+    return names
+
+
+def too_many_targets(members: Sequence[object], nicknames: Sequence[str]) -> bool:
+    """유저 슬롯 + 닉네임 합계가 지정 상한을 넘는가(넘으면 조회 전 ephemeral 거부)."""
+    return len(members) + len(nicknames) > MAX_SPECIFIED_TARGETS
+
+
+class TooManyTargets(app_commands.CheckFailure):
+    """지정 상한 초과 — 트리 공통 에러 핸들러가 ephemeral 로 안내한다(bot/core.py)."""
+
+
+def target_limit_check() -> Callable:
+    """유저 슬롯 + 닉네임 합계 상한 검사(명령 체크). 실패 시 TooManyTargets.
+
+    **쿨다운 데코레이터 아래**(함수 쪽)에 둔다 — 체크는 함수에 가까운 것부터 실행되므로 거부가
+    쿨다운 토큰을 소모하지 않는다. namespace 키는 rename 된 이름이라 닉네임은 '닉네임'으로 읽는다.
+    """
+
+    async def predicate(interaction: discord.Interaction) -> bool:
+        namespace = interaction.namespace
+        members = [
+            v for _, v in namespace if isinstance(v, (discord.Member, discord.User))
+        ]
+        nicknames = parse_nicknames(getattr(namespace, "닉네임", None))
+        if too_many_targets(members, nicknames):
+            raise TooManyTargets(TOO_MANY_TARGETS)
+        return True
+
+    return app_commands.check(predicate)
+
+
+async def resolve_mixed_targets(
+    session_factory: async_sessionmaker[AsyncSession],
+    nexon: NexonClient,
+    guild_id: int,
+    members: list[discord.Member],
+    nicknames: list[str],
+    realm: Realm | None = None,
+    *,
+    command: str | None = None,
+) -> tuple[list[Target], list[TargetOutcome]]:
+    """유저 슬롯 + 닉네임 → (Target 목록, 실패 outcome). 닉네임이 없으면 resolve_targets 그대로.
+
+    순서 = 유저(입력순) → 닉네임(입력순), ocid 중복은 첫 번째만 남긴다. 닉은 등록 캐릭터 우선
+    (넥슨 0콜·소유자 태그), 미일치만 `/id` 1콜로 게스트 대상. 무인자(둘 다 빈) 판정은 호출자 몫.
+    """
+    if not nicknames:
+        return await resolve_targets(session_factory, guild_id, members, realm)
+
+    targets: list[Target] = []
+    missing: list[TargetOutcome] = []
+    if members:
+        targets, missing = await resolve_targets(
+            session_factory, guild_id, members, realm
+        )
+    seen = {t.ocid for t in targets}
+    matched = await find_guild_characters_by_nicknames(
+        session_factory, guild_id, nicknames
+    )
+    for nickname in nicknames:
+        target = matched.get(nickname.lower())
+        if target is None:
+            outcome = await resolve_guest_target(
+                nexon, session_factory, guild_id, nickname, command=command
+            )
+            if not outcome.ok:
+                missing.append(outcome)
+                continue
+            target = outcome.target
+        if target.ocid in seen:
+            continue
+        seen.add(target.ocid)
+        targets.append(target)
     return targets, missing
 
 
