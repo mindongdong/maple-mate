@@ -161,4 +161,5 @@ class ComparisonTabsView(discord.ui.View):
 - **View**: [bot/comparison_tabs.py](../maple_mate/bot/comparison_tabs.py) `ComparisonTabsView(author_id, targets, missing, notes, current, slot, slots, builders)` · `switch()` · `send()`(followup `wait=True` → `message` 보관). 상수 `TABS_TIMEOUT=600`·`SPEC_TAB_CAP=5`·`SPEC_TRUNCATED_NOTE`.
 - **조립**: `character/commands.py` `make_tab_builders(deps, self_id, realm)`(union 빌더는 함수 안 지연 import — `union.commands` → `character.commands` 방향 import 순환 회피)·`send_with_tabs(...)`. 3종 핸들러의 마지막 send 를 대체한다. 조회 이전 가드 실패(DM·등록자 0·전원 미등록)는 View 없이 기존대로 보낸다.
 - **§4 #1 커밋 분리는 생략**: 리팩터와 기능을 한 커밋에 담았다. 단 기존 테스트 878건이 리팩터 후 무수정 통과(동작 불변)를 확인했다.
-- **테스트**: [tests/test_comparison_tabs.py](../tests/test_comparison_tabs.py)(14건).
+- **리뷰 반영(PR2 리뷰)**: ① 스펙 탭 절단은 **본인 우선**(안정 정렬 후 5명 — 등록자 ≤10 무인자는 DB 순서라 본인이 뒤일 수 있음), 안내 문구 "본인 우선 5명". ② View timeout은 discord.py에서 **유휴 시간**(클릭마다 연장)이라 `on_timeout`은 마지막 클릭 인터랙션 토큰으로 정리(§1·§2-7의 "원 토큰 15분 안" 전제 정정). ③ 결과 교체 실패 시 탭 상태를 이전으로 복원. ④ `/유니온` 경유 스펙·아이템 탭의 realm 무필터는 수용(ADR-0022 결정 9). ⑤ 조립 함수의 중립 모듈 분리는 보류 — 각 핸들러가 세 빌더를 모두 필요로 해 순환이 구조적이라 지연 import 1곳이 최소.
+- **테스트**: [tests/test_comparison_tabs.py](../tests/test_comparison_tabs.py)(21건 — 본인 우선 절단·실패 복원·마지막 토큰 정리·빌더 전원 실패·스펙/아이템 핸들러 배선·realm 전달 포함).

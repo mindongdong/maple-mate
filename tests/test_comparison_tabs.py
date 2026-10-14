@@ -7,6 +7,7 @@
 from __future__ import annotations
 
 import asyncio
+import random
 from types import SimpleNamespace
 
 import discord
@@ -19,6 +20,7 @@ from maple_mate.bot.comparison_tabs import (
     ComparisonTabsView,
 )
 from maple_mate.character import commands as char_commands
+from maple_mate.registration.realm import Realm
 from maple_mate.registration.service import Target, TargetOutcome
 from maple_mate.union import commands as union_commands
 
@@ -318,11 +320,11 @@ async def test_tab_builders_route_to_domain_builders(monkeypatch):
     seen: dict = {}
 
     async def fake_spec(deps, targets, missing, *, notes=(), realm=None):
-        seen["spec"] = (targets, notes)
+        seen["spec"] = (targets, notes, realm)
         return "spec"
 
     async def fake_item(deps, targets, missing, slot, *, notes=(), self_id, realm=None):
-        seen["item"] = (slot, self_id)
+        seen["item"] = (slot, self_id, realm)
         return "item"
 
     async def fake_union(deps, targets, missing, *, notes=()):
@@ -333,8 +335,130 @@ async def test_tab_builders_route_to_domain_builders(monkeypatch):
     monkeypatch.setattr(char_commands, "build_item_message", fake_item)
     monkeypatch.setattr(union_commands, "build_union_message", fake_union)
 
-    builders = char_commands.make_tab_builders(object(), self_id=7)
+    builders = char_commands.make_tab_builders(object(), 7, Realm.CHALLENGERS)
     assert await builders["spec"]([_target(1)], [], ["n"], None) == "spec"
     assert await builders["item"]([], [], [], "장갑") == "item"
     assert await builders["union"]([], [], ["u"], None) == "union"
-    assert seen == {"spec": ([_target(1)], ["n"]), "item": ("장갑", 7), "union": ["u"]}
+    assert seen == {
+        "spec": ([_target(1)], ["n"], Realm.CHALLENGERS),  # realm 전달
+        "item": ("장갑", 7, Realm.CHALLENGERS),
+        "union": ["u"],
+    }
+
+
+# ── 리뷰 반영: 본인 우선 절단 · 실패 시 탭 복원 · 마지막 클릭 토큰 ─────────
+
+
+async def test_spec_tab_keeps_author_when_not_first():
+    # 등록자 ≤10 무인자는 선정 없이 DB 순서 — 본인(uid 1)이 맨 뒤여도 스펙 탭에 들어가야 한다.
+    targets = [_target(uid) for uid in (2, 3, 4, 5, 6, 7, 8, 1)]
+    view, rec = _view(targets=targets, current="item", slot="무기")
+    await view.switch(_click(), "spec", None)
+    [(spec_targets, _, _, _)] = rec.calls
+    assert [t.discord_user_id for t in spec_targets] == [1, 2, 3, 4, 5]
+
+
+async def test_failed_final_edit_restores_previous_tab():
+    view, _ = _view(current="spec")
+    click = _click()
+    attempts: list[dict] = []
+
+    async def edit_original_response(**kwargs):
+        attempts.append(kwargs)
+        if "embed" in kwargs:  # 결과 교체(첨부 413 등) 실패
+            raise discord.HTTPException(SimpleNamespace(status=413, reason="x"), "big")
+
+    click.edit_original_response = edit_original_response
+    await view.switch(click, "union", None)
+    assert view.current == "spec"  # 화면은 이전 탭 그대로
+    assert not view.union_button.disabled  # 원하던 탭을 다시 누를 수 있다
+    assert attempts[-1] == {"view": view} and not view.busy
+
+
+async def test_timeout_uses_last_click_token():
+    view, _ = _view()
+    message_edits: list[dict] = []
+
+    async def message_edit(**kwargs):
+        message_edits.append(kwargs)
+
+    view.message = SimpleNamespace(edit=message_edit)
+    click = _click()
+    await view.switch(click, "union", None)
+    await view.on_timeout()
+    assert click.original_edits[-1] == {"view": None}  # 클릭 토큰으로 정리
+    assert message_edits == []  # 원 명령 토큰(만료 가능)은 쓰지 않음
+
+
+# ── 빌더: 전원 실패 = 첨부 없는 실패 임베드 ──────────────────────────────────
+
+
+async def test_union_builder_all_failed_has_no_file(monkeypatch):
+    async def fake_fetch_each(*, targets, nexon, session_factory, command, fetch):
+        return [TargetOutcome(target=t, error="조회 실패") for t in targets]
+
+    monkeypatch.setattr(union_commands.reg, "fetch_each", fake_fetch_each)
+    deps = SimpleNamespace(session_factory=object(), nexon=object())
+    message = await union_commands.build_union_message(deps, [_target(1)], [])
+    assert message.file is None and message.embed.title == "유니온 비교"
+
+
+async def test_spec_builder_all_failed_has_no_file(monkeypatch):
+    async def fake_fetch(deps, targets, *, command="스펙"):
+        return [TargetOutcome(target=t, error="조회 실패") for t in targets]
+
+    monkeypatch.setattr(char_commands, "fetch_spec_outcomes", fake_fetch)
+    message = await char_commands.build_spec_message(object(), [_target(1)], [])
+    assert message.file is None and message.embed.title == "스펙 비교"
+
+
+# ── 핸들러 배선: /스펙 · /아이템 ─────────────────────────────────────────────
+
+
+async def test_spec_handler_attaches_view_with_selected_targets(monkeypatch):
+    registrants = [_target(uid) for uid in range(1, 8)]  # 7명 → 무인자 5명 선정
+    captured: dict = {}
+
+    async def fake_resolve(session_factory, guild_id, members, realm=None):
+        return list(registrants), []
+
+    async def fake_build(deps, targets, missing, *, notes=(), realm=None):
+        captured["targets"] = list(targets)
+        return ComparisonMessage(discord.Embed(title="스펙"))
+
+    monkeypatch.setattr(comparison, "resolve_targets", fake_resolve)
+    monkeypatch.setattr(comparison, "random", random.Random(0))
+    monkeypatch.setattr(char_commands, "build_spec_message", fake_build)
+
+    interaction = _command_interaction(user_id=1)
+    deps = SimpleNamespace(session_factory=object(), nexon=object())
+    await char_commands.handle_spec(deps, interaction, [])
+
+    [sent] = interaction.followup.sent
+    view = sent["view"]
+    assert view.current == "spec"
+    assert view._targets == captured["targets"] and len(view._targets) == 5
+    assert "랜덤 5명" in view._notes[0]  # 탭 전환에도 같은 안내 재사용
+
+
+async def test_item_handler_attaches_view_with_slot(monkeypatch):
+    async def fake_mixed(sf, nexon, guild_id, members, nicknames, realm=None, **kw):
+        return [_target(1), _target(2)], []
+
+    async def fake_build(
+        deps, targets, missing, slot, *, notes=(), self_id, realm=None
+    ):
+        return ComparisonMessage(discord.Embed(title=slot), discord.File(__file__))
+
+    monkeypatch.setattr(comparison, "resolve_mixed_targets", fake_mixed)
+    monkeypatch.setattr(char_commands, "build_item_message", fake_build)
+
+    interaction = _command_interaction(user_id=1)
+    deps = SimpleNamespace(session_factory=object(), nexon=object())
+    await char_commands.handle_item(deps, interaction, "무기", [object()])
+
+    [sent] = interaction.followup.sent
+    view = sent["view"]
+    assert (view.current, view.slot) == ("item", "무기")
+    assert [o.value for o in view.slot_select.options if o.default] == ["무기"]
+    assert "file" in sent

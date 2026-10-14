@@ -5,8 +5,9 @@
 재사용한다(재해석·재랜덤 없음). 빌더는 핸들러가 주입한다 — 도메인(character·union)이 이미
 `bot` 을 import 하므로 여기서 도메인을 import 하면 순환이 생긴다.
 
-non-persistent(재시작 시 무효 — Bitik·페이지네이터와 같은 감수). timeout 은 원 followup 웹훅
-토큰 수명(15분) 안이어야 on_timeout 의 메시지 수정이 가능하다.
+non-persistent(재시작 시 무효 — Bitik·페이지네이터와 같은 감수). discord.py 의 timeout 은
+**마지막 클릭부터의 유휴 시간**이라 원 명령 토큰(15분)이 먼저 만료될 수 있다 → on_timeout 은
+마지막 클릭 인터랙션(클릭마다 새 15분 토큰)으로 컴포넌트를 지우고, 클릭이 없었을 때만 원 메시지를 쓴다.
 """
 
 from __future__ import annotations
@@ -29,11 +30,12 @@ Builder = Callable[
     Awaitable[ComparisonMessage],
 ]
 
-TABS_TIMEOUT = 600.0  # 10분 — 웹훅 토큰 15분 안
-SPEC_TAB_CAP = (
-    5  # /스펙 1명당 ≈13콜 — 무인자 아이템·유니온(최대 10명)에서 넘어오면 앞 5명만
+TABS_TIMEOUT = 600.0  # 유휴 10분 — 마지막 클릭 토큰(15분) 수명 안
+# /스펙 1명당 ≈13콜 — 무인자 아이템·유니온(최대 10명)에서 넘어오면 본인 우선 5명만.
+SPEC_TAB_CAP = 5
+SPEC_TRUNCATED_NOTE = (
+    f"스펙은 최대 {SPEC_TAB_CAP}명 — 본인 우선 {SPEC_TAB_CAP}명만 비교했어요"
 )
-SPEC_TRUNCATED_NOTE = f"스펙은 최대 {SPEC_TAB_CAP}명 — 앞 {SPEC_TAB_CAP}명만 비교했어요"
 NOT_AUTHOR = "본인만 조작할 수 있어요."
 
 
@@ -61,6 +63,7 @@ class ComparisonTabsView(discord.ui.View):
         self.slot = slot
         self.busy = False
         self.message: discord.Message | None = None
+        self._last_interaction: discord.Interaction | None = None
 
         self.spec_button: discord.ui.Button = discord.ui.Button(label="스펙", row=0)
         self.union_button: discord.ui.Button = discord.ui.Button(label="유니온", row=0)
@@ -120,12 +123,20 @@ class ComparisonTabsView(discord.ui.View):
             await interaction.response.defer()
             return
         self.busy = True
+        self._last_interaction = interaction
+        previous = (self.current, self.slot)
         try:
             self._disable_all()
             await interaction.response.edit_message(view=self)
             targets, notes = self._targets, self._notes
             if tab == "spec" and len(targets) > SPEC_TAB_CAP:
-                targets, notes = targets[:SPEC_TAB_CAP], [*notes, SPEC_TRUNCATED_NOTE]
+                # 본인 먼저(안정 정렬) — 등록자 ≤10 무인자는 선정 없이 DB 순서라 본인이 뒤에
+                # 있을 수 있다. 스펙 표는 전투력순이라 표시 순서엔 영향 없음.
+                mine_first = sorted(
+                    targets, key=lambda t: t.discord_user_id != self._author_id
+                )
+                targets = mine_first[:SPEC_TAB_CAP]
+                notes = [*notes, SPEC_TRUNCATED_NOTE]
             message = await self._builders[tab](
                 list(targets), list(self._missing), list(notes), slot
             )
@@ -138,6 +149,9 @@ class ComparisonTabsView(discord.ui.View):
             )
         except Exception:
             log.exception("비교 탭 전환 실패 (%s)", tab)
+            self.current, self.slot = (
+                previous  # 화면은 이전 탭 그대로 — 재시도 가능하게
+            )
             self.sync_components()
             try:
                 await interaction.edit_original_response(view=self)
@@ -147,10 +161,12 @@ class ComparisonTabsView(discord.ui.View):
             self.busy = False
 
     async def on_timeout(self) -> None:
-        if self.message is None:
-            return
+        """컴포넌트 제거 — 마지막 클릭 토큰 우선(원 명령 토큰은 이미 만료됐을 수 있음)."""
         try:
-            await self.message.edit(view=None)
+            if self._last_interaction is not None:
+                await self._last_interaction.edit_original_response(view=None)
+            elif self.message is not None:
+                await self.message.edit(view=None)
         except discord.HTTPException:
             pass  # 메시지가 지워졌거나 토큰 만료
 
