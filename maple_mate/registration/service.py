@@ -18,13 +18,14 @@ from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from typing import Any, Protocol
 
-from sqlalchemy import func, select, update
+from sqlalchemy import delete, func, select, update
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker
 
 from ..error_log import service as error_log
 from ..nexon.client import NexonClient
 from ..nexon.errors import ErrorClass, NexonAPIError, to_error_log_type
+from ..scheduler.models import SchedulerSubscription
 from ..security.crypto import KeyCipher
 from .models import Character, Registration
 from .realm import Realm, in_realm
@@ -351,6 +352,98 @@ async def set_representative(
         )
         await session.commit()
         return char.maple_nickname
+
+
+# ── 관리 허브: 삭제 · 대표 자동 복귀 · 키 삭제 (ADR-0023) ──────────────────────
+
+
+async def delete_characters(
+    session_factory: async_sessionmaker[AsyncSession],
+    guild_id: int,
+    discord_user_id: int,
+    ocids: Sequence[str],
+) -> list[str]:
+    """본인 캐릭터 삭제. 지운 캐릭터 닉네임 목록 반환(본인 것이 아닌 ocid 는 무시).
+
+    대표로 지정된 캐릭터를 지우면 대표 포인터를 NULL(자동=최고 레벨)로 되돌린다. 경험치 스냅샷은
+    남긴다 — 리더보드는 현재 등록 캐릭터만 보고, 90일 prune 이 정리하며, 재등록 시 추이가 이어진다.
+    """
+    if not ocids:
+        return []
+    async with session_factory() as session:
+        chars = await _load_user_characters(session, guild_id, discord_user_id)
+        targets = [c for c in chars if c.ocid in set(ocids)]
+        if not targets:
+            return []
+        removed = [c.ocid for c in targets]
+        await session.execute(
+            delete(Character).where(
+                Character.guild_id == guild_id,
+                Character.discord_user_id == discord_user_id,
+                Character.ocid.in_(removed),
+            )
+        )
+        await session.execute(
+            update(Registration)
+            .where(
+                Registration.guild_id == guild_id,
+                Registration.discord_user_id == discord_user_id,
+                Registration.representative_ocid.in_(removed),
+            )
+            .values(representative_ocid=None, updated_at=func.now())
+        )
+        await session.commit()
+    return [c.maple_nickname for c in targets]
+
+
+async def reset_representative(
+    session_factory: async_sessionmaker[AsyncSession],
+    guild_id: int,
+    discord_user_id: int,
+) -> None:
+    """대표 수동 지정 해제 → 자동(저장 레벨 최고) 선택으로 되돌린다."""
+    async with session_factory() as session:
+        await session.execute(
+            update(Registration)
+            .where(
+                Registration.guild_id == guild_id,
+                Registration.discord_user_id == discord_user_id,
+            )
+            .values(representative_ocid=None, updated_at=func.now())
+        )
+        await session.commit()
+
+
+async def remove_personal_key(
+    session_factory: async_sessionmaker[AsyncSession],
+    guild_id: int,
+    discord_user_id: int,
+) -> tuple[bool, bool]:
+    """개인 키 삭제 + 키가 필요한 스케줄러알림 구독 해제. (키가 있었는지, 구독을 지웠는지).
+
+    구독을 남기면 매시 잡이 키 없음으로 조용히 건너뛰기만 해 유저는 알림이 왜 끊겼는지 모른다 →
+    함께 지우고 안내한다. 캐릭터는 유지(스펙류는 키 없이 조회된다).
+    """
+    async with session_factory() as session:
+        reg = await session.get(Registration, (guild_id, discord_user_id))
+        had_key = reg is not None and reg.api_key_encrypted is not None
+        if had_key:
+            await session.execute(
+                update(Registration)
+                .where(
+                    Registration.guild_id == guild_id,
+                    Registration.discord_user_id == discord_user_id,
+                )
+                .values(api_key_encrypted=None, updated_at=func.now())
+            )
+        result = await session.execute(
+            delete(SchedulerSubscription).where(
+                SchedulerSubscription.guild_id == guild_id,
+                SchedulerSubscription.discord_user_id == discord_user_id,
+            )
+        )
+        await session.commit()
+    return had_key, (result.rowcount or 0) > 0
 
 
 async def has_personal_key(
