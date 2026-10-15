@@ -11,6 +11,9 @@
 
 from __future__ import annotations
 
+import logging
+from collections.abc import Awaitable, Callable
+
 import discord
 from discord import app_commands
 
@@ -20,6 +23,8 @@ from ..bot.scope import MSG_UNAVAILABLE, resolve_scope
 from ..dependencies import Deps
 from . import service
 from .realm import is_challengers
+
+log = logging.getLogger(__name__)
 
 
 def _char_label(nickname: str, level: int | None, world: str | None = None) -> str:
@@ -215,9 +220,8 @@ class CharacterManageView(discord.ui.View):
         self._user_id = user_id
         self.characters = characters
         self.has_key = has_key
-        self.mode = "hub"
+        self.busy = False  # DB 작업 진행 중(연타·중복 실행 방지)
         self._pending: list[str] = []  # 삭제 확인 대기 ocid
-        self.select: discord.ui.Select | None = None  # 현재 상태의 Select(있을 때)
         self.message: discord.Message | None = None
         self._last_interaction: discord.Interaction | None = None
         self._render_hub()
@@ -230,8 +234,17 @@ class CharacterManageView(discord.ui.View):
         self.add_item(button)
         return button
 
+    def _select(self, callback, *, placeholder: str, options, max_values: int = 1):
+        select = discord.ui.Select(
+            placeholder=placeholder,
+            min_values=1,
+            max_values=max_values,
+            options=options,
+        )
+        select.callback = callback  # type: ignore[method-assign]
+        self.add_item(select)
+
     def _render_hub(self) -> None:
-        self.mode = "hub"
         self.clear_items()
         none = not self.characters
         red, grey = discord.ButtonStyle.danger, discord.ButtonStyle.secondary
@@ -240,17 +253,13 @@ class CharacterManageView(discord.ui.View):
         self._button("🔑 키 삭제", red, self._open_key, disabled=not self.has_key)
 
     def _render_delete_select(self) -> None:
-        self.mode = "delete_select"
         self.clear_items()
-        select = discord.ui.Select(
+        self._select(
+            self._picked_delete,
             placeholder="삭제할 캐릭터 선택 (여러 개 가능)",
-            min_values=1,
-            max_values=len(self.characters),
             options=[_character_option(c) for c in self.characters],
+            max_values=len(self.characters),
         )
-        select.callback = self._picked_delete  # type: ignore[method-assign]
-        self.add_item(select)
-        self.select = select
         self._button("취소", discord.ButtonStyle.secondary, self._cancel)
 
     def _render_confirm(self, label: str, callback) -> None:
@@ -259,25 +268,60 @@ class CharacterManageView(discord.ui.View):
         self._button("취소", discord.ButtonStyle.secondary, self._cancel)
 
     def _render_rep_select(self) -> None:
-        self.mode = "rep_select"
         self.clear_items()
-        options = [
-            discord.SelectOption(
-                label="자동 (등록 캐릭터 중 최고 레벨)", value=_AUTO_REP
-            ),
-            *(_character_option(c) for c in self.characters),
-        ]
-        select = discord.ui.Select(placeholder="대표 캐릭터 선택", options=options)
-        select.callback = self._picked_rep  # type: ignore[method-assign]
-        self.add_item(select)
-        self.select = select
+        self._select(
+            self._picked_rep,
+            placeholder="대표 캐릭터 선택",
+            options=[
+                discord.SelectOption(
+                    label="자동 (등록 캐릭터 중 최고 레벨)", value=_AUTO_REP
+                ),
+                *(_character_option(c) for c in self.characters),
+            ],
+        )
         self._button("취소", discord.ButtonStyle.secondary, self._cancel)
 
+    def _embed(self, note: str | None) -> discord.Embed:
+        return character_list_embed(self.characters, self.has_key, note)
+
     async def _show(self, interaction: discord.Interaction, note: str | None) -> None:
+        """DB 작업 없는 화면 전환 — 즉시 같은 메시지 교체."""
         self._last_interaction = interaction
-        await interaction.response.edit_message(
-            embed=character_list_embed(self.characters, self.has_key, note), view=self
-        )
+        await interaction.response.edit_message(embed=self._embed(note), view=self)
+
+    async def _act(
+        self,
+        interaction: discord.Interaction,
+        action: Callable[[], Awaitable[str]],
+    ) -> None:
+        """DB 작업: 진행 중 클릭은 무시 → 즉시 전체 비활성으로 응답(3초 기한) → 작업·재조회 →
+        허브로 결과 반영. 응답을 먼저 해 DB 가 느려도 상호작용이 만료되지 않는다."""
+        if self.busy:
+            await interaction.response.defer()
+            return
+        self.busy = True
+        self._last_interaction = interaction
+        try:
+            for item in self.children:
+                item.disabled = True  # type: ignore[attr-defined]
+            await interaction.response.edit_message(view=self)
+            note = await action()
+            await self._reload()
+            self._render_hub()
+            await interaction.edit_original_response(embed=self._embed(note), view=self)
+        except Exception:
+            log.exception("캐릭터 관리 작업 실패")
+            self._pending = []
+            self._render_hub()
+            try:
+                await interaction.edit_original_response(
+                    embed=self._embed("⚠️ 처리 중 오류가 났어요. 다시 시도해 주세요."),
+                    view=self,
+                )
+            except discord.HTTPException:
+                pass
+        finally:
+            self.busy = False
 
     async def _reload(self) -> None:
         sf = self._deps.session_factory
@@ -296,11 +340,10 @@ class CharacterManageView(discord.ui.View):
         await self._show(interaction, "🗑️ 삭제할 캐릭터를 골라 주세요.")
 
     async def _picked_delete(self, interaction: discord.Interaction) -> None:
-        self._pending = list(self.select.values)
+        self._pending = _selected_values(interaction)
         names = ", ".join(
             c.nickname for c in self.characters if c.ocid in self._pending
         )
-        self.mode = "delete_confirm"
         self._render_confirm(f"{len(self._pending)}개 삭제", self._confirm_delete)
         await self._show(
             interaction,
@@ -308,48 +351,48 @@ class CharacterManageView(discord.ui.View):
         )
 
     async def _confirm_delete(self, interaction: discord.Interaction) -> None:
+        pending, self._pending = self._pending, []
         was_rep = any(
-            c.is_representative and c.ocid in self._pending for c in self.characters
+            c.is_representative and c.ocid in pending for c in self.characters
         )
-        removed = await service.delete_characters(
-            self._deps.session_factory, self._scope, self._user_id, self._pending
-        )
-        self._pending = []
-        await self._reload()
-        self._render_hub()
-        if not removed:
-            note = "이미 삭제됐거나 본인 캐릭터가 아니에요."
-        else:
+
+        async def action() -> str:
+            removed, unsubscribed = await service.delete_characters(
+                self._deps.session_factory, self._scope, self._user_id, pending
+            )
+            if not removed:
+                return "이미 삭제됐거나 본인 캐릭터가 아니에요."
             note = f"🗑️ **{', '.join(removed)}** 삭제했어요."
-            if was_rep and self.characters:
+            if unsubscribed:
+                note += " 남은 캐릭터가 없어 스케줄러알림 구독도 해제했어요."
+            elif was_rep:
                 note += " 대표는 남은 캐릭터 중 최고 레벨로 자동 선택돼요."
-        await self._show(interaction, note)
+            return note
+
+        await self._act(interaction, action)
 
     async def _open_rep(self, interaction: discord.Interaction) -> None:
         self._render_rep_select()
         await self._show(interaction, "👑 대표 캐릭터를 골라 주세요.")
 
     async def _picked_rep(self, interaction: discord.Interaction) -> None:
-        value = self.select.values[0]
-        sf = self._deps.session_factory
-        if value == _AUTO_REP:
-            await service.reset_representative(sf, self._scope, self._user_id)
-            note = "👑 대표를 자동(최고 레벨)으로 되돌렸어요."
-        else:
+        [value] = _selected_values(interaction)
+
+        async def action() -> str:
+            sf = self._deps.session_factory
+            if value == _AUTO_REP:
+                await service.reset_representative(sf, self._scope, self._user_id)
+                return "👑 대표를 자동(최고 레벨)으로 되돌렸어요."
             nickname = await service.set_representative(
                 sf, self._scope, self._user_id, value
             )
-            note = (
-                f"👑 대표를 **{nickname}** 으로 지정했어요."
-                if nickname is not None
-                else "이미 삭제됐거나 본인 캐릭터가 아니에요."
-            )
-        await self._reload()
-        self._render_hub()
-        await self._show(interaction, note)
+            if nickname is None:
+                return "이미 삭제됐거나 본인 캐릭터가 아니에요."
+            return f"👑 대표를 **{nickname}** 으로 지정했어요."
+
+        await self._act(interaction, action)
 
     async def _open_key(self, interaction: discord.Interaction) -> None:
-        self.mode = "key_confirm"
         self._render_confirm("키 삭제", self._confirm_key)
         await self._show(
             interaction,
@@ -358,15 +401,16 @@ class CharacterManageView(discord.ui.View):
         )
 
     async def _confirm_key(self, interaction: discord.Interaction) -> None:
-        had_key, unsubscribed = await service.remove_personal_key(
-            self._deps.session_factory, self._scope, self._user_id
-        )
-        await self._reload()
-        self._render_hub()
-        note = "🔑 개인 키를 삭제했어요." if had_key else "이미 키가 없어요."
-        if unsubscribed:
-            note += " 스케줄러알림 구독도 해제했어요."
-        await self._show(interaction, note)
+        async def action() -> str:
+            had_key, unsubscribed = await service.remove_personal_key(
+                self._deps.session_factory, self._scope, self._user_id
+            )
+            note = "🔑 개인 키를 삭제했어요." if had_key else "이미 키가 없어요."
+            if unsubscribed:
+                note += " 스케줄러알림 구독도 해제했어요."
+            return note
+
+        await self._act(interaction, action)
 
     async def on_timeout(self) -> None:
         """컴포넌트 제거 — 마지막 클릭 토큰 우선(원 명령 토큰은 15분 뒤 만료)."""
@@ -377,6 +421,11 @@ class CharacterManageView(discord.ui.View):
                 await self.message.edit(view=None)
         except discord.HTTPException:
             pass
+
+
+def _selected_values(interaction: discord.Interaction) -> list[str]:
+    """이 클릭(Select)이 실제로 보낸 값 — View 가 보관한 컴포넌트가 아니라 인터랙션 데이터에서 읽는다."""
+    return list((interaction.data or {}).get("values", []))
 
 
 def _character_option(c: service.CharacterInfo) -> discord.SelectOption:

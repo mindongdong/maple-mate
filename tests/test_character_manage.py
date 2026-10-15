@@ -72,22 +72,42 @@ def _sql(stmt) -> str:
 
 async def test_delete_characters_only_own_and_resets_rep_pointer():
     session = _Session(chars=[_char_row("o1", "본캐"), _char_row("o2", "부캐")])
-    removed = await service.delete_characters(lambda: session, 1, 10, ["o2", "남의것"])
+    removed, unsubscribed = await service.delete_characters(
+        lambda: session, 1, 10, ["o2", "남의것"]
+    )
 
-    assert removed == ["부캐"]
+    assert (removed, unsubscribed) == (["부캐"], False)  # 1개 남음 → 구독 유지
     _, delete_stmt, update_stmt = session.statements
     assert delete_stmt.is_delete and "character.ocid IN" in _sql(delete_stmt)
     assert list(delete_stmt.compile().params.values())[-1] == ["o2"]  # 본인 것만
-    # 지운 캐릭터가 대표였으면 포인터를 NULL(자동)로
+    # 지운 캐릭터가 대표였으면 포인터를 NULL(자동)로 — 본인 등록 행 범위로만
     assert update_stmt.is_update and "representative_ocid IN" in _sql(update_stmt)
+    params = update_stmt.compile().params
+    assert params["guild_id_1"] == 1 and params["discord_user_id_1"] == 10
+    assert params["representative_ocid_1"] == ["o2"]
     assert session.committed
+
+
+async def test_delete_all_characters_clears_scheduler_subscription():
+    session = _Session(chars=[_char_row("o1", "본캐")], rowcount=1)
+    removed, unsubscribed = await service.delete_characters(
+        lambda: session, 1, 10, ["o1"]
+    )
+    assert (removed, unsubscribed) == (["본캐"], True)
+    assert "scheduler_subscription" in _sql(session.statements[-1])
 
 
 async def test_delete_characters_nothing_matching_is_noop():
     session = _Session(chars=[_char_row("o1", "본캐")])
-    assert await service.delete_characters(lambda: session, 1, 10, ["x"]) == []
+    assert await service.delete_characters(lambda: session, 1, 10, ["x"]) == (
+        [],
+        False,
+    )
     assert len(session.statements) == 1 and not session.committed  # 조회만
-    assert await service.delete_characters(lambda: _Session(), 1, 10, []) == []
+    assert await service.delete_characters(lambda: _Session(), 1, 10, []) == (
+        [],
+        False,
+    )
 
 
 async def test_reset_representative_sets_null():
@@ -130,18 +150,25 @@ def test_list_embed_note_and_empty_state():
 class _Response:
     def __init__(self) -> None:
         self.edits: list[dict] = []
+        self.deferred = False
 
     async def edit_message(self, **kwargs) -> None:
+        # View 는 이후 계속 변하므로 응답 시점의 비활성 상태를 스냅샷으로 남긴다.
+        kwargs["disabled_at_response"] = [i.disabled for i in kwargs["view"].children]
         self.edits.append(kwargs)
 
+    async def defer(self, **kwargs) -> None:
+        self.deferred = True
 
-def _click() -> SimpleNamespace:
+
+def _click(values: list[str] | None = None) -> SimpleNamespace:
     original: list[dict] = []
 
     async def edit_original_response(**kwargs):
         original.append(kwargs)
 
     return SimpleNamespace(
+        data={"values": values} if values is not None else {},
         response=_Response(),
         edit_original_response=edit_original_response,
         original_edits=original,
@@ -154,6 +181,15 @@ def _labels(view) -> list[tuple[str, bool]]:
         for item in view.children
         if isinstance(item, discord.ui.Button)
     ]
+
+
+def _select(view) -> discord.ui.Select:
+    [select] = [i for i in view.children if isinstance(i, discord.ui.Select)]
+    return select
+
+
+def _final_note(click) -> str:
+    return click.original_edits[-1]["embed"].description
 
 
 def _view(monkeypatch, characters, has_key=True, reload_to=None):
@@ -171,15 +207,14 @@ def _view(monkeypatch, characters, has_key=True, reload_to=None):
     )
 
 
+HUB = ["🗑️ 캐릭터 삭제", "👑 대표 변경", "🔑 키 삭제"]
+
+
 async def test_hub_buttons_reflect_state(monkeypatch):
     view = _view(monkeypatch, [], has_key=False)
-    assert _labels(view) == [
-        ("🗑️ 캐릭터 삭제", True),
-        ("👑 대표 변경", True),
-        ("🔑 키 삭제", True),
-    ]
+    assert _labels(view) == [(label, True) for label in HUB]
     view = _view(monkeypatch, [_info("o1", "본캐", 280, True)], has_key=True)
-    assert all(not disabled for _, disabled in _labels(view))
+    assert _labels(view) == [(label, False) for label in HUB]
 
 
 async def test_delete_flow_select_confirm_and_result(monkeypatch):
@@ -189,36 +224,91 @@ async def test_delete_flow_select_confirm_and_result(monkeypatch):
 
     async def fake_delete(sf, scope, uid, ocids):
         calls.append((scope, uid, list(ocids)))
-        return ["본캐"]
+        return ["본캐"], False
 
     monkeypatch.setattr(reg_commands.service, "delete_characters", fake_delete)
 
-    click = _click()
-    await view._open_delete(click)
-    assert view.mode == "delete_select" and view.select.max_values == 2
+    await view._open_delete(_click())
+    assert _select(view).max_values == 2
 
-    view.select._values = ["o1"]
-    await view._picked_delete(_click())
-    assert view.mode == "delete_confirm" and calls == []  # 확인 전엔 삭제 안 함
+    await view._picked_delete(_click(["o1"]))  # 인터랙션이 보낸 값 사용
+    assert calls == []  # 확인 전엔 삭제 안 함
     assert _labels(view) == [("1개 삭제", False), ("취소", False)]
 
     done = _click()
     await view._confirm_delete(done)
+    # 먼저 전체 비활성으로 응답(3초 기한) → 작업 후 결과로 교체
+    [first] = done.response.edits
+    assert "embed" not in first and all(first["disabled_at_response"])
     assert calls == [(1, 10, ["o1"])]
-    assert view.mode == "hub"
-    description = done.response.edits[-1]["embed"].description
-    assert "본캐** 삭제했어요" in description
-    assert "자동 선택" in description  # 대표를 지웠으니 자동 복귀 안내
+    assert _labels(view) == [(label, False) for label in HUB]  # 허브 복귀
+    note = _final_note(done)
+    assert "본캐** 삭제했어요" in note and "자동 선택" in note
     assert [c.ocid for c in view.characters] == ["o2"]  # 재조회 반영
+
+
+async def test_delete_all_reports_unsubscribe(monkeypatch):
+    view = _view(monkeypatch, [_info("o1", "본캐", 280, True)], reload_to=[])
+
+    async def fake_delete(sf, scope, uid, ocids):
+        return ["본캐"], True
+
+    monkeypatch.setattr(reg_commands.service, "delete_characters", fake_delete)
+    await view._open_delete(_click())
+    await view._picked_delete(_click(["o1"]))
+    done = _click()
+    await view._confirm_delete(done)
+    assert "스케줄러알림 구독도 해제" in _final_note(done)
+    assert _labels(view)[0] == ("🗑️ 캐릭터 삭제", True)  # 남은 캐릭터 없음
+
+
+async def test_double_click_runs_action_once(monkeypatch):
+    import asyncio
+
+    view = _view(monkeypatch, [_info("o1", "본캐", 280, True)])
+    gate = asyncio.Event()
+    calls: list = []
+
+    async def slow_delete(sf, scope, uid, ocids):
+        calls.append(list(ocids))
+        await gate.wait()
+        return ["본캐"], False
+
+    monkeypatch.setattr(reg_commands.service, "delete_characters", slow_delete)
+    await view._open_delete(_click())
+    await view._picked_delete(_click(["o1"]))
+
+    first = asyncio.create_task(view._confirm_delete(_click()))
+    await asyncio.sleep(0)
+    second = _click()
+    await view._confirm_delete(second)  # 진행 중 → 조용히 확인만
+    assert second.response.deferred and calls == [["o1"]]
+    gate.set()
+    await first
+    assert calls == [["o1"]] and not view.busy
+
+
+async def test_action_error_returns_to_hub_with_message(monkeypatch):
+    view = _view(monkeypatch, [_info("o1", "본캐", 280, True)])
+
+    async def broken(sf, scope, uid):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(reg_commands.service, "remove_personal_key", broken)
+    await view._open_key(_click())
+    done = _click()
+    await view._confirm_key(done)
+    assert "오류" in _final_note(done)
+    assert _labels(view) == [(label, False) for label in HUB] and not view.busy
 
 
 async def test_cancel_returns_to_hub_without_deleting(monkeypatch):
     view = _view(monkeypatch, [_info("o1", "본캐", 280, True)])
     await view._open_delete(_click())
-    view.select._values = ["o1"]
-    await view._picked_delete(_click())
+    await view._picked_delete(_click(["o1"]))
     await view._cancel(_click())
-    assert view.mode == "hub" and view._pending == []
+    assert _labels(view) == [(label, False) for label in HUB]
+    assert view._pending == []
 
 
 async def test_rep_auto_and_manual(monkeypatch):
@@ -237,18 +327,16 @@ async def test_rep_auto_and_manual(monkeypatch):
     monkeypatch.setattr(reg_commands.service, "set_representative", fake_set)
 
     await view._open_rep(_click())
-    assert view.select.options[0].value == reg_commands._AUTO_REP
-    view.select._values = [reg_commands._AUTO_REP]
-    click = _click()
+    assert _select(view).options[0].value == reg_commands._AUTO_REP
+    click = _click([reg_commands._AUTO_REP])
     await view._picked_rep(click)
-    assert "자동(최고 레벨)" in click.response.edits[-1]["embed"].description
+    assert "자동(최고 레벨)" in _final_note(click)
 
     await view._open_rep(_click())
-    view.select._values = ["o2"]
-    click = _click()
+    click = _click(["o2"])
     await view._picked_rep(click)
     assert seen == ["reset", "o2"]
-    assert "**부캐** 으로 지정" in click.response.edits[-1]["embed"].description
+    assert "**부캐** 으로 지정" in _final_note(click)
 
 
 async def test_key_delete_confirms_then_reports_unsubscribe(monkeypatch):
@@ -262,14 +350,14 @@ async def test_key_delete_confirms_then_reports_unsubscribe(monkeypatch):
     monkeypatch.setattr(reg_commands.service, "remove_personal_key", fake_remove)
 
     await view._open_key(_click())
-    assert view.mode == "key_confirm" and calls == []
+    assert calls == []
     assert _labels(view) == [("키 삭제", False), ("취소", False)]
 
     done = _click()
     await view._confirm_key(done)
     assert calls == [(1, 10)]
-    description = done.response.edits[-1]["embed"].description
-    assert "개인 키를 삭제했어요" in description and "구독도 해제" in description
+    note = _final_note(done)
+    assert "개인 키를 삭제했어요" in note and "구독도 해제" in note
 
 
 async def test_timeout_uses_last_click_token(monkeypatch):
@@ -278,6 +366,18 @@ async def test_timeout_uses_last_click_token(monkeypatch):
     await view._open_rep(click)
     await view.on_timeout()
     assert click.original_edits == [{"view": None}]
+
+
+async def test_timeout_without_click_uses_followup_message(monkeypatch):
+    view = _view(monkeypatch, [_info("o1", "본캐", 280, True)])
+    edits: list = []
+
+    async def edit(**kwargs):
+        edits.append(kwargs)
+
+    view.message = SimpleNamespace(edit=edit)
+    await view.on_timeout()
+    assert edits == [{"view": None}]
 
 
 # ── 핸들러: View 부착 조건 ───────────────────────────────────────────────────

@@ -362,19 +362,22 @@ async def delete_characters(
     guild_id: int,
     discord_user_id: int,
     ocids: Sequence[str],
-) -> list[str]:
-    """본인 캐릭터 삭제. 지운 캐릭터 닉네임 목록 반환(본인 것이 아닌 ocid 는 무시).
+) -> tuple[list[str], bool]:
+    """본인 캐릭터 삭제. (지운 캐릭터 닉네임 목록, 스케줄러알림 구독 해제 여부).
 
-    대표로 지정된 캐릭터를 지우면 대표 포인터를 NULL(자동=최고 레벨)로 되돌린다. 경험치 스냅샷은
-    남긴다 — 리더보드는 현재 등록 캐릭터만 보고, 90일 prune 이 정리하며, 재등록 시 추이가 이어진다.
+    본인 것이 아닌 ocid 는 무시. 대표로 지정된 캐릭터를 지우면 대표 포인터를 NULL(자동=최고 레벨)로
+    되돌린다. 남은 캐릭터가 0개가 되면 스케줄러알림 구독도 지운다(캐릭터 없이 매시 잡이 조용히
+    건너뛰기만 하는 상태 방지 — 키 삭제와 같은 이유). 경험치 스냅샷은 남긴다 — 리더보드는 현재 등록
+    캐릭터만 보고, 90일 prune 이 정리하며, 재등록 시 추이가 이어진다.
     """
-    if not ocids:
-        return []
+    wanted = set(ocids)
+    if not wanted:
+        return [], False
     async with session_factory() as session:
         chars = await _load_user_characters(session, guild_id, discord_user_id)
-        targets = [c for c in chars if c.ocid in set(ocids)]
+        targets = [c for c in chars if c.ocid in wanted]
         if not targets:
-            return []
+            return [], False
         removed = [c.ocid for c in targets]
         await session.execute(
             delete(Character).where(
@@ -392,8 +395,17 @@ async def delete_characters(
             )
             .values(representative_ocid=None, updated_at=func.now())
         )
+        unsubscribed = False
+        if len(targets) == len(chars):  # 전부 삭제 → 키 필요 구독도 정리
+            result = await session.execute(
+                delete(SchedulerSubscription).where(
+                    SchedulerSubscription.guild_id == guild_id,
+                    SchedulerSubscription.discord_user_id == discord_user_id,
+                )
+            )
+            unsubscribed = (result.rowcount or 0) > 0
         await session.commit()
-    return [c.maple_nickname for c in targets]
+    return [c.maple_nickname for c in targets], unsubscribed
 
 
 async def reset_representative(
