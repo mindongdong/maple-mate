@@ -169,9 +169,9 @@ async def _self_target(
     """실행자 본인 대상 해석(Q1). 성공 시 (HistoryTarget, 대표ocid, None), 실패 시 (None, None, 안내문).
 
     /비틱은 계정 전체화가 아니라 **대표 기준**(작업지시서 12·Phase 4). 챌린저스 모드면 챌린저스
-    대표로 교체한다(결정 6 — 닉 필터 + ocid 아이콘 모두 챌린저스 대표). target.ocid 는 이력 캐시
-    앵커(최초 등록, realm 무관 — 캐시는 계정 전체)이고, 대표ocid·target.nickname(닉 필터)은
-    그 realm 대표라 둘이 다를 수 있다.
+    대표로 교체한다(결정 6 — 닉 필터 + ocid 아이콘 모두 챌린저스 대표). target.ocid 는 앵커
+    캐릭터(최초 등록, realm 무관)이고, 대표ocid·target.nickname(닉 필터)은 그 realm 대표라 둘이
+    다를 수 있다. 이력 캐시 이름표는 ocid 가 아니라 개인 키 계정 식별자다(ADR-0024).
     """
     targets = await get_history_targets(session_factory, guild_id, [user_id])
     if not targets:
@@ -193,7 +193,7 @@ async def _self_target(
         )
         return None, None, msg
     rep = spec_targets[0]
-    # 닉 필터·라벨은 realm 대표 닉으로, 캐시 앵커 ocid 는 그대로 둔다(계정 전체 캐시 안정).
+    # 닉 필터·라벨은 realm 대표 닉으로, 앵커 ocid 는 그대로 둔다(캐시 이름표와 무관, ADR-0024).
     target = replace(target, nickname=rep.nickname)
     return target, rep.ocid, None
 

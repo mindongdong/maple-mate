@@ -38,3 +38,27 @@ def test_wrong_key_fails_to_decrypt():
     other = KeyCipher(Fernet.generate_key())
     with pytest.raises(InvalidToken):
         other.decrypt(token)
+
+
+# ── 계정 식별자(ADR-0024) — 이력 캐시 이름표 ──────────────────────────────────
+
+
+def test_account_key_is_stable_per_api_key():
+    cipher = KeyCipher(_KEY)
+    assert cipher.account_key(_API_KEY) == cipher.account_key(_API_KEY)
+    assert KeyCipher(_KEY.decode()).account_key(_API_KEY) == cipher.account_key(
+        _API_KEY
+    )
+
+
+def test_account_key_differs_by_api_key_and_master_key():
+    cipher = KeyCipher(_KEY)
+    assert cipher.account_key("key-a") != cipher.account_key("key-b")
+    other = KeyCipher(Fernet.generate_key())
+    assert other.account_key(_API_KEY) != cipher.account_key(_API_KEY)
+
+
+def test_account_key_is_hex64_without_plaintext():
+    value = KeyCipher(_KEY).account_key(_API_KEY)
+    assert len(value) == 64 and int(value, 16) >= 0
+    assert _API_KEY not in value

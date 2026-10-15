@@ -1,8 +1,9 @@
 """스타포스 이력 기간·페치·캐시·집계 (전달-무관). discord/http 타입 비의존.
 
 - resolve_period: 프리셋/커스텀 → 날짜 목록(30일 상한 클램프·미래 컷). 순수.
-- get_history_targets: 유저별 1대상(개인 키 + 대표 닉 + 캐시 앵커 ocid), 입력순서 보존.
-- fetch_starforce_records: 날짜별 캐시 판정 → 미스 시 개인 키 호출 → upsert → 계정 전체 파싱.
+- get_history_targets: 유저별 1대상(개인 키 + 대표 닉 + 앵커 ocid), 입력순서 보존.
+- fetch_starforce_records: 날짜별 캐시 판정(이름표 = 키 계정 식별자, ADR-0024) → 미스 시 개인 키 호출
+  → upsert → 계정 전체 파싱.
 - aggregate_starforce: (캐릭터, 아이템)별 시작★→최종★ + 운지수·손익메소(레벨 매칭 성공分만).
 """
 
@@ -114,8 +115,9 @@ def resolve_period(
 class HistoryTarget:
     """이력류 대상 1명(계정 단위). 스펙류 Target 과 달리 개인 키 암호문을 포함한다.
 
-    nickname = 표시용 대표 닉(이력은 계정 전체 합산이라 헤더 라벨용). ocid = **안정적 캐시 앵커**
-    (최초 등록 = min(created_at) 캐릭터의 ocid) — 닉변경/대표변경에도 캐시 키가 흔들리지 않는다.
+    nickname = 표시용 대표 닉(이력은 계정 전체 합산이라 헤더 라벨용). ocid = 앵커 캐릭터(최초 등록 =
+    min(created_at))의 ocid — 장착 레벨 조회·에러 로그용. 이력 캐시 이름표는 더 이상 이 ocid 가 아니라
+    개인 키에서 만든 계정 식별자다(ADR-0024 — 캐릭터 삭제·키 교체·앵커 공유에 흔들리지 않음).
     """
 
     guild_id: int
@@ -133,7 +135,7 @@ async def get_history_targets(
 ) -> list[HistoryTarget]:
     """등록자(개인 키 포함) 조회 — 유저별 1대상(계정 단위). user_ids 지정 시 입력순서 보존.
 
-    nickname = 대표 닉(표시용), ocid = 캐시 앵커(최초 등록 캐릭터). 키 없는 등록자도 반환한다
+    nickname = 대표 닉(표시용), ocid = 앵커(최초 등록 캐릭터). 키 없는 등록자도 반환한다
     (호출자가 '키 미등록' 행으로 처리). 캐릭터 0개 등록(키만)은 표시 불가라 제외한다.
     """
     from ..registration.models import Character, Registration
@@ -159,7 +161,7 @@ async def get_history_targets(
         if not clist:
             continue  # 캐릭터 없는 등록(키만) → 표시 불가
         rep = pick_representative(clist, reg.representative_ocid)
-        anchor = min(clist, key=lambda c: (c.created_at, c.ocid))  # 안정 캐시 앵커
+        anchor = min(clist, key=lambda c: (c.created_at, c.ocid))  # 안정 앵커
         targets.append(
             HistoryTarget(
                 guild_id=reg.guild_id,
@@ -262,13 +264,13 @@ def parse_attempts(records: Sequence[dict]) -> list[StarforceAttempt]:
 
 async def _cached_records(
     session_factory: async_sessionmaker[AsyncSession],
-    ocid: str,
+    account_key: str,
     query_date: date,
     now: datetime,
 ) -> list[dict] | None:
     """캐시가 신선하면 그 날짜의 레코드 목록, 아니면 None."""
     async with session_factory() as session:
-        row = await session.get(HistoryCache, (ocid, CACHE_TYPE, query_date))
+        row = await session.get(HistoryCache, (account_key, CACHE_TYPE, query_date))
     if row is None or not is_cache_fresh(query_date, row.fetched_at, now):
         return None
     page = row.payload.get(CACHE_TYPE) if isinstance(row.payload, dict) else None
@@ -277,7 +279,7 @@ async def _cached_records(
 
 async def _store_records(
     session_factory: async_sessionmaker[AsyncSession],
-    ocid: str,
+    account_key: str,
     query_date: date,
     records: list[dict],
     now: datetime,
@@ -287,14 +289,14 @@ async def _store_records(
         stmt = (
             pg_insert(HistoryCache)
             .values(
-                ocid=ocid,
+                account_key=account_key,
                 type=CACHE_TYPE,
                 date=query_date,
                 payload={CACHE_TYPE: records},
                 fetched_at=now,
             )
             .on_conflict_do_update(
-                index_elements=["ocid", "type", "date"],
+                index_elements=["account_key", "type", "date"],
                 set_={"payload": {CACHE_TYPE: records}, "fetched_at": now},
             )
         )
@@ -318,17 +320,18 @@ async def fetch_starforce_records(
         raise ValueError("개인 키 없는 대상은 호출 전 분리해야 합니다")
     now = now or datetime.now(timezone.utc)
     api_key = deps.cipher.decrypt(target.api_key_encrypted)
+    account_key = deps.cipher.account_key(api_key)  # 캐시 이름표 = 키(계정), ADR-0024
 
     records: list[dict] = []
     for query_date in dates:
         cached = await _cached_records(
-            deps.session_factory, target.ocid, query_date, now
+            deps.session_factory, account_key, query_date, now
         )
         if cached is not None:
             records.extend(cached)
             continue
         page = await deps.nexon.starforce_history(api_key, query_date.isoformat())
-        await _store_records(deps.session_factory, target.ocid, query_date, page, now)
+        await _store_records(deps.session_factory, account_key, query_date, page, now)
         records.extend(page)
 
     return parse_attempts(records)  # 계정 전체(닉 필터 없음)
