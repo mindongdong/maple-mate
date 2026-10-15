@@ -396,16 +396,24 @@ class CharacterManageView(discord.ui.View):
         self._render_confirm("키 삭제", self._confirm_key)
         await self._show(
             interaction,
-            "⚠️ 개인 키를 삭제할까요? 스타포스·잠재·스케줄러 조회가 막히고 "
-            "**스케줄러알림 구독도 해제**돼요. 등록 캐릭터는 그대로 남아요.",
+            "⚠️ 개인 키를 삭제할까요? 저장된 스타포스·잠재 조회 기록도 함께 지워지고, "
+            "스타포스·잠재·스케줄러 조회가 막히며 **스케줄러알림 구독도 해제**돼요. "
+            "등록 캐릭터는 그대로 남아요.",
         )
 
     async def _confirm_key(self, interaction: discord.Interaction) -> None:
         async def action() -> str:
             had_key, unsubscribed = await service.remove_personal_key(
-                self._deps.session_factory, self._scope, self._user_id
+                self._deps.session_factory,
+                self._deps.cipher,
+                self._scope,
+                self._user_id,
             )
-            note = "🔑 개인 키를 삭제했어요." if had_key else "이미 키가 없어요."
+            note = (
+                "🔑 개인 키와 이 계정의 스타포스·잠재 조회 기록을 삭제했어요."
+                if had_key
+                else "이미 키가 없어요."
+            )
             if unsubscribed:
                 note += " 스케줄러알림 구독도 해제했어요."
             return note

@@ -9,10 +9,12 @@ from __future__ import annotations
 from types import SimpleNamespace
 
 import discord
+from cryptography.fernet import Fernet
 
 from maple_mate.registration import commands as reg_commands
 from maple_mate.registration import service
 from maple_mate.registration.service import CharacterInfo
+from maple_mate.security.crypto import KeyCipher
 
 
 def _info(ocid: str, nick: str, level: int, rep: bool = False) -> CharacterInfo:
@@ -117,20 +119,43 @@ async def test_reset_representative_sets_null():
     assert stmt.is_update and stmt.compile().params["representative_ocid"] is None
 
 
-async def test_remove_key_clears_key_and_scheduler_subscription():
-    session = _Session(reg=SimpleNamespace(api_key_encrypted="enc"), rowcount=1)
-    had_key, unsubscribed = await service.remove_personal_key(lambda: session, 1, 10)
+_CIPHER = KeyCipher(Fernet.generate_key())
+
+
+async def test_remove_key_clears_key_account_cache_and_subscription():
+    enc = _CIPHER.encrypt("my-key")
+    session = _Session(reg=SimpleNamespace(api_key_encrypted=enc), rowcount=1)
+    had_key, unsubscribed = await service.remove_personal_key(
+        lambda: session, _CIPHER, 1, 10
+    )
     assert (had_key, unsubscribed) == (True, True)
-    update_stmt, delete_stmt = session.statements
+    cache_stmt, update_stmt, sub_stmt = session.statements
+    # 그 계정(키 식별자)의 이력 캐시만 삭제 — ADR-0024
+    assert cache_stmt.is_delete and "history_cache" in _sql(cache_stmt)
+    assert list(cache_stmt.compile().params.values()) == [_CIPHER.account_key("my-key")]
     assert update_stmt.compile().params["api_key_encrypted"] is None
-    assert "scheduler_subscription" in _sql(delete_stmt)
+    assert "scheduler_subscription" in _sql(sub_stmt)
+
+
+async def test_remove_key_undecryptable_skips_cache_purge():
+    other = KeyCipher(Fernet.generate_key()).encrypt("my-key")  # 다른 마스터 키
+    session = _Session(reg=SimpleNamespace(api_key_encrypted=other), rowcount=0)
+    assert await service.remove_personal_key(lambda: session, _CIPHER, 1, 10) == (
+        True,
+        False,
+    )
+    update_stmt, sub_stmt = session.statements  # 캐시 삭제 없이 키 삭제·구독 정리
+    assert update_stmt.is_update and sub_stmt.is_delete
 
 
 async def test_remove_key_without_key_still_clears_stale_subscription():
     session = _Session(reg=SimpleNamespace(api_key_encrypted=None), rowcount=0)
-    assert await service.remove_personal_key(lambda: session, 1, 10) == (False, False)
-    [delete_stmt] = session.statements  # 키 UPDATE 없음
-    assert delete_stmt.is_delete
+    assert await service.remove_personal_key(lambda: session, _CIPHER, 1, 10) == (
+        False,
+        False,
+    )
+    [delete_stmt] = session.statements  # 키 UPDATE·캐시 삭제 없음
+    assert delete_stmt.is_delete and "scheduler_subscription" in _sql(delete_stmt)
 
 
 # ── 임베드(순수) ─────────────────────────────────────────────────────────────
@@ -201,7 +226,7 @@ def _view(monkeypatch, characters, has_key=True, reload_to=None):
 
     monkeypatch.setattr(reg_commands.service, "get_characters", fake_get_characters)
     monkeypatch.setattr(reg_commands.service, "has_personal_key", fake_has_key)
-    deps = SimpleNamespace(session_factory=object())
+    deps = SimpleNamespace(session_factory=object(), cipher=object())
     return reg_commands.CharacterManageView(
         deps, scope=1, user_id=10, characters=characters, has_key=has_key
     )
@@ -291,7 +316,7 @@ async def test_double_click_runs_action_once(monkeypatch):
 async def test_action_error_returns_to_hub_with_message(monkeypatch):
     view = _view(monkeypatch, [_info("o1", "본캐", 280, True)])
 
-    async def broken(sf, scope, uid):
+    async def broken(sf, cipher, scope, uid):
         raise RuntimeError("db down")
 
     monkeypatch.setattr(reg_commands.service, "remove_personal_key", broken)
@@ -343,7 +368,7 @@ async def test_key_delete_confirms_then_reports_unsubscribe(monkeypatch):
     view = _view(monkeypatch, [_info("o1", "본캐", 280, True)], has_key=True)
     calls: list = []
 
-    async def fake_remove(sf, scope, uid):
+    async def fake_remove(sf, cipher, scope, uid):
         calls.append((scope, uid))
         return True, True
 
@@ -357,7 +382,8 @@ async def test_key_delete_confirms_then_reports_unsubscribe(monkeypatch):
     await view._confirm_key(done)
     assert calls == [(1, 10)]
     note = _final_note(done)
-    assert "개인 키를 삭제했어요" in note and "구독도 해제" in note
+    assert "개인 키와 이 계정의 스타포스·잠재 조회 기록을 삭제" in note
+    assert "구독도 해제" in note
 
 
 async def test_timeout_uses_last_click_token(monkeypatch):

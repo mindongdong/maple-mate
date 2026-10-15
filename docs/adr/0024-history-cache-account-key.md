@@ -2,7 +2,7 @@
 
 - **상태:** 채택 (Accepted) — [ADR-0007](0007-history-account-wide.md) 결정 4(캐시 앵커 = 최초 등록 캐릭터 ocid)를 **대체**
 - **일자:** 2026-10-15
-- **관련 문서:** [ADR-0001](0001-nexon-personal-key-model.md)(개인 키·Fernet), ADR-0023(PR #73 캐릭터·키 삭제 — 앵커 이동 부작용 발견 계기, 머지 예정), [security/crypto.py](../../maple_mate/security/crypto.py)(`KeyCipher.account_key`), [history/service.py](../../maple_mate/history/service.py)·[history/potential_service.py](../../maple_mate/history/potential_service.py), 마이그레이션 `c8e2a4f6b1d9`, [scripts/migrate_history_cache_keys.py](../../scripts/migrate_history_cache_keys.py)
+- **관련 문서:** [ADR-0001](0001-nexon-personal-key-model.md)(개인 키·Fernet), [ADR-0023](0023-character-management-hub.md)(PR #73 캐릭터·키 삭제 — 앵커 이동 부작용 발견 계기, 키 삭제 시 계정 캐시 삭제), [security/crypto.py](../../maple_mate/security/crypto.py)(`KeyCipher.account_key`), [history/service.py](../../maple_mate/history/service.py)·[history/potential_service.py](../../maple_mate/history/potential_service.py), 마이그레이션 `c8e2a4f6b1d9`, [scripts/migrate_history_cache_keys.py](../../scripts/migrate_history_cache_keys.py)
 
 ## 맥락 (Context)
 
@@ -49,8 +49,7 @@ PR #73 리뷰에서 이 대용이 다음을 일으킨다는 것이 드러났다.
 - **같은 계정에서 키를 재발급**하면 이름표가 바뀌어 1회 새로 받는다(드묾, 수용).
 - **잔류 한계:** 과거에 다른 계정 키로 교체한 적이 있는 유저의 옛 앵커 행에 이전 계정 데이터가 섞였는지는 구분할 수 없다
   (교체 시각 미기록). 단일 계정 앵커로 보고 옮겨진다. **같은 키로 재등록해도 이름표가 같아 그대로 다시 쓰인다** —
-  해당 유저는 넥슨에서 키를 **재발급**해 등록해야 새로 받는다. (후속: PR #73의 키 삭제가 그 계정 이름표의 캐시도
-  지우게 하면 "키 삭제 → 재등록"만으로 해소된다.)
+  해당 유저는 넥슨에서 키를 **재발급**해 등록해야 새로 받는다. PR #73부터는 `/캐릭터목록` 키 삭제가 그 계정 이름표의 캐시도 지우므로 "키 삭제 → 재등록"만으로도 해소된다(ADR-0023 결정 5).
 - **`FERNET_MASTER_KEY` 교체** 시 서브키도 바뀌어 모든 이력 캐시를 1회 새로 받는다(복호화도 어차피 재암호화가 필요한 작업).
 - **배포 절차:** 머지(자동 배포·마이그레이션) 직후 운영 셸에서 `uv run python -m scripts.migrate_history_cache_keys`(dry-run)
   → `--apply`. 실행 전까지는 옛 행과 매칭되지 않아 새로 받는다(정합성 문제는 없고 속도만 느림).
