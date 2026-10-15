@@ -327,6 +327,31 @@ async def test_action_error_returns_to_hub_with_message(monkeypatch):
     assert _labels(view) == [(label, False) for label in HUB] and not view.busy
 
 
+async def test_reload_failure_after_commit_says_done(monkeypatch):
+    view = _view(monkeypatch, [_info("o1", "본캐", 280, True)])
+
+    async def ok_remove(sf, cipher, scope, uid):
+        return True, False
+
+    async def broken_reload(sf, scope, uid):
+        raise RuntimeError("db blip")
+
+    monkeypatch.setattr(reg_commands.service, "remove_personal_key", ok_remove)
+    await view._open_key(_click())
+    monkeypatch.setattr(reg_commands.service, "get_characters", broken_reload)
+    done = _click()
+    await view._confirm_key(done)
+    assert "처리는 완료됐지만" in _final_note(done)  # 재시도 유도 문구가 아님
+
+
+async def test_screen_change_ignored_while_busy(monkeypatch):
+    view = _view(monkeypatch, [_info("o1", "본캐", 280, True)])
+    view.busy = True
+    click = _click()
+    await view._cancel(click)
+    assert click.response.deferred and click.response.edits == []
+
+
 async def test_cancel_returns_to_hub_without_deleting(monkeypatch):
     view = _view(monkeypatch, [_info("o1", "본캐", 280, True)])
     await view._open_delete(_click())
@@ -369,6 +394,7 @@ async def test_key_delete_confirms_then_reports_unsubscribe(monkeypatch):
     calls: list = []
 
     async def fake_remove(sf, cipher, scope, uid):
+        assert cipher is view._deps.cipher  # 계정 캐시 삭제용 cipher 전달
         calls.append((scope, uid))
         return True, True
 

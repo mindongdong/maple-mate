@@ -285,7 +285,10 @@ class CharacterManageView(discord.ui.View):
         return character_list_embed(self.characters, self.has_key, note)
 
     async def _show(self, interaction: discord.Interaction, note: str | None) -> None:
-        """DB 작업 없는 화면 전환 — 즉시 같은 메시지 교체."""
+        """DB 작업 없는 화면 전환 — 즉시 같은 메시지 교체. 작업 진행 중이면 조용히 확인만."""
+        if self.busy:
+            await interaction.response.defer()
+            return
         self._last_interaction = interaction
         await interaction.response.edit_message(embed=self._embed(note), view=self)
 
@@ -301,11 +304,13 @@ class CharacterManageView(discord.ui.View):
             return
         self.busy = True
         self._last_interaction = interaction
+        done = False  # 작업 자체는 커밋됐는지 — 이후 화면 갱신만 실패한 경우를 구분
         try:
             for item in self.children:
                 item.disabled = True  # type: ignore[attr-defined]
             await interaction.response.edit_message(view=self)
             note = await action()
+            done = True
             await self._reload()
             self._render_hub()
             await interaction.edit_original_response(embed=self._embed(note), view=self)
@@ -313,10 +318,14 @@ class CharacterManageView(discord.ui.View):
             log.exception("캐릭터 관리 작업 실패")
             self._pending = []
             self._render_hub()
+            message = (
+                "✅ 처리는 완료됐지만 화면을 갱신하지 못했어요. `/캐릭터목록`을 다시 열어 주세요."
+                if done
+                else "⚠️ 처리 중 오류가 났어요. 다시 시도해 주세요."
+            )
             try:
                 await interaction.edit_original_response(
-                    embed=self._embed("⚠️ 처리 중 오류가 났어요. 다시 시도해 주세요."),
-                    view=self,
+                    embed=self._embed(message), view=self
                 )
             except discord.HTTPException:
                 pass
