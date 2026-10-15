@@ -10,8 +10,14 @@
 3. 한 앵커를 **서로 다른 계정이 함께** 쓰면(기록 혼입 의심) 옮기지 않는다 — 그 유저들은 다음 조회 때 새로 받는다.
 4. 처리한 옛 앵커 행(옮긴 것·혼입 의심 모두)은 지운다. 어느 등록과도 안 이어진 옛 행은 400일 prune 에 맡긴다.
 
+키를 복호화하지 못한 등록의 앵커도 "다른 계정"으로 세어, 다른 등록과 겹치면 옮기지 않는다.
+
+**실행 순서:** 캐릭터·키 삭제 기능(PR #73, ADR-0023)이 배포되기 **전에** 실행한다. 삭제가 쓰이면 과거에 같은
+앵커를 쓰던 다른 유저가 판정에서 사라져 혼입 행이 "한 계정 전용"으로 잘못 옮겨질 수 있다.
+
 한계: 다른 계정 키로 **교체한 적이 있는** 유저의 옛 앵커 행에 이전 계정 데이터가 섞였는지는 구분할 수 없다
-(키 교체 시각을 기록하지 않음). 해당 유저는 `/캐릭터목록` 키 삭제 후 재등록하면 새 이름표로 새로 받는다.
+(키 교체 시각을 기록하지 않음). 같은 키로 재등록하면 이름표가 같아 그대로 다시 쓰이므로, 해당 유저는 넥슨에서
+**키를 재발급**해 등록하면 새 이름표로 새로 받는다.
 
 기본은 dry-run(계획만 출력). `--apply` 를 줘야 DB 에 반영한다. 재실행해도 안전하다(옮긴 앵커 행은 지워짐).
 
@@ -44,13 +50,22 @@ class Plan:
     shared: set[str]  # 서로 다른 계정이 함께 쓰는 앵커(혼입 의심 — 옮기지 않음)
 
 
-def plan_moves(pairs: Iterable[tuple[str, str]]) -> Plan:
-    """(옛 앵커, 새 이름표) 쌍들 → 이전 계획(순수함수 — 단위테스트 대상)."""
+def plan_moves(pairs: Iterable[tuple[str, str]], unknown: Iterable[str] = ()) -> Plan:
+    """(옛 앵커, 새 이름표) 쌍들 → 이전 계정 계획(순수함수 — 단위테스트 대상).
+
+    unknown = 키를 복호화하지 못한 등록의 앵커 — 그 계정이 누구인지 모르므로 "다른 계정"으로 센다.
+    그래서 다른 등록과 같은 앵커면 혼입 의심(shared)으로 옮기지 않는다. unknown 만 쓰는 앵커는 손대지 않는다.
+    """
     keys_by_anchor: dict[str, set[str]] = defaultdict(set)
     for anchor, account_key in pairs:
         keys_by_anchor[anchor].add(account_key)
-    moves = {a: next(iter(ks)) for a, ks in keys_by_anchor.items() if len(ks) == 1}
-    shared = {a for a, ks in keys_by_anchor.items() if len(ks) > 1}
+    blocked = set(unknown)
+    moves = {
+        a: next(iter(ks))
+        for a, ks in keys_by_anchor.items()
+        if len(ks) == 1 and a not in blocked
+    }
+    shared = {a for a, ks in keys_by_anchor.items() if len(ks) > 1 or a in blocked}
     return Plan(moves=moves, shared=shared)
 
 
@@ -99,7 +114,9 @@ async def main(apply: bool) -> None:
             )
 
         pairs: list[tuple[str, str]] = []
-        undecryptable = 0
+        unknown: list[
+            str
+        ] = []  # 복호화 실패 등록의 앵커 — 계정 불명이라 공유 판정에 포함
         for guild_id, user_id, encrypted in regs:
             anchor = anchors.get((guild_id, user_id))
             if anchor is None:  # 캐릭터 없는 등록 — 캐시된 적 없음
@@ -107,8 +124,9 @@ async def main(apply: bool) -> None:
             try:
                 pairs.append((anchor, cipher.account_key(cipher.decrypt(encrypted))))
             except InvalidToken:
-                undecryptable += 1
-        plan = plan_moves(pairs)
+                unknown.append(anchor)
+        undecryptable = len(unknown)
+        plan = plan_moves(pairs, unknown)
 
         moved_rows = sum(row_counts.get(a, 0) for a in plan.moves)
         shared_rows = sum(row_counts.get(a, 0) for a in plan.shared)

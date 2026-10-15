@@ -4,7 +4,7 @@
 1. character/basic(기존 ocid) 성공 → world·level 갱신.
 2. 기존 ocid 가 무효(INVALID_ID/INVALID_PARAM)면 닉네임 → ocid 재조회 → basic → ocid·world·level
    갱신 + 그 ocid 참조(registration.representative_ocid, exp_snapshot.ocid) 이관.
-   history_cache 는 ocid 키 캐시라 손대지 않는다(새 ocid 로 재조회됨).
+   history_cache 는 개인 키 계정 식별자 키라(ADR-0024) ocid 변경과 무관해 손대지 않는다.
 3. 그 외 실패는 건드리지 않고 목록만 출력(해당 유저는 `/캐릭터등록` 재등록 필요).
 
 갱신된 행은 world 가 일반 서버명이 되어 대상에서 빠지므로 재실행해도 안전하다(멱등).

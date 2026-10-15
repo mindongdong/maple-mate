@@ -160,3 +160,10 @@ def test_anchor_is_earliest_registered_character_per_registration():
         [char(1, 10, "late", 5), char(1, 10, "early", 1), char(0, 10, "dm", 3)]
     )
     assert anchors == {(1, 10): "early", (0, 10): "dm"}  # 서버·DM 스코프 별도
+
+
+def test_plan_blocks_anchor_shared_with_undecryptable_registration():
+    # 키를 복호화 못한 등록은 계정 불명 → 같은 앵커를 쓰는 다른 등록이 있으면 혼입 의심으로 옮기지 않는다.
+    plan = plan_moves([("o1", "acct-a"), ("o2", "acct-b")], unknown=["o1", "o9"])
+    assert plan.moves == {"o2": "acct-b"}
+    assert plan.shared == {"o1"}  # o9 처럼 계정 불명만 쓰는 앵커는 손대지 않음

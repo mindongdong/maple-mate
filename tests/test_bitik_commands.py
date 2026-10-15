@@ -142,7 +142,7 @@ def _htarget(api_key: str | None) -> HistoryTarget:
         guild_id=1,
         discord_user_id=2,
         nickname="손바",
-        ocid="anchor_ocid",  # 캐시 앵커(대표 ocid 와 다를 수 있음)
+        ocid="anchor_ocid",  # 앵커 캐릭터(대표 ocid 와 다를 수 있음)
         api_key_encrypted=api_key,
     )
 
@@ -205,7 +205,7 @@ async def test_self_target_challengers_uses_realm_rep(monkeypatch) -> None:
     assert error is None
     assert target.nickname == "챌캐"  # 닉 필터가 챌린저스 대표로 교체됨
     assert rep_ocid == "chal_ocid"  # 챌린저스 대표 ocid(아이콘)
-    assert target.ocid == "anchor_ocid"  # 캐시 앵커는 그대로(계정 전체 캐시 안정)
+    assert target.ocid == "anchor_ocid"  # 앵커는 그대로(대표 교체와 분리)
 
 
 async def test_self_target_challengers_no_char_guides(monkeypatch) -> None:
