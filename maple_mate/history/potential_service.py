@@ -202,14 +202,14 @@ def parse_reset_records(records: Sequence[dict]) -> list[ResetRecord]:
 
 async def _cached(
     session_factory: async_sessionmaker[AsyncSession],
-    ocid: str,
+    account_key: str,
     cache_type: str,
     query_date: date,
     now: datetime,
 ) -> list[dict] | None:
     """캐시가 신선하면 그 날짜·type 의 레코드 목록, 아니면 None."""
     async with session_factory() as session:
-        row = await session.get(HistoryCache, (ocid, cache_type, query_date))
+        row = await session.get(HistoryCache, (account_key, cache_type, query_date))
     if row is None or not is_cache_fresh(query_date, row.fetched_at, now):
         return None
     page = row.payload.get(cache_type) if isinstance(row.payload, dict) else None
@@ -218,7 +218,7 @@ async def _cached(
 
 async def _store(
     session_factory: async_sessionmaker[AsyncSession],
-    ocid: str,
+    account_key: str,
     cache_type: str,
     query_date: date,
     records: list[dict],
@@ -229,14 +229,14 @@ async def _store(
         stmt = (
             pg_insert(HistoryCache)
             .values(
-                ocid=ocid,
+                account_key=account_key,
                 type=cache_type,
                 date=query_date,
                 payload={cache_type: records},
                 fetched_at=now,
             )
             .on_conflict_do_update(
-                index_elements=["ocid", "type", "date"],
+                index_elements=["account_key", "type", "date"],
                 set_={"payload": {cache_type: records}, "fetched_at": now},
             )
         )
@@ -260,6 +260,7 @@ async def fetch_potential_records(
         raise ValueError("개인 키 없는 대상은 호출 전 분리해야 합니다")
     now = now or datetime.now(timezone.utc)
     api_key = deps.cipher.decrypt(target.api_key_encrypted)
+    account_key = deps.cipher.account_key(api_key)  # 캐시 이름표 = 키(계정), ADR-0024
 
     cube_raw: list[dict] = []
     reset_raw: list[dict] = []
@@ -267,13 +268,13 @@ async def fetch_potential_records(
         date_iso = query_date.isoformat()
 
         cached_cube = await _cached(
-            deps.session_factory, target.ocid, CUBE_TYPE, query_date, now
+            deps.session_factory, account_key, CUBE_TYPE, query_date, now
         )
         if cached_cube is None:
             cached_cube = await deps.nexon.cube_history(api_key, date_iso)
             await _store(
                 deps.session_factory,
-                target.ocid,
+                account_key,
                 CUBE_TYPE,
                 query_date,
                 cached_cube,
@@ -282,13 +283,13 @@ async def fetch_potential_records(
         cube_raw.extend(cached_cube)
 
         cached_reset = await _cached(
-            deps.session_factory, target.ocid, RESET_TYPE, query_date, now
+            deps.session_factory, account_key, RESET_TYPE, query_date, now
         )
         if cached_reset is None:
             cached_reset = await deps.nexon.potential_history(api_key, date_iso)
             await _store(
                 deps.session_factory,
-                target.ocid,
+                account_key,
                 RESET_TYPE,
                 query_date,
                 cached_reset,

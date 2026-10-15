@@ -84,7 +84,10 @@ def _make_deps(nexon: _FakeNexon) -> tuple[Deps, list[object]]:
         config=SimpleNamespace(),  # type: ignore[arg-type]
         session_factory=lambda: _Session(),
         nexon=nexon,  # type: ignore[arg-type]
-        cipher=SimpleNamespace(decrypt=lambda token: "decrypted"),  # type: ignore[arg-type]
+        cipher=SimpleNamespace(
+            decrypt=lambda token: "decrypted",
+            account_key=lambda api_key: f"acct:{api_key}",
+        ),  # type: ignore[arg-type]
     )
     return deps, added
 
