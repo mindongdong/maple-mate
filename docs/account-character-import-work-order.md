@@ -1,9 +1,9 @@
 # 작업지시서 — 계정 캐릭터 가져오기 (`character/list`) (PR3/3)
 
-> **근거 결정:** 개인 키 모델 [ADR-0001](adr/0001-nexon-personal-key-model.md), 멀티 캐릭터 [ADR-0006](adr/0006-multi-character-data-model.md), 유저 설치 DM 워크스페이스 [ADR-0019](adr/0019-user-install-dm-workspace.md). 신규 ADR 없음(§6).
+> **근거 결정:** 개인 키 모델 [ADR-0001](adr/0001-nexon-personal-key-model.md), 멀티 캐릭터 [ADR-0006](adr/0006-multi-character-data-model.md), 유저 설치 DM 워크스페이스 [ADR-0019](adr/0019-user-install-dm-workspace.md). 신규 [ADR-0025](adr/0025-account-character-sync.md)(계정 동기화).
 > **하우스 스타일 레퍼런스:** [user-install-work-order.md](user-install-work-order.md)(G0 스파이크 선행 패턴), [my-character-work-order.md](my-character-work-order.md).
 > **결정 출처:** 2026-10-12 세션. 사용자 판단: 캐릭터를 하나씩 `/캐릭터등록`하는 온보딩이 번거롭다. 개인 키가 있으면 넥슨 `character/list`로 계정 캐릭터를 한 번에 고를 수 있다.
-> **선행 조건:** PR1·PR2 머지 후 착수(코드 의존은 없음 — 순서는 사용자 결정). **G0 스파이크 통과가 구현 착수 조건** → 2026-10-16 통과(§7), 단 후보 UI 재결정 필요.
+> **선행 조건:** PR1·PR2 머지 후 착수(코드 의존은 없음 — 순서는 사용자 결정). **G0 스파이크 통과가 구현 착수 조건** → 2026-10-16 통과(§7). 후보 UI는 레벨순 5개씩 페이지로 확정(ADR-0025 결정 4).
 > **상태:** 구현 완료(브랜치 `claude/account-sync`) — 위 "★ 최종 설계·as-built" 참고. **PR3b로 재정의(2026-10-14):** 진입점은 신규 `/캐릭터가져오기` 대신 `/캐릭터목록` 관리 허브([character-manage-hub-work-order.md](character-manage-hub-work-order.md), PR3a)의 **🔄 계정 동기화** 버튼 + `/키등록` 직후. 범위는 가져오기에 더해 등록 캐릭터 갱신(닉·레벨·월드)·계정 외 캐릭터 정리 제안까지(사용자 결정). 자동(주기) 동기화는 하지 않는다. 본문의 `/캐릭터가져오기` 서술은 착수 시 이 기준으로 고쳐 쓴다.
 
 ---
@@ -29,9 +29,9 @@
 **as-built:**
 - 클라이언트: `NexonClient.character_list(api_key)` — `account_list` 평탄화.
 - 서비스([registration/service.py](../maple_mate/registration/service.py)): `AccountCharacter` · `SyncPlan(updates, candidates, missing)` · `to_account_characters`(순수) · `plan_sync`(순수, 챌린저스는 world 접두로 직접 판정 — `is_challengers()` 는 시즌 종료로 꺼져 있음) · `fetch_account_characters`(키 없음/복호화 실패/무효 키/장애 메시지 분기) · `apply_account_updates` · `import_characters`(→ `(등록 닉, 자리 없어 빠진 수)`).
-- 전달([registration/commands.py](../maple_mate/registration/commands.py)): 허브와 공유하는 `_ManagedView`(먼저 응답·연타 무시·타임아웃 — PR3a `_act` 를 기반 클래스로 추출) · `AccountSyncView` · `build_account_sync`(실패 시 안내 임베드 + View 없음) · `back_to_hub`. 화면 전환 시 이전 View 는 `stop()` 해 타임아웃이 다음 화면을 지우지 않게 한다.
+- 전달([registration/commands.py](../maple_mate/registration/commands.py)): 허브와 공유하는 `_ManagedView`(먼저 응답·연타 무시·타임아웃 — PR3a `_act` 를 기반 클래스로 추출) · `AccountSyncView` · `build_account_sync`(실패·예외 시 안내 임베드 + View 없음 — `/키등록` 완료 응답 보장). `← 목록으로`는 먼저 응답한 뒤 허브를 재조회해 교체한다. 화면 전환 시 이전 View 는 `stop()` 해 타임아웃이 다음 화면을 지우지 않게 한다.
 - `/키등록`: 성공 후 `build_account_sync(header=키 등록 완료 안내)` — 목록 조회가 실패해도 키 등록은 성공(안내에 재시도 경로).
-- 테스트: [tests/test_account_sync.py](../tests/test_account_sync.py)(18건) + 허브 버튼 갱신([tests/test_character_manage.py](../tests/test_character_manage.py)).
+- 테스트: [tests/test_account_sync.py](../tests/test_account_sync.py)(21건) + 허브 버튼 갱신([tests/test_character_manage.py](../tests/test_character_manage.py)).
 - G0 스크립트: [scripts/spike_character_list.py](../scripts/spike_character_list.py), 결과 §7.
 
 ---

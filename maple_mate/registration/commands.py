@@ -136,7 +136,7 @@ async def handle_key_register(
         interaction.user.id,
         header=(
             "🔑 개인 API 키를 등록했어요. 스타포스·잠재 등 **이력류**(계정 전체)를 "
-            "조회할 수 있어요. 계정 캐릭터를 불러왔어요 — 가져올 캐릭터를 골라 보세요."
+            "조회할 수 있어요."
         ),
     )
     if view is None:
@@ -256,6 +256,16 @@ class _ManagedView(discord.ui.View):
         select.callback = callback  # type: ignore[method-assign]
         self.add_item(select)
 
+    def _render_confirm(self, label: str, callback) -> None:
+        self.clear_items()
+        self._button(label, discord.ButtonStyle.danger, callback)
+        self._button("취소", discord.ButtonStyle.secondary, self._cancel)
+
+    async def _cancel(self, interaction: discord.Interaction) -> None:
+        self._pending = []
+        self._render_home()
+        await self._show(interaction, None)
+
     async def _show(self, interaction: discord.Interaction, note: str | None) -> None:
         """DB 작업 없는 화면 전환 — 즉시 같은 메시지 교체. 작업 진행 중이면 조용히 확인만."""
         if self.busy:
@@ -328,11 +338,11 @@ class CharacterManageView(_ManagedView):
         super().__init__(deps, scope=scope, user_id=user_id)
         self.characters = characters
         self.has_key = has_key
-        self._render_hub()
+        self._render_home()
 
     # ── 상태별 컴포넌트 ────────────────────────────────────────────────────
 
-    def _render_hub(self) -> None:
+    def _render_home(self) -> None:
         self.clear_items()
         none = not self.characters
         red, grey = discord.ButtonStyle.danger, discord.ButtonStyle.secondary
@@ -346,8 +356,6 @@ class CharacterManageView(_ManagedView):
         self._button("👑 대표 변경", grey, self._open_rep, disabled=none)
         self._button("🔑 키 삭제", red, self._open_key, disabled=not self.has_key)
 
-    _render_home = _render_hub
-
     def _render_delete_select(self) -> None:
         self.clear_items()
         self._select(
@@ -356,11 +364,6 @@ class CharacterManageView(_ManagedView):
             options=[_character_option(c) for c in self.characters],
             max_values=len(self.characters),
         )
-        self._button("취소", discord.ButtonStyle.secondary, self._cancel)
-
-    def _render_confirm(self, label: str, callback) -> None:
-        self.clear_items()
-        self._button(label, discord.ButtonStyle.danger, callback)
         self._button("취소", discord.ButtonStyle.secondary, self._cancel)
 
     def _render_rep_select(self) -> None:
@@ -387,11 +390,6 @@ class CharacterManageView(_ManagedView):
 
     # ── 콜백 ───────────────────────────────────────────────────────────────
 
-    async def _cancel(self, interaction: discord.Interaction) -> None:
-        self._pending = []
-        self._render_hub()
-        await self._show(interaction, None)
-
     async def _open_sync(self, interaction: discord.Interaction) -> None:
         """계정 동기화 화면으로 전환(넥슨 1콜) — 먼저 응답한 뒤 같은 메시지를 동기화 View 로 교체."""
         if self.busy:
@@ -401,7 +399,7 @@ class CharacterManageView(_ManagedView):
         try:
             await interaction.response.defer()
             embed, view = await build_account_sync(
-                self._deps, self._scope, self._user_id, back=back_to_hub
+                self._deps, self._scope, self._user_id, back=True
             )
             if view is None:  # 조회 실패 — 허브 유지 + 사유 안내
                 self._last_interaction = interaction
@@ -517,14 +515,14 @@ class AccountSyncView(_ManagedView):
         account: list[service.AccountCharacter],
         registered: list[service.CharacterInfo],
         updated: int,
-        back: Callable[[discord.Interaction], Awaitable[None]] | None = None,
+        back: bool = False,
         header: str | None = None,
     ) -> None:
         super().__init__(deps, scope=scope, user_id=user_id)
         self.account = account
         self.registered = registered
         self.updated = updated  # 열 때 자동 갱신한 등록 캐릭터 수
-        self._back = back
+        self._back = back  # True 면 '← 목록으로'(허브 복귀), 아니면 '닫기'
         self._header = header
         self.page = 0
         self.picked: dict[str, service.AccountCharacter] = {}  # 페이지를 넘어도 유지
@@ -536,7 +534,9 @@ class AccountSyncView(_ManagedView):
     def _recompute(self) -> None:
         self.plan = service.plan_sync(self.registered, self.account)
         candidate_ocids = {c.ocid for c in self.plan.candidates}
-        self.picked = {o: c for o, c in self.picked.items() if o in candidate_ocids}
+        kept = [(o, c) for o, c in self.picked.items() if o in candidate_ocids]
+        # 다른 경로 등록으로 자리가 줄었을 수 있어 남은 자리까지만 유지
+        self.picked = dict(kept[: self.room])
         self.page = min(self.page, max(self.pages - 1, 0))
 
     @property
@@ -581,7 +581,7 @@ class AccountSyncView(_ManagedView):
                 ],
                 min_values=0,
                 max_values=max(min(len(items), allowed), 1),
-                disabled=allowed <= 0 and not (on_page & set(self.picked)),
+                disabled=allowed <= 0,
             )
             self._button("◀ 이전", grey, self._prev, disabled=self.page == 0)
             self._button(
@@ -626,7 +626,7 @@ class AccountSyncView(_ManagedView):
         if self.plan.candidates:
             lines.append(
                 f"가져올 수 있는 캐릭터 {len(self.plan.candidates)}개 "
-                "(레벨 높은 순 · 챌린저스 월드 제외)"
+                "(레벨 높은 순 · 챌린저스 월드 제외) — 아래에서 골라 주세요."
             )
         else:
             lines.append("가져올 새 캐릭터가 없어요.")
@@ -699,13 +699,7 @@ class AccountSyncView(_ManagedView):
         names = ", ".join(
             c.nickname for c in self.plan.missing if c.ocid in self._pending
         )
-        self.clear_items()
-        self._button(
-            f"{len(self._pending)}개 삭제",
-            discord.ButtonStyle.danger,
-            self._confirm_cleanup,
-        )
-        self._button("취소", discord.ButtonStyle.secondary, self._cancel)
+        self._render_confirm(f"{len(self._pending)}개 삭제", self._confirm_cleanup)
         await self._show(interaction, f"⚠️ **{names}** 을(를) 등록에서 삭제할까요?")
 
     async def _confirm_cleanup(self, interaction: discord.Interaction) -> None:
@@ -724,20 +718,42 @@ class AccountSyncView(_ManagedView):
 
         await self._act(interaction, action)
 
-    async def _cancel(self, interaction: discord.Interaction) -> None:
-        self._pending = []
-        self._render_home()
-        await self._show(interaction, None)
-
     async def _leave(self, interaction: discord.Interaction) -> None:
         if self.busy:
             await interaction.response.defer()
             return
         self.stop()  # 이 화면의 타임아웃이 다음 화면을 지우지 않도록
-        if self._back is not None:
-            await self._back(interaction)
+        if not self._back:
+            await interaction.response.edit_message(view=None)
             return
-        await interaction.response.edit_message(view=None)
+        # 허브 복귀 — 먼저 응답(3초 기한)한 뒤 재조회해 같은 메시지를 새 허브로 교체(ADR-0023 결정 8)
+        await interaction.response.defer()
+        try:
+            sf = self._deps.session_factory
+            characters = await service.get_characters(sf, self._scope, self._user_id)
+            has_key = await service.has_personal_key(sf, self._scope, self._user_id)
+            hub = CharacterManageView(
+                self._deps,
+                scope=self._scope,
+                user_id=self._user_id,
+                characters=characters,
+                has_key=has_key,
+            )
+            hub._last_interaction = interaction
+            await interaction.edit_original_response(
+                embed=character_list_embed(characters, has_key), view=hub
+            )
+        except Exception:
+            log.exception("캐릭터 목록 복귀 실패")
+            try:
+                await interaction.edit_original_response(
+                    embed=self._embed(
+                        "⚠️ 목록을 다시 불러오지 못했어요. `/캐릭터목록`을 다시 열어 주세요."
+                    ),
+                    view=None,
+                )
+            except discord.HTTPException:
+                pass
 
 
 async def build_account_sync(
@@ -745,58 +761,53 @@ async def build_account_sync(
     scope: int,
     user_id: int,
     *,
-    back: Callable[[discord.Interaction], Awaitable[None]] | None = None,
+    back: bool = False,
     header: str | None = None,
 ) -> tuple[discord.Embed, AccountSyncView | None]:
-    """계정 목록 1콜 → 등록 캐릭터 자동 갱신 → 동기화 View. 실패면 (안내 임베드, None)."""
-    account, error = await service.fetch_account_characters(
-        nexon=deps.nexon,
-        cipher=deps.cipher,
-        session_factory=deps.session_factory,
-        guild_id=scope,
-        discord_user_id=user_id,
-    )
-    if account is None:
-        lines = [header, ""] if header else []
-        lines += [
-            f"⚠️ 계정 캐릭터를 불러오지 못했어요: {error}",
-            "`/캐릭터목록` → `🔄 계정 동기화`로 다시 시도할 수 있어요.",
-        ]
-        return make_embed("🔄 계정 동기화", "\n".join(lines)), None
-    registered = await service.get_characters(deps.session_factory, scope, user_id)
-    plan = service.plan_sync(registered, account)
-    if plan.updates:
-        await service.apply_account_updates(
-            deps.session_factory, scope, user_id, plan.updates
+    """계정 목록 1콜 → 등록 캐릭터 자동 갱신 → 동기화 View. 실패면 (안내 임베드, None).
+
+    예외도 안내 임베드로 바꾼다 — `/키등록` 은 이미 키를 커밋했으므로 완료 응답이 반드시 나가야 한다.
+    """
+    try:
+        account, error = await service.fetch_account_characters(
+            nexon=deps.nexon,
+            cipher=deps.cipher,
+            session_factory=deps.session_factory,
+            guild_id=scope,
+            discord_user_id=user_id,
         )
-        registered = await service.get_characters(deps.session_factory, scope, user_id)
-    view = AccountSyncView(
-        deps,
-        scope=scope,
-        user_id=user_id,
-        account=account,
-        registered=registered,
-        updated=len(plan.updates),
-        back=back,
-        header=header,
-    )
-    return view._embed(None), view
-
-
-async def back_to_hub(interaction: discord.Interaction) -> None:
-    """동기화 화면 → 새 `/캐릭터목록` 허브(재조회)로 같은 메시지 교체."""
-    deps: Deps = interaction.client.deps  # type: ignore[attr-defined]
-    scope = resolve_scope(interaction)
-    user_id = interaction.user.id
-    characters = await service.get_characters(deps.session_factory, scope, user_id)
-    has_key = await service.has_personal_key(deps.session_factory, scope, user_id)
-    view = CharacterManageView(
-        deps, scope=scope, user_id=user_id, characters=characters, has_key=has_key
-    )
-    view._last_interaction = interaction
-    await interaction.response.edit_message(
-        embed=character_list_embed(characters, has_key), view=view
-    )
+        if account is not None:
+            registered = await service.get_characters(
+                deps.session_factory, scope, user_id
+            )
+            plan = service.plan_sync(registered, account)
+            if plan.updates:
+                await service.apply_account_updates(
+                    deps.session_factory, scope, user_id, plan.updates
+                )
+                registered = await service.get_characters(
+                    deps.session_factory, scope, user_id
+                )
+            view = AccountSyncView(
+                deps,
+                scope=scope,
+                user_id=user_id,
+                account=account,
+                registered=registered,
+                updated=len(plan.updates),
+                back=back,
+                header=header,
+            )
+            return view._embed(None), view
+    except Exception:
+        log.exception("계정 동기화 준비 실패")
+        error = "일시적인 오류가 났어요."
+    lines = [header, ""] if header else []
+    lines += [
+        f"⚠️ 계정 캐릭터를 불러오지 못했어요: {error}",
+        "`/캐릭터목록` → `🔄 계정 동기화`로 다시 시도할 수 있어요.",
+    ]
+    return make_embed("🔄 계정 동기화", "\n".join(lines)), None
 
 
 def _selected_values(interaction: discord.Interaction) -> list[str]:

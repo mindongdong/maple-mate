@@ -105,6 +105,13 @@ def test_plan_sync_buckets():
     assert [m.ocid for m in plan.missing] == ["oX"]
 
 
+def test_plan_sync_keeps_stored_level_when_list_level_missing():
+    registered = [_info("o1", "본캐", 280), _info("o2", "옛닉", 270)]
+    account = [_acc("o1", "본캐", None), _acc("o2", "새닉", None)]
+    plan = service.plan_sync(registered, account)
+    assert [(a.ocid, a.level) for a in plan.updates] == [("o2", 270)]  # 레벨은 유지
+
+
 # ── 서비스 ───────────────────────────────────────────────────────────────────
 
 
@@ -183,6 +190,11 @@ async def test_fetch_account_characters_paths():
     assert "무효" in (await _fetch(_Session(reg=reg), invalid))[1]
     limited = _Nexon(error=NexonAPIError("OPENAPI00007", "x", http_status=429))
     assert "잠시 후" in (await _fetch(_Session(reg=reg), limited))[1]
+    other_master = KeyCipher(Fernet.generate_key()).encrypt("my-key")
+    unreadable = SimpleNamespace(api_key_encrypted=other_master)
+    nexon = _Nexon()
+    assert "읽지 못했어요" in (await _fetch(_Session(reg=unreadable), nexon))[1]
+    assert nexon.keys == []  # 복호화 실패면 넥슨 호출 없음
 
 
 def _char_row(ocid):
@@ -225,6 +237,7 @@ async def test_apply_account_updates_issues_scoped_updates():
         stmt.is_update and params["maple_nickname"] == "새닉" and params["level"] == 281
     )
     assert params["guild_id_1"] == 1 and params["discord_user_id_1"] == 10
+    assert params["ocid_1"] == "o1"
     await service.apply_account_updates(
         lambda: _Session(), 1, 10, []
     )  # 빈 목록은 no-op
@@ -260,11 +273,15 @@ def _click(values=None):
     )
 
 
-def _sync_view(monkeypatch, *, account, registered, back=None, reload_to=None):
+def _sync_view(monkeypatch, *, account, registered, back=False, reload_to=None):
     async def fake_get_characters(sf, scope, uid):
         return reload_to if reload_to is not None else registered
 
+    async def fake_has_key(sf, scope, uid):
+        return True
+
     monkeypatch.setattr(reg_commands.service, "get_characters", fake_get_characters)
+    monkeypatch.setattr(reg_commands.service, "has_personal_key", fake_has_key)
     deps = SimpleNamespace(session_factory=object(), nexon=object(), cipher=object())
     return reg_commands.AccountSyncView(
         deps,
@@ -355,7 +372,22 @@ async def test_import_calls_service_and_refreshes(monkeypatch):
     assert "c00" not in [
         c.ocid for c in view.plan.candidates
     ]  # 가져온 건 후보에서 빠짐
-    assert view.picked == {}
+
+
+async def test_reload_trims_picks_to_remaining_room(monkeypatch):
+    registered = [_info(f"r{i}", f"등록{i}", 200) for i in range(7)]  # 남은 자리 3
+    view = _sync_view(
+        monkeypatch,
+        account=_TWELVE,
+        registered=registered,
+        reload_to=[*registered, _info("x1", "딴데1", 1), _info("x2", "딴데2", 1)],
+    )
+    await view._picked_import(_click(["c00", "c01", "c02"]))
+    await view._reload()  # 그사이 다른 경로로 2개 등록 → 남은 자리 1
+    assert list(view.picked) == ["c00"]
+    view._render_home()
+    select = _select(view)
+    assert len([o for o in select.options if o.default]) <= select.max_values
 
 
 async def test_cleanup_flow_deletes_selected_missing(monkeypatch):
@@ -384,16 +416,26 @@ async def test_cleanup_flow_deletes_selected_missing(monkeypatch):
 
 
 async def test_leave_goes_back_or_closes(monkeypatch):
-    went_back: list = []
-
-    async def back(interaction):
-        went_back.append(interaction)
-
-    view = _sync_view(monkeypatch, account=_TWELVE, registered=[], back=back)
+    registered = [_info("c00", "캐00", 290, rep=True)]
+    view = _sync_view(monkeypatch, account=_TWELVE, registered=registered, back=True)
     assert ("← 목록으로", False) in _labels(view)
     click = _click()
     await view._leave(click)
-    assert went_back == [click] and view.is_finished()
+    assert view.is_finished()
+    assert click.response.deferred and click.response.edits == []  # 먼저 응답 후 재조회
+    hub = click.original_edits[-1]["view"]
+    assert isinstance(hub, reg_commands.CharacterManageView)
+    assert hub.characters == registered and hub._last_interaction is click
+
+    async def boom(sf, scope, uid):
+        raise RuntimeError("db down")
+
+    failing = _sync_view(monkeypatch, account=_TWELVE, registered=[], back=True)
+    monkeypatch.setattr(reg_commands.service, "get_characters", boom)
+    click = _click()
+    await failing._leave(click)
+    assert click.original_edits[-1]["view"] is None
+    assert "다시 불러오지 못했어요" in click.original_edits[-1]["embed"].description
 
     closed = _sync_view(monkeypatch, account=_TWELVE, registered=[])
     assert ("닫기", False) in _labels(closed)
@@ -426,6 +468,22 @@ async def test_build_failure_returns_embed_without_view(monkeypatch):
     assert embed.description.startswith("머리말") and "무효" in embed.description
 
 
+async def test_build_turns_exceptions_into_failure_embed(monkeypatch):
+    async def ok(**kwargs):
+        return [_acc("o1", "본캐", 280)], None
+
+    async def boom(sf, scope, uid):
+        raise RuntimeError("db down")
+
+    monkeypatch.setattr(reg_commands.service, "fetch_account_characters", ok)
+    monkeypatch.setattr(reg_commands.service, "get_characters", boom)
+    deps = SimpleNamespace(session_factory=object(), nexon=object(), cipher=object())
+    embed, view = await reg_commands.build_account_sync(deps, 1, 10, header="머리말")
+    assert view is None
+    assert embed.description.startswith("머리말")
+    assert "불러오지 못했어요" in embed.description
+
+
 async def test_build_applies_updates_then_builds_view(monkeypatch):
     applied: list = []
 
@@ -449,6 +507,7 @@ async def test_build_applies_updates_then_builds_view(monkeypatch):
     assert applied == [["o1"]] and view.updated == 1
     assert [c.ocid for c in view.plan.candidates] == ["o2"]
     assert "닉·레벨 갱신 1개" in embed.description
+    assert "골라 주세요" in embed.description  # 고르라는 안내는 성공 화면에만
 
 
 async def test_hub_sync_button_swaps_view_or_keeps_hub(monkeypatch):
@@ -469,8 +528,10 @@ async def test_hub_sync_button_swaps_view_or_keeps_hub(monkeypatch):
         has_key=True,
     )
     sentinel_view = SimpleNamespace(_last_interaction=None)
+    built: list = []
 
     async def build_ok(*a, **k):
+        built.append(k)
         return discord.Embed(title="동기화"), sentinel_view
 
     monkeypatch.setattr(reg_commands, "build_account_sync", build_ok)
@@ -478,6 +539,7 @@ async def test_hub_sync_button_swaps_view_or_keeps_hub(monkeypatch):
     await hub._open_sync(click)
     assert click.response.deferred
     assert click.original_edits[-1]["view"] is sentinel_view and hub.is_finished()
+    assert sentinel_view._last_interaction is click and built == [{"back": True}]
 
     hub2 = reg_commands.CharacterManageView(
         deps,
@@ -527,6 +589,7 @@ async def test_key_register_opens_sync_or_falls_back(monkeypatch):
 
     async def build_ok(d, scope, uid, **kwargs):
         assert "키를 등록했어요" in kwargs["header"]
+        assert "불러왔어요" not in kwargs["header"]  # 조회 실패 화면에도 붙는 머리말
         return discord.Embed(title="동기화"), view
 
     monkeypatch.setattr(reg_commands, "build_account_sync", build_ok)

@@ -15,7 +15,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Any, Protocol
 
 from sqlalchemy import delete, func, select, update
@@ -531,12 +531,15 @@ def plan_sync(
     """
     by_ocid = {c.ocid: c for c in account}
     registered_ocids = {c.ocid for c in registered}
-    updates = [
-        a
-        for r in registered
-        if (a := by_ocid.get(r.ocid)) is not None
-        and (a.nickname, a.level, a.world) != (r.nickname, r.level, r.world)
-    ]
+    updates = []
+    for r in registered:
+        a = by_ocid.get(r.ocid)
+        if a is None:
+            continue
+        if a.level is None:  # 목록 레벨을 못 읽음 — 저장된 레벨을 지우지 않는다
+            a = replace(a, level=r.level)
+        if (a.nickname, a.level, a.world) != (r.nickname, r.level, r.world):
+            updates.append(a)
     candidates = sorted(
         (
             a
@@ -573,7 +576,7 @@ async def fetch_account_characters(
         if exc.error_class is ErrorClass.AUTH_INVALID:
             return None, "API 키가 무효예요. `/키등록`으로 다시 등록해 주세요."
         log.warning("계정 캐릭터 조회 실패: %s", exc)
-        return None, classify_target_error(exc)
+        return None, "넥슨 API 오류로 불러오지 못했어요. 잠시 후 다시 시도해 주세요."
     return to_account_characters(raw), None
 
 
