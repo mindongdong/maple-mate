@@ -3,7 +3,7 @@
 > **근거 결정:** 개인 키 모델 [ADR-0001](adr/0001-nexon-personal-key-model.md), 멀티 캐릭터 [ADR-0006](adr/0006-multi-character-data-model.md), 유저 설치 DM 워크스페이스 [ADR-0019](adr/0019-user-install-dm-workspace.md). 신규 ADR 없음(§6).
 > **하우스 스타일 레퍼런스:** [user-install-work-order.md](user-install-work-order.md)(G0 스파이크 선행 패턴), [my-character-work-order.md](my-character-work-order.md).
 > **결정 출처:** 2026-10-12 세션. 사용자 판단: 캐릭터를 하나씩 `/캐릭터등록`하는 온보딩이 번거롭다. 개인 키가 있으면 넥슨 `character/list`로 계정 캐릭터를 한 번에 고를 수 있다.
-> **선행 조건:** PR1·PR2 머지 후 착수(코드 의존은 없음 — 순서는 사용자 결정). **G0 스파이크 통과가 구현 착수 조건.**
+> **선행 조건:** PR1·PR2 머지 후 착수(코드 의존은 없음 — 순서는 사용자 결정). **G0 스파이크 통과가 구현 착수 조건** → 2026-10-16 통과(§7), 단 후보 UI 재결정 필요.
 > **상태:** 미착수. **PR3b로 재정의(2026-10-14):** 진입점은 신규 `/캐릭터가져오기` 대신 `/캐릭터목록` 관리 허브([character-manage-hub-work-order.md](character-manage-hub-work-order.md), PR3a)의 **🔄 계정 동기화** 버튼 + `/키등록` 직후. 범위는 가져오기에 더해 등록 캐릭터 갱신(닉·레벨·월드)·계정 외 캐릭터 정리 제안까지(사용자 결정). 자동(주기) 동기화는 하지 않는다. 본문의 `/캐릭터가져오기` 서술은 착수 시 이 기준으로 고쳐 쓴다.
 
 ---
@@ -145,6 +145,14 @@ async def register_characters(*, session_factory, guild_id, discord_user_id, pic
 
 ---
 
-## 7. G0 스파이크 결과
+## 7. G0 스파이크 결과 (2026-10-16, `scripts/spike_character_list.py`, 운영자 실키 1개)
 
-_(착수 시 기록)_
+| # | 항목 | 결과 | 판정 |
+|---|---|---|---|
+| ① | 목록 ocid == 공개 `/id` ocid(앱 키) | **5/5 일치**(레벨 상위 5) · 목록 ocid 로 `character/basic` 정상 | ✅ 가져온 ocid 를 그대로 저장·조회에 사용 가능. 동기화 ocid 대조 설계 유효 |
+| ② | 응답 스키마 | 최상위 `account_list` · 필드 5종(`ocid`·`character_name`·`world_name`·`character_class`·`character_level`) 문서와 정확히 일치 | ✅ |
+| ③ | 목록 레벨 신선도 | `character/basic` 최신값과 **5/5 일치** | ✅ 실시간 — 동기화 시 레벨 갱신값을 그대로 신뢰 |
+| ④ | 규모·분포 | **캐릭터 96개**(계정 1개) · 응답 0.15s · 월드 11종(크로아 50·리부트2 29·…·챌린저스 계열 5) · 레벨 200+ 77 / 100~199 6 / ~99 13 | ⚠️ **선택 메뉴 25개 상한을 크게 초과** — 후보 UI 재설계 필요(§2 결정 2 개정 대상) |
+
+**설계 영향:** ①~③은 원안 그대로 진행. ④ 때문에 "레벨 상위 25개 1개 메뉴"(결정 2)로는 한 월드(크로아 50개)조차 다 못 보여준다 →
+월드 필터·페이지 등 후보 UI 를 재결정한 뒤 착수한다. 응답이 빨라(0.15s) 화면 전환마다 재호출해도 부담 없음.
