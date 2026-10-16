@@ -29,7 +29,7 @@ from ..nexon.errors import ErrorClass, NexonAPIError, to_error_log_type
 from ..scheduler.models import SchedulerSubscription
 from ..security.crypto import InvalidToken, KeyCipher
 from .models import Character, Registration
-from .realm import Realm, in_realm
+from .realm import CHALLENGERS_PREFIX, Realm, in_realm
 
 log = logging.getLogger(__name__)
 
@@ -469,6 +469,188 @@ async def remove_personal_key(
         )
         await session.commit()
     return had_key, (result.rowcount or 0) > 0
+
+
+# ── 키 기반 계정 동기화 (ADR-0025) ─────────────────────────────────────────────
+#
+# 넥슨 `character/list`(개인 키, 1콜)로 계정 캐릭터를 받아 등록 캐릭터와 ocid 로 대조한다:
+#   등록됨+계정에 있음 → 닉·레벨·월드 자동 갱신 / 계정에만 있음 → 가져오기 후보 /
+#   등록됨+계정에 없음 → 정리 제안(자동 삭제 안 함 — 다른 계정·닉 직접 등록 캐릭터일 수 있음).
+
+
+@dataclass(frozen=True)
+class AccountCharacter:
+    """계정 캐릭터 1개(`character/list` 항목). 가져오기·갱신에 추가 넥슨 호출이 필요 없다."""
+
+    ocid: str
+    nickname: str
+    world: str | None
+    job: str | None
+    level: int | None
+
+
+@dataclass(frozen=True)
+class SyncPlan:
+    """계정 대조 결과. candidates 는 레벨 내림차순(챌린저스 월드·기등록 제외)."""
+
+    updates: list[AccountCharacter]  # 등록됨 + 계정에 있음 + 닉/레벨/월드가 바뀜
+    candidates: list[AccountCharacter]  # 계정에만 있음 — 가져오기 후보
+    missing: list[CharacterInfo]  # 등록됨 + 계정에 없음 — 정리 제안
+
+
+def to_account_characters(raw: Sequence[dict]) -> list[AccountCharacter]:
+    """`character/list` 항목 → AccountCharacter(순수). ocid·닉 없는 항목은 건너뛴다."""
+    out: list[AccountCharacter] = []
+    for item in raw:
+        ocid, nickname = item.get("ocid"), item.get("character_name")
+        if not ocid or not nickname:
+            continue
+        try:
+            level = int(item["character_level"])
+        except (KeyError, TypeError, ValueError):
+            level = None
+        out.append(
+            AccountCharacter(
+                ocid=str(ocid),
+                nickname=str(nickname),
+                world=item.get("world_name"),
+                job=item.get("character_class"),
+                level=level,
+            )
+        )
+    return out
+
+
+def plan_sync(
+    registered: Sequence[CharacterInfo], account: Sequence[AccountCharacter]
+) -> SyncPlan:
+    """등록 캐릭터 ↔ 계정 캐릭터 ocid 대조(순수함수 — 단위테스트 대상).
+
+    가져오기 후보에서 챌린저스 월드(`챌린저스`·`챌린저스N`)는 제외한다(사용자 결정). `is_challengers()` 는
+    시즌 종료로 스위치가 꺼져 항상 False 라 쓰지 않고 world 접두를 직접 본다.
+    """
+    by_ocid = {c.ocid: c for c in account}
+    registered_ocids = {c.ocid for c in registered}
+    updates = [
+        a
+        for r in registered
+        if (a := by_ocid.get(r.ocid)) is not None
+        and (a.nickname, a.level, a.world) != (r.nickname, r.level, r.world)
+    ]
+    candidates = sorted(
+        (
+            a
+            for a in account
+            if a.ocid not in registered_ocids
+            and not (a.world or "").startswith(CHALLENGERS_PREFIX)
+        ),
+        key=lambda a: (-(a.level or 0), a.nickname),
+    )
+    missing = [r for r in registered if r.ocid not in by_ocid]
+    return SyncPlan(updates=updates, candidates=candidates, missing=missing)
+
+
+async def fetch_account_characters(
+    *,
+    nexon: NexonClient,
+    cipher: KeyCipher,
+    session_factory: async_sessionmaker[AsyncSession],
+    guild_id: int,
+    discord_user_id: int,
+) -> tuple[list[AccountCharacter] | None, str | None]:
+    """개인 키로 계정 캐릭터 조회. 성공 (목록, None) / 실패 (None, 사용자 메시지)."""
+    async with session_factory() as session:
+        reg = await session.get(Registration, (guild_id, discord_user_id))
+    if reg is None or reg.api_key_encrypted is None:
+        return None, "개인 키가 없어요. `/키등록`으로 먼저 등록해 주세요."
+    try:
+        api_key = cipher.decrypt(reg.api_key_encrypted)
+    except InvalidToken:
+        return None, "저장된 키를 읽지 못했어요. `/키등록`으로 다시 등록해 주세요."
+    try:
+        raw = await nexon.character_list(api_key)
+    except NexonAPIError as exc:
+        if exc.error_class is ErrorClass.AUTH_INVALID:
+            return None, "API 키가 무효예요. `/키등록`으로 다시 등록해 주세요."
+        log.warning("계정 캐릭터 조회 실패: %s", exc)
+        return None, classify_target_error(exc)
+    return to_account_characters(raw), None
+
+
+async def apply_account_updates(
+    session_factory: async_sessionmaker[AsyncSession],
+    guild_id: int,
+    discord_user_id: int,
+    updates: Sequence[AccountCharacter],
+) -> None:
+    """등록 캐릭터의 닉·레벨·월드를 계정 목록 값으로 갱신(목록 레벨은 실시간 — G0 ③)."""
+    if not updates:
+        return
+    async with session_factory() as session:
+        for a in updates:
+            await session.execute(
+                update(Character)
+                .where(
+                    Character.guild_id == guild_id,
+                    Character.discord_user_id == discord_user_id,
+                    Character.ocid == a.ocid,
+                )
+                .values(
+                    maple_nickname=a.nickname,
+                    level=a.level,
+                    world=a.world,
+                    updated_at=func.now(),
+                )
+            )
+        await session.commit()
+
+
+async def import_characters(
+    session_factory: async_sessionmaker[AsyncSession],
+    guild_id: int,
+    discord_user_id: int,
+    picks: Sequence[AccountCharacter],
+) -> tuple[list[str], int]:
+    """고른 계정 캐릭터 일괄 등록(넥슨 호출 0). (등록한 닉 목록, 자리가 없어 못 넣은 수).
+
+    상한(10)은 커밋 직전에 다시 센다 — 메뉴를 띄운 사이 다른 경로로 등록돼 자리가 줄었으면 앞에서부터
+    남은 자리만큼만 넣는다. 이미 등록된 ocid 는 건너뛴다(중복 클릭·동시 등록).
+    """
+    async with session_factory() as session:
+        existing = {
+            c.ocid
+            for c in await _load_user_characters(session, guild_id, discord_user_id)
+        }
+        fresh = [p for p in picks if p.ocid not in existing]
+        room = max(MAX_CHARACTERS_PER_USER - len(existing), 0)
+        chosen, skipped = fresh[:room], len(fresh[room:])
+        if chosen:
+            await session.execute(
+                pg_insert(Registration)
+                .values(guild_id=guild_id, discord_user_id=discord_user_id)
+                .on_conflict_do_nothing(index_elements=["guild_id", "discord_user_id"])
+            )
+            await session.execute(
+                pg_insert(Character)
+                .values(
+                    [
+                        {
+                            "guild_id": guild_id,
+                            "discord_user_id": discord_user_id,
+                            "ocid": p.ocid,
+                            "maple_nickname": p.nickname,
+                            "level": p.level,
+                            "world": p.world,
+                        }
+                        for p in chosen
+                    ]
+                )
+                .on_conflict_do_nothing(
+                    index_elements=["guild_id", "discord_user_id", "ocid"]
+                )
+            )
+            await session.commit()
+    return [p.nickname for p in chosen], skipped
 
 
 async def has_personal_key(

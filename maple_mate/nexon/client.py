@@ -204,6 +204,18 @@ class NexonClient:
         data = await self._request("maplestory/v1/id", character_name=character_name)
         return data["ocid"]
 
+    async def character_list(self, api_key: str) -> list[dict]:
+        """개인 키 계정의 전체 캐릭터(`account_list[].character_list[]` 평탄화, 1콜).
+
+        G0 스파이크(2026-10-16) 실측: 필드 = ocid·character_name·world_name·character_class·
+        character_level, ocid 는 공개 `/id` 와 동일, 레벨은 실시간, 96개 0.15s. 키 무효면 AUTH_INVALID.
+        """
+        data = await self._request("maplestory/v1/character/list", api_key=api_key)
+        chars: list[dict] = []
+        for account in data.get("account_list") or []:
+            chars.extend(account.get("character_list") or [])
+        return chars
+
     async def verify_personal_key(self, api_key: str) -> bool:
         """개인 키 유효성 검증 (handoff §5): history/starforce count=10 + date=오늘(KST).
 

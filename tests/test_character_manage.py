@@ -232,7 +232,7 @@ def _view(monkeypatch, characters, has_key=True, reload_to=None):
     )
 
 
-HUB = ["🗑️ 캐릭터 삭제", "👑 대표 변경", "🔑 키 삭제"]
+HUB = ["🔄 계정 동기화", "🗑️ 캐릭터 삭제", "👑 대표 변경", "🔑 키 삭제"]
 
 
 async def test_hub_buttons_reflect_state(monkeypatch):
@@ -284,7 +284,7 @@ async def test_delete_all_reports_unsubscribe(monkeypatch):
     done = _click()
     await view._confirm_delete(done)
     assert "스케줄러알림 구독도 해제" in _final_note(done)
-    assert _labels(view)[0] == ("🗑️ 캐릭터 삭제", True)  # 남은 캐릭터 없음
+    assert _labels(view)[1] == ("🗑️ 캐릭터 삭제", True)  # 남은 캐릭터 없음
 
 
 async def test_double_click_runs_action_once(monkeypatch):
@@ -483,5 +483,6 @@ async def test_list_with_key_only_offers_key_delete(monkeypatch):
     [sent] = interaction.followup.sent
     view = sent["view"]
     assert sent["ephemeral"] is True and sent["wait"] is True
-    assert _labels(view)[2] == ("🔑 키 삭제", False)
-    assert _labels(view)[0] == ("🗑️ 캐릭터 삭제", True)
+    assert _labels(view)[0] == ("🔄 계정 동기화", False)  # 키 있음 → 동기화 가능
+    assert _labels(view)[3] == ("🔑 키 삭제", False)
+    assert _labels(view)[1] == ("🗑️ 캐릭터 삭제", True)
